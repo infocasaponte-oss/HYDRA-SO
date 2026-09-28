@@ -22,6 +22,7 @@ from hydra.learning_capture import LearningCapture
 from hydra.model_scout import scan_models
 from hydra.outbox_dispatcher import OutboxDispatcher
 from hydra.outbox_worker import OutboxWorker
+from hydra.operating_metrics import collect_operating_metrics
 from hydra.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.provider import LocalLLM
 from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
@@ -226,6 +227,32 @@ async def execute_task(task: HydraTask, request: Request) -> dict:
         raise HTTPException(status_code=502, detail="HYDRA execution failed") from exc
 
 
+
+
+@app.get("/hydra/v1/admin/metrics")
+async def admin_metrics(request: Request) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-metrics:{identity}", admin_rate_limit)
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/metrics",
+        outcome="allowed",
+        identity_hash=identity,
+    )
+    metrics = collect_operating_metrics(
+        outbox=capture_uow.outbox,
+        trace_path=kernel.tracer.store.path,
+    )
+    return {
+        "outbox_pending": metrics.outbox_pending,
+        "outbox_dead_letters": metrics.outbox_dead_letters,
+        "oldest_pending_age_seconds": metrics.oldest_pending_age_seconds,
+        "spans_total": metrics.spans_total,
+        "spans_error": metrics.spans_error,
+        "avg_span_duration_ms": metrics.avg_span_duration_ms,
+        "spans_by_name": metrics.spans_by_name,
+        "deployments_by_state": metrics.deployments_by_state,
+    }
 
 
 @app.get("/hydra/v1/admin/outbox/dead-letters")
