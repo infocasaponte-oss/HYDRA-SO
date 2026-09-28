@@ -32,6 +32,15 @@ FILE_TYPES = {
 }
 
 MAX_INLINE_ARRAY = 64
+# Inspection limits: a GGUF header is untrusted input (model supply chain).
+MAX_METADATA_ENTRIES = 100_000
+MAX_TENSORS = 1_000_000
+MAX_TENSOR_DIMS = 8
+MAX_STRING_BYTES = 16 * 1024 * 1024
+
+
+class GGUFError(ValueError):
+    """Malformed, truncated or out-of-limits GGUF file."""
 
 
 class GGUFTensor(BaseModel):
@@ -83,22 +92,36 @@ class GGUFFile(BaseModel):
         return h
 
 
+def _remaining(f: BinaryIO) -> int:
+    here = f.tell()
+    end = f.seek(0, 2)
+    f.seek(here)
+    return end - here
+
+
 def _read(f: BinaryIO, fmt: str):
     size = struct.calcsize(fmt)
     data = f.read(size)
     if len(data) != size:
-        raise ValueError("truncated GGUF file")
+        raise GGUFError("truncated GGUF file")
     return struct.unpack(fmt, data)[0]
 
 
-def _read_str(f: BinaryIO) -> str:
+def _str_len(f: BinaryIO) -> int:
     n = _read(f, "<Q")
-    return f.read(n).decode("utf-8", errors="replace")
+    if n > MAX_STRING_BYTES:
+        raise GGUFError("GGUF string exceeds inspection limit")
+    if n > _remaining(f):
+        raise GGUFError("truncated GGUF file")
+    return n
+
+
+def _read_str(f: BinaryIO) -> str:
+    return f.read(_str_len(f)).decode("utf-8", errors="replace")
 
 
 def _skip_str(f: BinaryIO) -> None:
-    n = _read(f, "<Q")
-    f.seek(n, 1)
+    f.seek(_str_len(f), 1)
 
 
 def _read_value(f: BinaryIO, vtype: int) -> Any:
@@ -109,6 +132,11 @@ def _read_value(f: BinaryIO, vtype: int) -> Any:
     if vtype == ARRAY:
         itype = _read(f, "<I")
         count = _read(f, "<Q")
+        # every element takes at least one byte (strings: an 8-byte length), so a count larger
+        # than the rest of the file is a lie; reject it before looping over it
+        min_size = 8 if itype == STRING else struct.calcsize(_SCALAR[itype]) if itype in _SCALAR else 1
+        if count * min_size > _remaining(f):
+            raise GGUFError("GGUF array exceeds file size")
         if count <= MAX_INLINE_ARRAY:
             return [_read_value(f, itype) for _ in range(count)]
         # large arrays (tokenizer vocab, merges...) are skipped, not loaded
@@ -121,19 +149,23 @@ def _read_value(f: BinaryIO, vtype: int) -> Any:
             for _ in range(count):
                 _read_value(f, itype)
         return {"__array__": True, "type": itype, "count": count}
-    raise ValueError(f"unknown GGUF value type {vtype}")
+    raise GGUFError(f"unknown GGUF value type {vtype}")
 
 
 def read_gguf(path: str | Path) -> GGUFFile:
     p = Path(path)
     with p.open("rb") as f:
         if f.read(4) != MAGIC:
-            raise ValueError(f"{p} is not a GGUF file")
+            raise GGUFError(f"{p} is not a GGUF file")
         version = _read(f, "<I")
         if version < 2:
-            raise ValueError(f"unsupported GGUF version {version}")
+            raise GGUFError(f"unsupported GGUF version {version}")
         n_tensors = _read(f, "<Q")
         n_kv = _read(f, "<Q")
+        if n_kv > MAX_METADATA_ENTRIES:
+            raise GGUFError("GGUF metadata entry count exceeds inspection limit")
+        if n_tensors > MAX_TENSORS:
+            raise GGUFError("GGUF tensor count exceeds inspection limit")
         meta: dict[str, Any] = {}
         for _ in range(n_kv):
             key = _read_str(f)
@@ -143,6 +175,8 @@ def read_gguf(path: str | Path) -> GGUFFile:
         for _ in range(n_tensors):
             name = _read_str(f)
             n_dims = _read(f, "<I")
+            if n_dims > MAX_TENSOR_DIMS:
+                raise GGUFError(f"GGUF tensor {name!r} has {n_dims} dimensions")
             dims = [_read(f, "<Q") for _ in range(n_dims)]
             ttype = _read(f, "<I")
             offset = _read(f, "<Q")

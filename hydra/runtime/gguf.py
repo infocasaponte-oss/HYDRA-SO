@@ -6,9 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
-
-class GGUFError(ValueError):
-    pass
+from hydra.model_factory.gguf import GGUFError
 
 
 @dataclass(frozen=True)
