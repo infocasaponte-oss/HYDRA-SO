@@ -38,53 +38,74 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def inspect_model_artifact(
+    models_root: str | Path,
+    artifact_path: str | Path,
+) -> ModelArtifact:
+    root = Path(models_root).resolve()
+    raw = Path(artifact_path)
+    if raw.is_absolute():
+        resolved = raw.resolve()
+    else:
+        resolved = (root / raw).resolve()
+
+    if resolved == root or root not in resolved.parents:
+        raise ValueError("Model artifact path escapes configured models root")
+    if not resolved.is_file():
+        raise FileNotFoundError(f"Model artifact not found: {artifact_path}")
+    if resolved.suffix.lower() != ".gguf":
+        raise ValueError("Model artifact must be a GGUF file")
+
+    metadata = None
+    metadata_error = None
+    try:
+        metadata = inspect_gguf(resolved)
+    except (GGUFError, OSError) as exc:
+        metadata_error = str(exc)
+
+    runtime_eligible = bool(
+        metadata
+        and metadata.tensor_count > 0
+        and metadata.architecture
+        and metadata.context_length
+        and metadata.context_length > 0
+        and metadata.embedding_length
+        and metadata.embedding_length > 0
+        and metadata.block_count
+        and metadata.block_count > 0
+    )
+
+    return ModelArtifact(
+        name=resolved.name,
+        path=str(resolved.relative_to(root)),
+        size_bytes=resolved.stat().st_size,
+        sha256=_sha256(resolved),
+        gguf_valid=metadata is not None,
+        gguf_version=metadata.version if metadata else None,
+        tensor_count=metadata.tensor_count if metadata else None,
+        architecture=metadata.architecture if metadata else None,
+        model_name=metadata.model_name if metadata else None,
+        context_length=metadata.context_length if metadata else None,
+        embedding_length=metadata.embedding_length if metadata else None,
+        block_count=metadata.block_count if metadata else None,
+        file_type=metadata.file_type if metadata else None,
+        quantization_version=(
+            metadata.quantization_version if metadata else None
+        ),
+        metadata_error=metadata_error,
+        runtime_eligible=runtime_eligible,
+    )
+
+
 def scan_models(models_root: str | Path) -> list[ModelArtifact]:
     root = Path(models_root).resolve()
     if not root.exists():
         return []
     artifacts = []
     for path in sorted(root.rglob("*.gguf")):
-        resolved = path.resolve()
-        if root not in resolved.parents:
-            continue
-
-        metadata = None
-        metadata_error = None
         try:
-            metadata = inspect_gguf(resolved)
-        except (GGUFError, OSError) as exc:
-            metadata_error = str(exc)
-
-        artifacts.append(
-            ModelArtifact(
-                name=resolved.name,
-                path=str(resolved.relative_to(root)),
-                size_bytes=resolved.stat().st_size,
-                sha256=_sha256(resolved),
-                gguf_valid=metadata is not None,
-                gguf_version=metadata.version if metadata else None,
-                tensor_count=metadata.tensor_count if metadata else None,
-                architecture=metadata.architecture if metadata else None,
-                model_name=metadata.model_name if metadata else None,
-                context_length=metadata.context_length if metadata else None,
-                embedding_length=metadata.embedding_length if metadata else None,
-                block_count=metadata.block_count if metadata else None,
-                file_type=metadata.file_type if metadata else None,
-                quantization_version=(
-                    metadata.quantization_version if metadata else None
-                ),
-                metadata_error=metadata_error,
-                runtime_eligible=bool(
-                    metadata
-                    and metadata.tensor_count > 0
-                    and metadata.architecture
-                    and metadata.context_length
-                    and metadata.context_length > 0
-                    and metadata.embedding_length
-                    and metadata.embedding_length > 0
-                    and metadata.block_count
-                    and metadata.block_count > 0
-                ),
-            )
-        )
+            artifact = inspect_model_artifact(root, path)
+        except (FileNotFoundError, ValueError):
+            continue
+        artifacts.append(artifact)
     return artifacts
