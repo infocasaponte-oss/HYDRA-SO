@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     llama_server: str = ""
     """Path to llama-server for the AutoBuilder (default: search PATH / HYDRA_LLAMACPP_DIR)."""
 
+    # Request budgets shared with the runtime line (HYDRA_MAX_INPUT_CHARS, HYDRA_MAX_TRANSLATION_CHUNKS).
+    max_input_chars: int = 50_000
+    max_translation_chunks: int = 64
+
     hedge_after_ms: float = 3500
     breaker_failures: int = 5
     breaker_cooldown_s: float = 60

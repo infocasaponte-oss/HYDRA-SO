@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message, ModelRequest, RoutingDecision, TaskType
 from hydra.language import LANGUAGE_NAMES, detect_language, normalize_language
+from hydra.runtime.budgets import RequestBudget
 
 CODE_FENCE = re.compile(r"```.*?```", re.S)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
@@ -93,6 +94,21 @@ def restore(text: str, slots: list[str]) -> str:
     return text
 
 
+def _split_long(paragraph: str, max_chars: int) -> list[str]:
+    """Split an oversized paragraph at whitespace, never inside a ⟦n⟧ code placeholder."""
+    pieces = []
+    while len(paragraph) > max_chars:
+        cut = paragraph.rfind(" ", 0, max_chars)
+        if cut <= 0:
+            cut = max_chars
+        opened = paragraph.rfind("⟦", 0, cut)
+        if opened > paragraph.rfind("⟧", 0, cut):  # the cut would split a placeholder
+            cut = opened if opened > 0 else paragraph.find("⟧", cut) + 1
+        pieces.append(paragraph[:cut])
+        paragraph = paragraph[cut:]
+    return [*pieces, paragraph] if paragraph else pieces
+
+
 def chunk(text: str, max_chars: int = 2500) -> list[str]:
     paras = re.split(r"(\n\s*\n)", text)
     out, cur = [], ""
@@ -100,6 +116,12 @@ def chunk(text: str, max_chars: int = 2500) -> list[str]:
         if len(cur) + len(p) > max_chars and cur.strip():
             out.append(cur)
             cur = ""
+        if len(p) > max_chars:
+            if cur:  # keep a pending separator in order (whitespace-only parts are passed through)
+                out.append(cur)
+                cur = ""
+            out.extend(_split_long(p, max_chars))
+            continue
         cur += p
     if cur.strip():
         out.append(cur)
@@ -154,8 +176,12 @@ class TranslationEngine:
         gl = "\n".join(f"- {k} => {v}" for k, v in glossary.items()) or "(none)"
         system = SYSTEM.format(src=LANGUAGE_NAMES.get(src, src if src != "unknown" else "auto-detected language"),
                                dst=LANGUAGE_NAMES.get(dst, dst), domain=DOMAIN_HINT.get(req.domain, ""), glossary=gl)
+        budget = RequestBudget(max_input_chars=self.rt.settings.max_input_chars,
+                               max_chunks=self.rt.settings.max_translation_chunks)
+        budget.validate_input(req.text)
         protected, slots = protect(req.text)
         parts = chunk(protected)
+        budget.validate_chunks(sum(1 for part in parts if part.strip()))
         out = []
         for part in parts:
             if not part.strip():

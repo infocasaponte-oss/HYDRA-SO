@@ -108,7 +108,9 @@ def test_translation_helpers():
     text = "Usa `hydra.run()` aquí.\n\n```python\nprint('hola')\n```\n\nFin."
     prot, slots = protect(text)
     assert "print" not in prot and restore(prot, slots) == text
-    assert len(chunk("a" * 3000 + "\n\n" + "b" * 3000, 2500)) == 2
+    long_text = "a" * 3000 + "\n\n" + "b" * 3000
+    parts = chunk(long_text, 2500)  # oversized paragraphs are split too (translation budget)
+    assert all(len(p) <= 2500 for p in parts) and "".join(parts) == long_text
     assert glossary_check("World Model", "Modelo do Mundo", {"World Model": "Modelo do Mundo"}) == (1.0, [])
 
 

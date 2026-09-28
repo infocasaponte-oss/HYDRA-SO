@@ -14,12 +14,13 @@ from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message
 from hydra.core.events import EventType
 from hydra.core.kernel import HydraTaskFailed
 from hydra.core.task import EventEnvelope, HydraResult, HydraTask
+from hydra.runtime.budgets import BudgetExceeded
 
 
 # ------------------------------------------------------------------------------ bodies
@@ -168,7 +169,7 @@ class TranslateBody(BaseModel):
     target_language: str
     source_language: str | None = None
     glossary: dict[str, str] = Field(default_factory=dict)
-    glossary_name: str | None = None
+    glossary_name: str | None = Field(default=None, validation_alias=AliasChoices("glossary_name", "glossary_id"))
     domain: str = "general"
     model: str | None = None
 
@@ -794,7 +795,10 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         runtime = rt(request)
         eng = getattr(runtime, "_translator", None) or TranslationEngine(runtime)
         runtime._translator = eng
-        return (await eng.translate(TranslationRequest(**body.model_dump()))).model_dump()
+        try:
+            return (await eng.translate(TranslationRequest(**body.model_dump()))).model_dump()
+        except BudgetExceeded as exc:
+            raise HTTPException(413, str(exc)) from exc
 
     @app.get("/v1/glossaries/{name}", dependencies=secured)
     async def glossary_get(name: str, request: Request):
@@ -802,7 +806,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
 
         return GlossaryStore(rt(request).settings.data_dir / "glossaries.json").get(name)
 
-    @app.post("/v1/glossaries/{name}", dependencies=secured)
+    @app.api_route("/v1/glossaries/{name}", methods=["POST", "PUT"], dependencies=secured)
     async def glossary_put(name: str, body: GlossaryBody, request: Request):
         from hydra.edge.translation import GlossaryStore
 
