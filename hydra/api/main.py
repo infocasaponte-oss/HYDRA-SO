@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import ipaddress
 import json
 import secrets
 import time
@@ -80,7 +81,16 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
                    authorization: str | None = Header(default=None),
                    x_api_key: str | None = Header(default=None)) -> str:
         if not settings.api_key:
-            return f"anonymous:{request.client.host if request.client else 'unknown'}"
+            host = request.client.host if request.client else ""
+            local = host in {"localhost", "testclient"}
+            if not local:
+                try:
+                    local = ipaddress.ip_address(host).is_loopback
+                except ValueError:
+                    local = False
+            if not local:
+                raise HTTPException(503, "API key is not configured for remote access")
+            return f"local:{host}"
         token = x_api_key or (authorization or "").removeprefix("Bearer ").strip()
         if not secrets.compare_digest(token or "", settings.api_key):
             raise HTTPException(401, "invalid API key")
