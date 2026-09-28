@@ -37,7 +37,9 @@ async def test_bridge_emits_selection_and_shadow(tmp_path):
     registry.add(active)
     registry.add(shadow)
 
-    async def call(variant_id: str) -> str:
+    async def call(variant_id: str, prompt: str, max_tokens: int) -> str:
+        assert prompt == "solve"
+        assert max_tokens == 32
         return "same"
 
     health = RuntimeHealth()
@@ -48,6 +50,8 @@ async def test_bridge_emits_selection_and_shadow(tmp_path):
         task_id=uuid4(),
         trace_id="trace",
         capability="reasoning.general",
+        prompt="solve",
+        max_tokens=32,
     )
     text = (tmp_path / "events.jsonl").read_text()
     assert "hydra.model.selected" in text
