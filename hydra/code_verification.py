@@ -63,8 +63,7 @@ def changed_python_paths(diff: str) -> list[str]:
         raw = line[4:].split("\t", 1)[0].strip()
         if raw == "/dev/null":
             continue
-        if raw.startswith("b/"):
-            raw = raw[2:]
+        raw = raw.removeprefix("b/")
         path = Path(raw)
         if path.is_absolute() or ".." in path.parts:
             continue
