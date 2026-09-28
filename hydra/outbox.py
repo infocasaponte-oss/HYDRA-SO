@@ -117,7 +117,7 @@ class TransactionalOutbox:
                 WHERE published_at IS NULL
                   AND dead_lettered_at IS NULL
                   AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
-                ORDER BY created_at, id
+                ORDER BY created_at, rowid
                 LIMIT ?
                 """,
                 (now, limit),

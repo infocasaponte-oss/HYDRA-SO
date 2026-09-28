@@ -32,3 +32,23 @@ def test_outbox_rollback_is_atomic(tmp_path):
         )
         raise RuntimeError("boom")
     assert outbox.pending() == []
+
+
+def test_outbox_preserves_insertion_order_when_timestamps_tie(tmp_path, monkeypatch):
+    import hydra.outbox as outbox_module
+
+    frozen = outbox_module.datetime(2026, 1, 1, tzinfo=outbox_module.UTC)
+
+    class FrozenDatetime(outbox_module.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(outbox_module, "datetime", FrozenDatetime)
+    outbox = TransactionalOutbox(tmp_path / "hydra.db")
+    topics = [f"topic-{index}" for index in range(25)]
+    with outbox.transaction() as connection:
+        for topic in topics:
+            outbox.enqueue(connection, topic=topic, aggregate_id=uuid4(), trace_id="t", payload={})
+
+    assert [message.topic for message in outbox.pending()] == topics
