@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from hydra import __version__
 from hydra.artifacts import ArtifactStore
+from hydra.bootstrap import bootstrap_runtime
+from hydra.capture_uow import CaptureUnitOfWork
 from hydra.budgets import BudgetExceeded, RequestBudget
 from hydra.code_agent import CodeAgent
 from hydra.coding_request import CodingRequest, resolve_repository
@@ -13,12 +17,14 @@ from hydra.contracts import HydraTask
 from hydra.kernel import HydraKernel
 from hydra.learning_capture import LearningCapture
 from hydra.model_scout import scan_models
+from hydra.outbox_dispatcher import OutboxDispatcher
+from hydra.outbox_worker import OutboxWorker
 from hydra.provenance import ProvenanceLedger, ProvenanceRecord
+from hydra.readiness import evaluate_readiness
 from hydra.provider import LocalLLM
 from hydra.translation import GlossaryStore, TranslationService
 from hydra.workspaces import WorkspaceManager
 
-app = FastAPI(title="HYDRA-SO", version=__version__)
 llm = LocalLLM(settings.llm_url)
 budget = RequestBudget(
     settings.max_input_chars,
@@ -27,11 +33,28 @@ budget = RequestBudget(
 )
 glossaries = GlossaryStore()
 translations = TranslationService(llm, budget, glossaries)
-kernel = HydraKernel()
 artifacts = ArtifactStore()
 provenance = ProvenanceLedger()
 workspaces = WorkspaceManager()
 learning = LearningCapture()
+capture_uow = CaptureUnitOfWork(settings.runtime_db)
+kernel = HydraKernel(capture_uow=capture_uow)
+outbox_dispatcher = OutboxDispatcher(
+    capture_uow.outbox,
+    kernel.events,
+    provenance,
+    learning.corpus,
+)
+outbox_worker = OutboxWorker(capture_uow.outbox, outbox_dispatcher)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.bootstrap = bootstrap_runtime(outbox_worker)
+    yield
+
+
+app = FastAPI(title="HYDRA-SO", version=__version__, lifespan=lifespan)
 
 
 class ChatRequest(BaseModel):
@@ -52,7 +75,30 @@ class GlossaryRequest(BaseModel):
 
 @app.get("/health")
 async def health() -> dict:
-    return {"hydra": "ok", "version": __version__, "llm": await llm.health()}
+    return {"hydra": "ok", "version": __version__}
+
+
+@app.get("/ready")
+async def ready(response: Response) -> dict:
+    llm_healthy = await llm.health()
+    status = evaluate_readiness(
+        outbox=capture_uow.outbox,
+        events=kernel.events,
+        provenance=provenance,
+        llm_healthy=bool(llm_healthy),
+        max_pending=settings.readiness_max_pending,
+    )
+    if not status.ready:
+        response.status_code = 503
+    return {
+        "ready": status.ready,
+        "reasons": list(status.reasons),
+        "pending_outbox": status.pending_outbox,
+        "dead_letters": status.dead_letters,
+        "events_integrity": status.events_integrity,
+        "provenance_integrity": status.provenance_integrity,
+        "llm_healthy": status.llm_healthy,
+    }
 
 
 @app.post("/v1/chat")
