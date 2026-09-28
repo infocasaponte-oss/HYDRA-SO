@@ -46,7 +46,7 @@ class RuntimeExecutor:
         shadow_task = self._start_shadow(decision)
         try:
             answer = await self.inference_call(primary_id)
-        except Exception:  # noqa: BLE001
+        except Exception:
             self.health.failure(primary_id)
             if primary is decision.canary:
                 answer, primary_id = await self._fallback(decision)
