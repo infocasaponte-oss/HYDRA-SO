@@ -20,7 +20,7 @@ async def test_build_requires_real_output(tmp_path):
 @pytest.mark.asyncio
 async def test_build_hashes_created_output(tmp_path):
     output = tmp_path / "model.gguf"
-    code = "from pathlib import Path; Path(r'%s').write_bytes(b'gguf')" % output
+    code = f"from pathlib import Path; Path(r'{output}').write_bytes(b'gguf')"
     result = await BuildSupervisor().execute(
         BuildCommand([sys.executable, "-c", code], output), timeout_seconds=10
     )
