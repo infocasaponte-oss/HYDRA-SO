@@ -1,3 +1,5 @@
+import tempfile
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -5,6 +7,21 @@ import pytest
 from hydra.workspaces import WorkspaceManager
 
 
+def _can_symlink() -> bool:
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            (Path(tmp) / "probe").symlink_to(tmp, target_is_directory=True)
+        except OSError:
+            return False
+    return True
+
+
+requires_symlinks = pytest.mark.skipif(
+    not _can_symlink(), reason="creating symlinks requires privileges on this platform"
+)
+
+
+@requires_symlinks
 def test_workspace_rejects_file_symlink(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
@@ -18,6 +35,7 @@ def test_workspace_rejects_file_symlink(tmp_path):
         manager.create(uuid4(), source)
 
 
+@requires_symlinks
 def test_workspace_rejects_directory_symlink(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
