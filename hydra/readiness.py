@@ -17,6 +17,7 @@ class ReadinessStatus:
     events_integrity: bool
     provenance_integrity: bool
     llm_healthy: bool
+    worker_running: bool
 
 
 def evaluate_readiness(
@@ -25,6 +26,7 @@ def evaluate_readiness(
     events: JsonlEventStore,
     provenance: ProvenanceLedger,
     llm_healthy: bool,
+    worker_running: bool = True,
     max_pending: int = 1000,
 ) -> ReadinessStatus:
     metrics = collect_outbox_metrics(outbox)
@@ -34,6 +36,8 @@ def evaluate_readiness(
     reasons: list[str] = []
     if not llm_healthy:
         reasons.append("llm_unhealthy")
+    if not worker_running:
+        reasons.append("outbox_worker_stopped")
     if not event_report.valid:
         reasons.append("event_integrity_failed")
     if not provenance_report.valid:
@@ -51,4 +55,5 @@ def evaluate_readiness(
         events_integrity=event_report.valid,
         provenance_integrity=provenance_report.valid,
         llm_healthy=llm_healthy,
+        worker_running=worker_running,
     )
