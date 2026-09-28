@@ -9,6 +9,7 @@ from uuid import UUID
 from hydra.artifacts import ArtifactRecord, ArtifactStore
 from hydra.code_context import CodeContextSelector
 from hydra.code_verification import (
+    VerificationPolicy,
     VerificationReport,
     build_verification_report,
     changed_python_paths,
@@ -58,6 +59,7 @@ class CodeAgent:
         events: JsonlEventStore,
         sandbox_factory: SandboxFactory | None = None,
         context_selector: CodeContextSelector | None = None,
+        verification_policy: VerificationPolicy | None = None,
     ):
         self.llm = llm
         self.workspace_manager = workspace_manager
@@ -65,6 +67,7 @@ class CodeAgent:
         self.events = events
         self.sandbox_factory = sandbox_factory or OciSandbox
         self.context_selector = context_selector or CodeContextSelector()
+        self.verification_policy = verification_policy or VerificationPolicy()
 
     async def run(
         self,
@@ -186,6 +189,8 @@ class CodeAgent:
 
         after = await sandbox.pytest(".")
         syntax = await sandbox.py_compile(changed_python)
+        ruff = await sandbox.ruff_check(changed_python)
+        mypy = await sandbox.mypy_check(changed_python)
         final_workspace_hash = workspace_sha256(workspace.root)
 
         records.append(self.artifacts.put_text(
@@ -209,6 +214,24 @@ class CodeAgent:
             },
         ))
         records.append(self.artifacts.put_text(
+            task_id=task_id,
+            kind="ruff-check",
+            text=ruff.output,
+            metadata={
+                "exit_code": ruff.exit_code,
+                "paths": changed_python,
+            },
+        ))
+        records.append(self.artifacts.put_text(
+            task_id=task_id,
+            kind="mypy-check",
+            text=mypy.output,
+            metadata={
+                "exit_code": mypy.exit_code,
+                "paths": changed_python,
+            },
+        ))
+        records.append(self.artifacts.put_text(
             task_id=task_id, kind="applied-patch", text=diff
         ))
 
@@ -218,6 +241,9 @@ class CodeAgent:
             targeted=targeted,
             full_suite=after,
             syntax=syntax,
+            ruff=ruff,
+            mypy=mypy,
+            policy=self.verification_policy,
         )
         report_text = json.dumps(
             {
@@ -226,6 +252,9 @@ class CodeAgent:
                 "targeted_passed": report.targeted_passed,
                 "full_suite_passed": report.full_suite_passed,
                 "syntax_passed": report.syntax_passed,
+                "ruff_passed": report.ruff_passed,
+                "mypy_passed": report.mypy_passed,
+                "analysis_mode": report.analysis_mode.value,
                 "improvement_demonstrated": report.improvement_demonstrated,
                 "verified": report.verified,
                 "baseline_workspace_sha256": baseline_workspace_hash,
@@ -257,6 +286,9 @@ class CodeAgent:
                     "targeted_passed": report.targeted_passed,
                     "full_suite_passed": report.full_suite_passed,
                     "syntax_passed": report.syntax_passed,
+                    "ruff_passed": report.ruff_passed,
+                    "mypy_passed": report.mypy_passed,
+                    "analysis_mode": report.analysis_mode.value,
                 },
             )
             return CodeAgentResult(
