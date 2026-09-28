@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import secrets
 import time
@@ -28,6 +29,7 @@ from hydra.core.events import EventType, HydraEvent
 from hydra.core.kernel import HydraTaskFailed
 from hydra.memory.graph import MemoryGraph
 from hydra.memory.models import MemoryStatus, MemoryType
+from hydra.governance.rate_limit import SlidingWindowRateLimiter
 
 class Feedback(BaseModel):
     score: float = Field(ge=0, le=1)
@@ -53,6 +55,7 @@ class Listeners:
 
 def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
     settings = settings or Settings()
+    rate_limiter = SlidingWindowRateLimiter()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -73,15 +76,20 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
     def rt(request: Request) -> HydraRuntime:
         return request.app.state.runtime
 
-    async def auth(authorization: str | None = Header(default=None),
-                   x_api_key: str | None = Header(default=None)) -> None:
+    async def auth(request: Request,
+                   authorization: str | None = Header(default=None),
+                   x_api_key: str | None = Header(default=None)) -> str:
         if not settings.api_key:
-            return
+            return f"anonymous:{request.client.host if request.client else 'unknown'}"
         token = x_api_key or (authorization or "").removeprefix("Bearer ").strip()
         if not secrets.compare_digest(token or "", settings.api_key):
             raise HTTPException(401, "invalid API key")
+        return "api:" + hashlib.sha256(token.encode()).hexdigest()
 
-    secured = [Depends(auth)]
+    async def throttle(identity: str = Depends(auth)) -> None:
+        rate_limiter.check(identity, settings.api_rate_limit_per_minute, 60.0)
+
+    secured = [Depends(throttle)]
 
     # ---------------------------------------------------------------- health
     @app.get("/health")
