@@ -8,3 +8,7 @@ workspace/
 dist/
 build/
 data/
+runtime/
+models/
+*.gguf
+*.safetensors

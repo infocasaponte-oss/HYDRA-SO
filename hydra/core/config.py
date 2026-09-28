@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _SOURCE_ROOT = Path(__file__).resolve().parents[2]
 # Source checkout -> repository root; installed package -> current directory.
-ROOT = _SOURCE_ROOT if (_SOURCE_ROOT / "config").is_dir() else Path.cwd()
+_INSTALLED_ROOT = Path(sys.prefix) / "share" / "hydra"
+ROOT = (_SOURCE_ROOT if (_SOURCE_ROOT / "config").is_dir() else
+        _INSTALLED_ROOT if (_INSTALLED_ROOT / "config").is_dir() else Path.cwd())
 
 
 class Settings(BaseSettings):
@@ -18,7 +21,7 @@ class Settings(BaseSettings):
     models_config: Path = ROOT / "config" / "models.yaml"
     policy_config: Path = ROOT / "config" / "policy.yaml"
     evals_dir: Path = ROOT / "config" / "evals"
-    data_dir: Path = ROOT / "data"
+    data_dir: Path = Path.cwd() / "data"
     """Local state: failure memory, lab experiments, model factory store."""
 
     # Infrastructure. Empty value -> in-memory implementation.
@@ -39,7 +42,7 @@ class Settings(BaseSettings):
     # Sandbox: "docker" (isolated container) or "subprocess" (dev only).
     sandbox_backend: str = "docker"
     sandbox_image: str = "python:3.12-slim"
-    workspace_dir: Path = ROOT / "workspace"
+    workspace_dir: Path = Path.cwd() / "workspace"
     # Mount source for the sandbox as seen by the Docker daemon (e.g. a named volume
     # when HYDRA itself runs in a container). Empty -> workspace_dir.
     sandbox_workspace_source: str = ""

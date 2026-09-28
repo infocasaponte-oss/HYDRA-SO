@@ -50,6 +50,9 @@ include = ["hydra*"]
 [tool.setuptools.package-data]
 hydra = ["py.typed", "api/studio.html"]
 
+[tool.setuptools.data-files]
+"share/hydra/config" = ["config/models.yaml", "config/models.ollama.yaml", "config/models.hydra.yaml", "config/policy.yaml", "config/policy_rules.yaml", "config/licenses.yaml"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
