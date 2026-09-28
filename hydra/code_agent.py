@@ -23,7 +23,9 @@ class CodeAgentResult:
 
 
 def extract_unified_diff(text: str) -> str:
-    match = re.search(r"\x60\x60\x60(?:diff)?\\s*\\n(.*?)\x60\x60\x60", text, flags=re.DOTALL)
+    fence = chr(96) * 3
+    pattern = re.escape(fence) + r"(?:diff)?\\s*\\n(.*?)" + re.escape(fence)
+    match = re.search(pattern, text, flags=re.DOTALL)
     candidate = match.group(1).strip() if match else text.strip()
     if "--- " not in candidate or "+++ " not in candidate or "@@" not in candidate:
         raise ValueError("Model did not return a valid unified diff")
