@@ -6,7 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN python -m pip install --no-cache-dir \
     "pytest>=8,<9" \
-    "pytest-asyncio>=0.24,<1"
+    "pytest-asyncio>=0.24,<1" \
+    "ruff>=0.16,<1" \
+    "mypy>=1.18,<2"
 
 WORKDIR /workspace
 USER 65532:65532
