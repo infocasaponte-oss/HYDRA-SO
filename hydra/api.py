@@ -13,6 +13,7 @@ from hydra.bootstrap import bootstrap_runtime
 from hydra.budgets import BudgetExceeded, RequestBudget
 from hydra.capture_uow import CaptureUnitOfWork
 from hydra.code_agent import CodeAgent
+from hydra.code_replay import build_code_replay_evidence
 from hydra.coding_request import CodingRequest, resolve_repository
 from hydra.config import settings
 from hydra.contracts import HydraTask
@@ -25,6 +26,7 @@ from hydra.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.provider import LocalLLM
 from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.readiness import evaluate_readiness
+from hydra.replay import ReplayManifest, ReplayStore
 from hydra.sandbox import OciSandbox
 from hydra.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.security_audit import SecurityAudit
@@ -46,6 +48,7 @@ workspaces = WorkspaceManager(
     max_bytes=settings.workspace_max_bytes,
 )
 learning = LearningCapture()
+replay_store = ReplayStore()
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(capture_uow=capture_uow)
 outbox_dispatcher = OutboxDispatcher(
@@ -329,6 +332,31 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
                 "verified": result.verification.verified,
             }
 
+        replay_evidence = build_code_replay_evidence(
+            task_id=task_id,
+            result=result,
+        )
+        replay_manifest = replay_store.put(
+            ReplayManifest(
+                task_id=task_id,
+                trace_id=trace_id,
+                hydra_version=__version__,
+                artifact_hashes=list(replay_evidence.artifact_hashes),
+                event_types=[
+                    "hydra.code.patch_verified"
+                    if result.accepted
+                    else "hydra.code.patch_rejected"
+                ],
+                verification_artifact_sha256=(
+                    replay_evidence.verification_artifact_hash
+                ),
+                baseline_workspace_sha256=(
+                    replay_evidence.baseline_workspace_sha256
+                ),
+                final_workspace_sha256=replay_evidence.final_workspace_sha256,
+            )
+        )
+
         provenance.append(
             ProvenanceRecord(
                 task_id=task_id,
@@ -340,6 +368,7 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
                     "artifact_ids": [str(a.artifact_id) for a in result.artifacts],
                     "artifact_hashes": [a.sha256 for a in result.artifacts],
                     "verification": verification,
+                    "replay_manifest_hash": replay_manifest.manifest_hash,
                 },
             )
         )
@@ -352,6 +381,7 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
             "belief_id": belief_id,
             "corpus_status": corpus_status,
             "verification": verification,
+            "replay_manifest_hash": replay_manifest.manifest_hash,
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
