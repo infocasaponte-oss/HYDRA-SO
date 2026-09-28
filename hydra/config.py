@@ -24,6 +24,14 @@ class Settings:
     admin_rate_limit_per_minute: int = int(
         os.getenv("HYDRA_ADMIN_RATE_LIMIT_PER_MINUTE", "6")
     )
+    sandbox_image: str = os.getenv(
+        "HYDRA_SANDBOX_IMAGE", "hydra-sandbox:py311-v1"
+    )
+    sandbox_runtime: str = os.getenv("HYDRA_SANDBOX_RUNTIME", "docker")
+    workspace_max_files: int = int(os.getenv("HYDRA_WORKSPACE_MAX_FILES", "20000"))
+    workspace_max_bytes: int = int(
+        os.getenv("HYDRA_WORKSPACE_MAX_BYTES", str(256 * 1024 * 1024))
+    )
     max_input_chars: int = int(os.getenv("HYDRA_MAX_INPUT_CHARS", "50000"))
     max_output_tokens: int = int(os.getenv("HYDRA_MAX_OUTPUT_TOKENS", "4096"))
     max_translation_chunks: int = int(os.getenv("HYDRA_MAX_TRANSLATION_CHUNKS", "64"))
