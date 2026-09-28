@@ -1,6 +1,6 @@
 import pytest
 
-from hydra.sandbox import OciSandbox
+from hydra.sandbox import DEFAULT_SANDBOX_IMAGE, OciSandbox
 
 
 def test_sandbox_rejects_target_escape(tmp_path):
@@ -15,4 +15,4 @@ def test_sandbox_command_has_secure_defaults(tmp_path):
     sandbox = OciSandbox(tmp_path)
     assert sandbox.limits.memory == "1g"
     assert sandbox.limits.pids == 128
-    assert sandbox.image == "python:3.11-slim"
+    assert sandbox.image == DEFAULT_SANDBOX_IMAGE
