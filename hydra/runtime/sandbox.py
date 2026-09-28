@@ -21,7 +21,7 @@ class SandboxResult:
     exit_code: int
 
 
-DEFAULT_SANDBOX_IMAGE = "hydra-sandbox:py311-v2"
+DEFAULT_SANDBOX_IMAGE = "hydra-sandbox:py312-v3"
 
 
 class OciSandbox:
