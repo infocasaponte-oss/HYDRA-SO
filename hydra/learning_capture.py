@@ -12,7 +12,7 @@ from hydra.corpus import (
     RightsDeclaration,
 )
 from hydra.corpus_quality import verified_patch_quality
-from hydra.privacy import PrivacyScanResult, PrivacyScanner
+from hydra.privacy import PrivacyScanner, PrivacyScanResult
 
 
 class LearningCapture:
