@@ -2,9 +2,17 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from hydra.artifacts import ArtifactRecord
+from hydra.artifacts import ArtifactRecord, ArtifactStore
 from hydra.beliefs import Belief, BeliefStatus, BeliefStore, EvidenceRef
-from hydra.corpus import CorpusGate, CorpusRecord, CorpusStore, RightsDeclaration
+from hydra.corpus import (
+    CorpusGate,
+    CorpusRecord,
+    CorpusStore,
+    QualityTier,
+    RightsDeclaration,
+)
+from hydra.corpus_quality import verified_patch_quality
+from hydra.privacy import PrivacyScanResult, PrivacyScanner
 
 
 class LearningCapture:
@@ -13,10 +21,14 @@ class LearningCapture:
         beliefs: BeliefStore | None = None,
         corpus: CorpusStore | None = None,
         gate: CorpusGate | None = None,
+        artifacts_store: ArtifactStore | None = None,
+        privacy_scanner: PrivacyScanner | None = None,
     ):
         self.beliefs = beliefs or BeliefStore()
         self.corpus = corpus or CorpusStore()
         self.gate = gate or CorpusGate()
+        self.artifacts_store = artifacts_store
+        self.privacy_scanner = privacy_scanner or PrivacyScanner()
 
     def capture_verified_patch(
         self,
@@ -38,10 +50,18 @@ class LearningCapture:
                 verifier="hydra.code.verification.v2",
             )
         )
+        privacy_scan = PrivacyScanResult()
+        if self.artifacts_store is not None:
+            privacy_scan = self.privacy_scanner.scan(
+                artifacts,
+                self.artifacts_store,
+            )
         record = CorpusRecord(
             task_id=task_id,
             belief_id=belief.belief_id,
             artifact_hashes=[a.sha256 for a in artifacts],
+            quality_tier=QualityTier(verified_patch_quality(artifacts)),
             rights=rights or RightsDeclaration(),
+            privacy_scan=privacy_scan,
         )
         return belief, self.corpus.append(self.gate.evaluate(record))
