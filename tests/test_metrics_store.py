@@ -36,3 +36,15 @@ def test_metrics_store_bounds_history_limit(tmp_path):
         assert "between 1 and 1000" in str(exc)
     else:
         raise AssertionError("expected bounded metrics history")
+
+
+def test_metrics_store_prunes_old_snapshots(tmp_path):
+    store = OperatingMetricsStore(tmp_path / "hydra.db", max_snapshots=2)
+    store.append(sample_metrics())
+    store.append(sample_metrics())
+    newest = store.append(sample_metrics())
+
+    rows = store.recent(10)
+
+    assert len(rows) == 2
+    assert rows[0]["id"] == newest
