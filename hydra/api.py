@@ -102,3 +102,16 @@ async def route_task(task: HydraTask) -> dict:
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/hydra/v1/tasks/execute")
+async def execute_task(task: HydraTask) -> dict:
+    """Execute a safe local cognitive task through the HYDRA kernel."""
+    try:
+        result = await kernel.run(task, llm)
+        return result.model_dump(mode="json")
+    except Exception as exc:
+        from hydra.executor import UnsafePlan
+        if isinstance(exc, UnsafePlan):
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail="HYDRA execution failed") from exc
