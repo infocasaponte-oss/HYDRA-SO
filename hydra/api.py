@@ -6,10 +6,15 @@ from pydantic import BaseModel, Field
 from hydra import __version__
 from hydra.budgets import BudgetExceeded, RequestBudget
 from hydra.config import settings
+from hydra.code_agent import CodeAgent
+from hydra.coding_request import CodingRequest, resolve_repository
 from hydra.contracts import HydraTask
 from hydra.kernel import HydraKernel
 from hydra.model_scout import scan_models
 from hydra.provider import LocalLLM
+from hydra.artifacts import ArtifactStore
+from hydra.provenance import ProvenanceLedger, ProvenanceRecord
+from hydra.workspaces import WorkspaceManager
 from hydra.translation import GlossaryStore, TranslationService
 
 app = FastAPI(title="HYDRA-SO", version=__version__)
@@ -22,6 +27,9 @@ budget = RequestBudget(
 glossaries = GlossaryStore()
 translations = TranslationService(llm, budget, glossaries)
 kernel = HydraKernel()
+artifacts = ArtifactStore()
+provenance = ProvenanceLedger()
+workspaces = WorkspaceManager()
 
 
 class ChatRequest(BaseModel):
@@ -115,3 +123,46 @@ async def execute_task(task: HydraTask) -> dict:
         if isinstance(exc, UnsafePlan):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=502, detail="HYDRA execution failed") from exc
+
+
+@app.post("/hydra/v1/coding/verify-fix")
+async def verify_code_fix(req: CodingRequest) -> dict:
+    """Generate and verify a patch in an expendable, container-tested workspace."""
+    from uuid import uuid4
+
+    task_id = uuid4()
+    trace_id = uuid4().hex
+    try:
+        source = resolve_repository(settings.repositories_root, req.repository)
+        agent = CodeAgent(llm, workspaces, artifacts, kernel.events)
+        result = await agent.run(
+            task_id=task_id,
+            trace_id=trace_id,
+            goal=req.goal,
+            source=source,
+            max_tokens=budget.output_tokens(req.max_tokens),
+        )
+        provenance.append(
+            ProvenanceRecord(
+                task_id=task_id,
+                trace_id=trace_id,
+                action="coding.patch_verification",
+                inputs={"repository": req.repository},
+                outputs={
+                    "accepted": result.accepted,
+                    "artifact_ids": [str(a.artifact_id) for a in result.artifacts],
+                    "artifact_hashes": [a.sha256 for a in result.artifacts],
+                },
+            )
+        )
+        return {
+            "task_id": str(task_id),
+            "trace_id": trace_id,
+            "accepted": result.accepted,
+            "answer": result.answer,
+            "artifact_ids": [str(a.artifact_id) for a in result.artifacts],
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="HYDRA coding verification failed") from exc
