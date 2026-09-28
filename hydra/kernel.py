@@ -8,6 +8,7 @@ from hydra.contracts import HydraResult, HydraTask, Route, TaskStatus
 from hydra.events import JsonlEventStore
 from hydra.executor import ExecutionOutput, Executor
 from hydra.model_registry import ModelRegistry
+from hydra.observability import CognitiveTracer
 from hydra.planner import Planner
 from hydra.provider import LocalLLM
 from hydra.router import CapabilityRouter
@@ -25,6 +26,7 @@ class HydraKernel:
         model_registry: ModelRegistry | None = None,
         runtime_bridge: RuntimeBridge | None = None,
         capture_uow: CaptureUnitOfWork | None = None,
+        tracer: CognitiveTracer | None = None,
     ):
         self.router = router or CapabilityRouter()
         self.events = events or JsonlEventStore()
@@ -32,6 +34,7 @@ class HydraKernel:
         self.model_registry = model_registry or ModelRegistry()
         self.runtime_bridge = runtime_bridge
         self.capture_uow = capture_uow
+        self.tracer = tracer or CognitiveTracer()
 
     def _transition(self, task: HydraTask, target: TaskStatus, trace_id: str) -> None:
         validate_transition(task.status, target)
@@ -55,7 +58,12 @@ class HydraKernel:
             payload={"goal": task.goal, "budget": task.budget.model_dump()},
         )
         self._transition(task, TaskStatus.ROUTING, trace_id)
-        route = self.router.route(task)
+        with self.tracer.span(
+            "routing",
+            trace_id=trace_id,
+            task_id=task.id,
+        ):
+            route = self.router.route(task)
         self.events.append(
             event_type="hydra.route.completed",
             aggregate_id=task.id,
@@ -69,7 +77,13 @@ class HydraKernel:
         trace_id, route = self.prepare(task)
 
         self._transition(task, TaskStatus.PLANNING, trace_id)
-        plan = self.planner.build(task, route)
+        with self.tracer.span(
+            "planning",
+            trace_id=trace_id,
+            task_id=task.id,
+            attributes={"capability": route.capability},
+        ):
+            plan = self.planner.build(task, route)
         self.events.append(
             event_type="hydra.plan.created",
             aggregate_id=task.id,
@@ -80,27 +94,35 @@ class HydraKernel:
 
         self._transition(task, TaskStatus.EXECUTING, trace_id)
         try:
-            if self.runtime_bridge is not None:
-                if route.needs_tools:
-                    raise RuntimeError("Physical runtime cannot execute tool plans directly")
-                runtime_output = await self.runtime_bridge.execute(
-                    task_id=task.id,
-                    trace_id=trace_id,
-                    capability=route.capability,
-                    prompt=task.goal,
-                    max_tokens=task.budget.max_output_tokens,
-                )
-                output = ExecutionOutput(
-                    answer=runtime_output.answer,
-                    model_id=runtime_output.primary_variant_id,
-                    verification=None,
-                )
-            else:
-                executor = Executor(llm, self.model_registry, Verifier())
-                output = await executor.execute(
-                    plan,
-                    task.budget.max_output_tokens,
-                )
+            with self.tracer.span(
+                "execution",
+                trace_id=trace_id,
+                task_id=task.id,
+                attributes={"capability": route.capability},
+            ):
+                if self.runtime_bridge is not None:
+                    if route.needs_tools:
+                        raise RuntimeError(
+                            "Physical runtime cannot execute tool plans directly"
+                        )
+                    runtime_output = await self.runtime_bridge.execute(
+                        task_id=task.id,
+                        trace_id=trace_id,
+                        capability=route.capability,
+                        prompt=task.goal,
+                        max_tokens=task.budget.max_output_tokens,
+                    )
+                    output = ExecutionOutput(
+                        answer=runtime_output.answer,
+                        model_id=runtime_output.primary_variant_id,
+                        verification=None,
+                    )
+                else:
+                    executor = Executor(llm, self.model_registry, Verifier())
+                    output = await executor.execute(
+                        plan,
+                        task.budget.max_output_tokens,
+                    )
         except Exception:
             self._transition(task, TaskStatus.FAILED, trace_id)
             self.events.append(
@@ -123,7 +145,13 @@ class HydraKernel:
         confidence = 0.55
         if route.needs_verification:
             self._transition(task, TaskStatus.VERIFYING, trace_id)
-            verification = output.verification or Verifier().verify_text(output.answer)
+            with self.tracer.span(
+                "verification",
+                trace_id=trace_id,
+                task_id=task.id,
+                attributes={"capability": route.capability},
+            ):
+                verification = output.verification or Verifier().verify_text(output.answer)
             self.events.append(
                 event_type="hydra.verification.completed",
                 aggregate_id=task.id,
@@ -166,8 +194,14 @@ class HydraKernel:
         )
         answer_hash = hashlib.sha256(output.answer.encode()).hexdigest()
         corpus_payload = task.metadata.get("corpus_record")
-        self.capture_uow.commit_terminal(
-            TaskCommit(
+        with self.tracer.span(
+            "capture",
+            trace_id=trace_id,
+            task_id=task.id,
+            attributes={"capability": route.capability},
+        ):
+            self.capture_uow.commit_terminal(
+                TaskCommit(
                 task_id=task.id,
                 trace_id=trace_id,
                 status=TaskStatus.COMPLETED.value,
@@ -189,7 +223,7 @@ class HydraKernel:
                     "model_id": output.model_id,
                 },
             },
-            corpus_payload=corpus_payload,
-        )
+                corpus_payload=corpus_payload,
+            )
         task.status = TaskStatus.COMPLETED
         return result
