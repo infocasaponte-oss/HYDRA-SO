@@ -29,6 +29,7 @@ from hydra.provider import LocalLLM
 from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.readiness import evaluate_readiness
 from hydra.replay import ReplayManifest, ReplayStore
+from hydra.replay_executor import AuditReplayExecutor
 from hydra.sandbox import OciSandbox
 from hydra.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.security_audit import SecurityAudit
@@ -228,6 +229,43 @@ async def execute_task(task: HydraTask, request: Request) -> dict:
         raise HTTPException(status_code=502, detail="HYDRA execution failed") from exc
 
 
+
+
+@app.get("/hydra/v1/admin/replay/{task_id}/audit")
+async def audit_replay(task_id: UUID, request: Request) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-replay-audit:{identity}", admin_rate_limit)
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/replay/audit",
+        outcome="allowed",
+        identity_hash=identity,
+        aggregate_id=task_id,
+    )
+    manifest = replay_store.get(task_id)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="Replay manifest not found")
+
+    result = AuditReplayExecutor(
+        events=kernel.events,
+        provenance=provenance,
+        artifact_root=artifacts.root,
+    ).audit(manifest)
+    if not result.valid:
+        return {
+            "valid": False,
+            "checked_artifacts": result.checked_artifacts,
+            "event_records": result.event_records,
+            "provenance_records": result.provenance_records,
+            "error": result.error,
+        }
+    return {
+        "valid": True,
+        "checked_artifacts": result.checked_artifacts,
+        "event_records": result.event_records,
+        "provenance_records": result.provenance_records,
+        "error": None,
+    }
 
 
 @app.get("/hydra/v1/admin/metrics")
