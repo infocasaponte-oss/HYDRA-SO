@@ -2,7 +2,7 @@
 
 Build locally:
 
-    docker build -t hydra-sandbox:py311-v1 -f infra/sandbox/Dockerfile .
+    docker build -t hydra-sandbox:py311-v2 -f infra/sandbox/Dockerfile .
 
 The CodeAgent expects this image by default. It contains Python 3.11, pytest and pytest-asyncio. Network remains disabled at runtime and the root filesystem is mounted read-only by HYDRA.
 
