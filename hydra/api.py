@@ -25,8 +25,8 @@ from hydra.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.deployment_store import DeploymentStore
 from hydra.kernel import HydraKernel
 from hydra.learning_capture import LearningCapture
-from hydra.model_factory import ModelVariant
 from hydra.metrics_store import OperatingMetricsStore
+from hydra.model_factory import ModelVariant
 from hydra.model_scout import scan_models
 from hydra.operating_metrics import collect_operating_metrics
 from hydra.outbox_dispatcher import OutboxDispatcher
