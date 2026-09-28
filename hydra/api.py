@@ -396,7 +396,10 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
                 task_id=task_id,
                 trace_id=trace_id,
                 action="coding.patch_verification",
-                inputs={"repository": req.repository},
+                inputs={
+                    "repository": req.repository,
+                    "verification_mode": settings.code_verification_mode,
+                },
                 outputs={
                     "accepted": result.accepted,
                     "artifact_ids": [str(a.artifact_id) for a in result.artifacts],
