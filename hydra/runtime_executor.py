@@ -9,7 +9,7 @@ from hydra.runtime_health import RuntimeHealth
 from hydra.traffic_router import TrafficDecision, TrafficRouter
 
 
-InferenceCall = Callable[[str], Awaitable[str]]
+InferenceCall = Callable[[str, str, int], Awaitable[str]]
 
 
 @dataclass(frozen=True)
@@ -39,17 +39,19 @@ class RuntimeExecutor:
         *,
         capability: str,
         trace_id: str,
+        prompt: str,
+        max_tokens: int,
     ) -> RuntimeExecution:
         decision = self.router.route(capability, trace_id)
         primary = decision.canary or decision.primary
         primary_id = str(primary.variant_id)
-        shadow_task = self._start_shadow(decision)
+        shadow_task = self._start_shadow(decision, prompt, max_tokens)
         try:
-            answer = await self.inference_call(primary_id)
+            answer = await self.inference_call(primary_id, prompt, max_tokens)
         except Exception:
             self.health.failure(primary_id)
             if primary is decision.canary:
-                answer, primary_id = await self._fallback(decision)
+                answer, primary_id = await self._fallback(decision, prompt, max_tokens)
             else:
                 raise
         else:
@@ -88,16 +90,28 @@ class RuntimeExecutor:
         )
 
     def _start_shadow(
-        self, decision: TrafficDecision
+        self,
+        decision: TrafficDecision,
+        prompt: str,
+        max_tokens: int,
     ) -> asyncio.Task[str] | None:
         if decision.shadow is None:
             return None
         return asyncio.create_task(
-            self.inference_call(str(decision.shadow.variant_id))
+            self.inference_call(
+                str(decision.shadow.variant_id),
+                prompt,
+                max_tokens,
+            )
         )
 
-    async def _fallback(self, decision: TrafficDecision) -> tuple[str, str]:
+    async def _fallback(
+        self,
+        decision: TrafficDecision,
+        prompt: str,
+        max_tokens: int,
+    ) -> tuple[str, str]:
         fallback_id = str(decision.primary.variant_id)
-        answer = await self.inference_call(fallback_id)
+        answer = await self.inference_call(fallback_id, prompt, max_tokens)
         self.health.success(fallback_id)
         return answer, fallback_id
