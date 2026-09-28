@@ -32,7 +32,7 @@ class LearningCapture:
         belief = self.beliefs.append(
             Belief(
                 task_id=task_id,
-                claim="Candidate patch passed the configured verification tests.",
+                claim="Candidate patch passed the configured HYDRA verification policy.",
                 status=BeliefStatus.VERIFIED,
                 evidence=evidence,
                 verifier="hydra.code.verification.v2",
