@@ -4,7 +4,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-
 _PATH_RE = re.compile(r"(?P<path>[A-Za-z0-9_./\\-]+\.py)(?::\d+)?")
 _BLOCKED_NAMES = {
     ".env",
