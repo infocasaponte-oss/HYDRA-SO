@@ -21,6 +21,9 @@ class ReplayManifest(BaseModel):
     selected_variant_id: str | None = None
     selected_variant_sha256: str | None = None
     deployment_generation: int | None = None
+    verification_artifact_sha256: str | None = None
+    baseline_workspace_sha256: str | None = None
+    final_workspace_sha256: str | None = None
     policy_version: str = "dev-1"
     manifest_hash: str = ""
 
