@@ -113,3 +113,20 @@ def test_api_rate_limit_is_enforced(tmp_path):
         limited = c.get("/v1/models", headers=headers)
         assert limited.status_code == 429
         assert limited.json()["detail"] == "HYDRA rate limit exceeded"
+
+
+def test_unconfigured_api_rejects_remote_clients(tmp_path):
+    settings = Settings(
+        offline=True,
+        sandbox_backend="subprocess",
+        workspace_dir=tmp_path / "ws",
+        data_dir=tmp_path / "data",
+        api_key="",
+    )
+    with TestClient(
+        create_app(settings, sandbox=SubprocessSandbox()),
+        client=("10.0.0.2", 50000),
+    ) as c:
+        response = c.get("/v1/models")
+        assert response.status_code == 503
+        assert response.json()["detail"] == "API key is not configured for remote access"
