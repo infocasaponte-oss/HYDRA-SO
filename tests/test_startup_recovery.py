@@ -1,0 +1,39 @@
+from uuid import uuid4
+
+from hydra.events import JsonlEventStore
+from hydra.outbox import TransactionalOutbox
+from hydra.outbox_dispatcher import OutboxDispatcher
+from hydra.outbox_worker import OutboxWorker
+from hydra.provenance import ProvenanceLedger
+from hydra.startup_recovery import recover_pending
+
+
+def test_startup_recovery_drains_pending_messages(tmp_path):
+    path = tmp_path / "hydra.db"
+    outbox = TransactionalOutbox(path)
+    task_id = uuid4()
+    with outbox.transaction() as connection:
+        for index in range(3):
+            outbox.enqueue(
+                connection,
+                topic="event",
+                aggregate_id=task_id,
+                trace_id="trace",
+                payload={
+                    "event_type": f"hydra.test.{index}",
+                    "payload": {"index": index},
+                },
+            )
+
+    worker = OutboxWorker(
+        TransactionalOutbox(path),
+        OutboxDispatcher(
+            TransactionalOutbox(path),
+            JsonlEventStore(tmp_path / "events.jsonl"),
+            ProvenanceLedger(tmp_path / "provenance.jsonl"),
+        ),
+    )
+    recovered = recover_pending(worker, batch_size=2)
+
+    assert recovered.published == 3
+    assert TransactionalOutbox(path).pending() == []
