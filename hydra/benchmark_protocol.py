@@ -12,7 +12,7 @@ class StreamMetrics:
     generated_tokens: int = 0
 
     @classmethod
-    def start(cls) -> "StreamMetrics":
+    def start(cls) -> StreamMetrics:
         return cls(started_at=perf_counter())
 
     def token(self) -> None:
