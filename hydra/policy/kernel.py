@@ -32,9 +32,11 @@ class Sensitivity(IntEnum):
 
 
 DEFAULT_SECRET_PATTERNS = {
-    "private_key": r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----",
+    "private_key": r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----",
     "api_key": r"\b(?:sk|pk|rk)-[A-Za-z0-9_\-]{16,}\b|\bAKIA[0-9A-Z]{16}\b|\bghp_[A-Za-z0-9]{30,}\b|\bxox[bap]-[A-Za-z0-9\-]{10,}\b",
     "password_assignment": r"(?i)\b(?:password|passwd|contraseña|pwd)\s*[:=]\s*\S{4,}",
+    "secret_assignment": (r"(?i)\b(?:api[_-]?key|secret|access[_-]?token|auth[_-]?token)"
+                          r"\s*[:=]\s*['\"]?[^\s'\"]{6,}"),
     "connection_string": r"(?i)\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis)://[^\s:/]+:[^\s@]+@",
     "jwt": r"\beyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\b",
 }

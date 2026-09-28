@@ -1,11 +1,11 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from __future__ import annotations
 
-import re
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from hydra.corpus.gates import PrivacyGate
 from hydra.runtime.artifacts import ArtifactRecord, ArtifactStore
 
 
@@ -24,14 +24,20 @@ class PrivacyScanResult(BaseModel):
     bytes_scanned: int = 0
 
 
-_EMAIL_RE = re.compile(
-    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
-)
-_SECRET_RE = re.compile(
-    r"(?i)\b(api[_-]?key|password|passwd|secret|access[_-]?token|auth[_-]?token)"
-    r"\s*[:=]\s*['\"]?[^\s'\"]{6,}"
-)
-_PRIVATE_KEY_RE = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
+_GATE = PrivacyGate(pseudonymize_persons=False)
+
+
+def _finding_types(text: str) -> set[str]:
+    """Detection is shared with the corpus PrivacyGate; names keep the runtime vocabulary."""
+    findings, _, _ = _GATE.scan_text(text)
+    types = set()
+    for finding in findings:
+        kind, name = finding.split(":", 1)
+        if kind == "secret":
+            types.add("private_key" if name == "private_key" else "credential_or_secret")
+        else:
+            types.add(name)
+    return types
 
 
 class PrivacyScanner:
@@ -85,12 +91,7 @@ class PrivacyScanner:
 
             scanned += 1
             total += len(data)
-            if _EMAIL_RE.search(text):
-                findings.add("email")
-            if _SECRET_RE.search(text):
-                findings.add("credential_or_secret")
-            if _PRIVATE_KEY_RE.search(text):
-                findings.add("private_key")
+            findings |= _finding_types(text)
 
         if findings:
             status = PrivacyScanStatus.FLAGGED
