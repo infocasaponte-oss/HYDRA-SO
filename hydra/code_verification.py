@@ -1,9 +1,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from hydra.sandbox import SandboxResult
+
+
+class VerificationMode(StrEnum):
+    ADVISORY = "advisory"
+    RUFF_REQUIRED = "ruff-required"
+    STRICT = "strict"
+
+
+@dataclass(frozen=True)
+class VerificationPolicy:
+    mode: VerificationMode = VerificationMode.ADVISORY
 
 
 @dataclass(frozen=True)
@@ -13,6 +25,9 @@ class VerificationReport:
     targeted_passed: bool
     full_suite_passed: bool
     syntax_passed: bool
+    ruff_passed: bool
+    mypy_passed: bool
+    analysis_mode: VerificationMode
     improvement_demonstrated: bool
     verified: bool
 
@@ -40,15 +55,33 @@ def build_verification_report(
     targeted: SandboxResult,
     full_suite: SandboxResult,
     syntax: SandboxResult,
+    ruff: SandboxResult,
+    mypy: SandboxResult,
+    policy: VerificationPolicy | None = None,
 ) -> VerificationReport:
+    policy = policy or VerificationPolicy()
     improvement = (not baseline.ok) and full_suite.ok
-    verified = improvement and targeted.ok and full_suite.ok and syntax.ok
+    static_gate = True
+    if policy.mode in {VerificationMode.RUFF_REQUIRED, VerificationMode.STRICT}:
+        static_gate = static_gate and ruff.ok
+    if policy.mode == VerificationMode.STRICT:
+        static_gate = static_gate and mypy.ok
+    verified = (
+        improvement
+        and targeted.ok
+        and full_suite.ok
+        and syntax.ok
+        and static_gate
+    )
     return VerificationReport(
         baseline_failed=not baseline.ok,
         targeted_target=targeted_target,
         targeted_passed=targeted.ok,
         full_suite_passed=full_suite.ok,
         syntax_passed=syntax.ok,
+        ruff_passed=ruff.ok,
+        mypy_passed=mypy.ok,
+        analysis_mode=policy.mode,
         improvement_demonstrated=improvement,
         verified=verified,
     )
