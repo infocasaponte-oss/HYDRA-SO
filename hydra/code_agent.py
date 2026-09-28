@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -24,12 +23,16 @@ class CodeAgentResult:
 
 def extract_unified_diff(text: str) -> str:
     fence = chr(96) * 3
-    pattern = re.escape(fence) + r"(?:diff)?\\s*\\n(.*?)" + re.escape(fence)
-    match = re.search(pattern, text, flags=re.DOTALL)
-    candidate = match.group(1).strip() if match else text.strip()
+    candidate = text.strip()
+    if candidate.startswith(fence):
+        first_newline = candidate.find(chr(10))
+        closing = candidate.rfind(fence)
+        if first_newline < 0 or closing <= first_newline:
+            raise ValueError("Malformed fenced diff")
+        candidate = candidate[first_newline + 1 : closing].strip()
     if "--- " not in candidate or "+++ " not in candidate or "@@" not in candidate:
         raise ValueError("Model did not return a valid unified diff")
-    return candidate + "\n"
+    return candidate + chr(10)
 
 
 class CodeAgent:
