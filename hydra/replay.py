@@ -17,6 +17,10 @@ class ReplayManifest(BaseModel):
     model_id: str | None = None
     artifact_hashes: list[str] = Field(default_factory=list)
     event_types: list[str] = Field(default_factory=list)
+    event_ids: list[str] = Field(default_factory=list)
+    selected_variant_id: str | None = None
+    selected_variant_sha256: str | None = None
+    deployment_generation: int | None = None
     policy_version: str = "dev-1"
     manifest_hash: str = ""
 
