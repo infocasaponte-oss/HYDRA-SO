@@ -315,6 +315,20 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
             belief_id = str(belief.belief_id)
             corpus_status = corpus_record.status.value
 
+        verification = None
+        if result.verification is not None:
+            verification = {
+                "baseline_failed": result.verification.baseline_failed,
+                "targeted_target": result.verification.targeted_target,
+                "targeted_passed": result.verification.targeted_passed,
+                "full_suite_passed": result.verification.full_suite_passed,
+                "syntax_passed": result.verification.syntax_passed,
+                "improvement_demonstrated": (
+                    result.verification.improvement_demonstrated
+                ),
+                "verified": result.verification.verified,
+            }
+
         provenance.append(
             ProvenanceRecord(
                 task_id=task_id,
@@ -325,6 +339,7 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
                     "accepted": result.accepted,
                     "artifact_ids": [str(a.artifact_id) for a in result.artifacts],
                     "artifact_hashes": [a.sha256 for a in result.artifacts],
+                    "verification": verification,
                 },
             )
         )
@@ -336,6 +351,7 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
             "artifact_ids": [str(a.artifact_id) for a in result.artifacts],
             "belief_id": belief_id,
             "corpus_status": corpus_status,
+            "verification": verification,
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
