@@ -73,3 +73,31 @@ def test_advisory_policy_records_static_failure_without_blocking():
     assert report.verified is True
     assert report.ruff_passed is False
     assert report.mypy_passed is False
+
+
+def test_ruff_required_blocks_ruff_but_not_mypy_failure():
+    failed = SandboxResult(False, "failed", 1)
+    passed = SandboxResult(True, "passed", 0)
+    report = build_verification_report(
+        baseline=failed,
+        targeted_target="test_app.py",
+        targeted=passed,
+        full_suite=passed,
+        syntax=passed,
+        ruff=SandboxResult(False, "ruff failed", 1),
+        mypy=passed,
+        policy=VerificationPolicy(VerificationMode.RUFF_REQUIRED),
+    )
+    assert report.verified is False
+
+    mypy_only_failure = build_verification_report(
+        baseline=failed,
+        targeted_target="test_app.py",
+        targeted=passed,
+        full_suite=passed,
+        syntax=passed,
+        ruff=passed,
+        mypy=SandboxResult(False, "mypy failed", 1),
+        policy=VerificationPolicy(VerificationMode.RUFF_REQUIRED),
+    )
+    assert mypy_only_failure.verified is True
