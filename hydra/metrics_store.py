@@ -10,8 +10,16 @@ from hydra.operating_metrics import OperatingMetrics
 
 
 class OperatingMetricsStore:
-    def __init__(self, path: str | Path = "runtime/hydra.db"):
+    def __init__(
+        self,
+        path: str | Path = "runtime/hydra.db",
+        *,
+        max_snapshots: int = 10_000,
+    ):
+        if max_snapshots < 1:
+            raise ValueError("max_snapshots must be positive")
         self.path = Path(path)
+        self.max_snapshots = max_snapshots
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
 
@@ -45,7 +53,20 @@ class OperatingMetricsStore:
                 """,
                 (captured_at, payload),
             )
-            return int(cursor.lastrowid)
+            snapshot_id = int(cursor.lastrowid)
+            connection.execute(
+                """
+                DELETE FROM operating_metrics
+                WHERE id NOT IN (
+                    SELECT id
+                    FROM operating_metrics
+                    ORDER BY id DESC
+                    LIMIT ?
+                )
+                """,
+                (self.max_snapshots,),
+            )
+            return snapshot_id
 
     def recent(self, limit: int = 100) -> list[dict]:
         if limit < 1 or limit > 1000:
