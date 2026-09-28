@@ -4,11 +4,12 @@ from uuid import uuid4
 
 from hydra.contracts import HydraResult, HydraTask, Route, TaskStatus
 from hydra.events import JsonlEventStore
-from hydra.executor import Executor
+from hydra.executor import ExecutionOutput, Executor
 from hydra.model_registry import ModelRegistry
 from hydra.planner import Planner
 from hydra.provider import LocalLLM
 from hydra.router import CapabilityRouter
+from hydra.runtime_bridge import RuntimeBridge
 from hydra.state import validate_transition
 from hydra.verifier import Verifier
 
@@ -19,10 +20,14 @@ class HydraKernel:
         router: CapabilityRouter | None = None,
         events: JsonlEventStore | None = None,
         planner: Planner | None = None,
+        model_registry: ModelRegistry | None = None,
+        runtime_bridge: RuntimeBridge | None = None,
     ):
         self.router = router or CapabilityRouter()
         self.events = events or JsonlEventStore()
         self.planner = planner or Planner()
+        self.model_registry = model_registry or ModelRegistry()
+        self.runtime_bridge = runtime_bridge
 
     def _transition(self, task: HydraTask, target: TaskStatus, trace_id: str) -> None:
         validate_transition(task.status, target)
@@ -70,8 +75,38 @@ class HydraKernel:
         )
 
         self._transition(task, TaskStatus.EXECUTING, trace_id)
-        executor = Executor(llm, ModelRegistry(), Verifier())
-        output = await executor.execute(plan, task.budget.max_output_tokens)
+        try:
+            if self.runtime_bridge is not None:
+                if route.needs_tools:
+                    raise RuntimeError("Physical runtime cannot execute tool plans directly")
+                runtime_output = await self.runtime_bridge.execute(
+                    task_id=task.id,
+                    trace_id=trace_id,
+                    capability=route.capability,
+                    prompt=task.goal,
+                    max_tokens=task.budget.max_output_tokens,
+                )
+                output = ExecutionOutput(
+                    answer=runtime_output.answer,
+                    model_id=runtime_output.primary_variant_id,
+                    verification=None,
+                )
+            else:
+                executor = Executor(llm, self.model_registry, Verifier())
+                output = await executor.execute(
+                    plan,
+                    task.budget.max_output_tokens,
+                )
+        except Exception:
+            self._transition(task, TaskStatus.FAILED, trace_id)
+            self.events.append(
+                event_type="hydra.task.failed",
+                aggregate_id=task.id,
+                producer="hydra.kernel",
+                trace_id=trace_id,
+                payload={"capability": route.capability},
+            )
+            raise
 
         self.events.append(
             event_type="hydra.model.completed",
