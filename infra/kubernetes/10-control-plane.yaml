@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
         - name: api
-          image: hydra-engine:1.0.0
+          image: hydra-engine:1.1.0
           args: ["serve", "--host", "0.0.0.0", "--port", "8080"]
           envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
           ports: [{containerPort: 8080}]

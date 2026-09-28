@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hydra-engine"
-version = "1.0.0"
+version = "1.1.0"
 description = "HYDRA OS 1.0 - heterogeneous cognitive operating system: kernel, world model, planner, corpus, training lab, model factory and IP ledger"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -39,7 +39,7 @@ mlx = ["mlx-lm>=0.20"]
 parquet = ["pyarrow>=16"]
 federated = ["flwr>=1.20"]
 all = ["redis>=5.0", "asyncpg>=0.29", "nats-py>=2.7", "huggingface_hub>=0.24", "pyarrow>=16"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
 
 [project.scripts]
 hydra = "hydra.cli:main"
@@ -52,6 +52,13 @@ hydra = ["py.typed", "api/studio.html"]
 
 [tool.setuptools.data-files]
 "share/hydra/config" = ["config/models.yaml", "config/models.ollama.yaml", "config/models.hydra.yaml", "config/policy.yaml", "config/policy_rules.yaml", "config/licenses.yaml"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

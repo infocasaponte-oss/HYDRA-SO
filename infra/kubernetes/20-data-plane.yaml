@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
         - name: worker
-          image: hydra-engine:1.0.0
+          image: hydra-engine:1.1.0
           args: ["worker", "--capability", "inference", "reasoning", "coding"]
           envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
           volumeMounts: [{name: data, mountPath: /data}]
@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: factory
-          image: hydra-engine:1.0.0
+          image: hydra-engine:1.1.0
           args: ["factory", "worker"]
           envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
           volumeMounts: [{name: data, mountPath: /data}]
