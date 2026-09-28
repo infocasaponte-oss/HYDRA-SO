@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Deterministic, executable Spanish coding curriculum for a HYDRA pilot.
 
 Only the trusted templates below are executed; model-generated code is never run here.

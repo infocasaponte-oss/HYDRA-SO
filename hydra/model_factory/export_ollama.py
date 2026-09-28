@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Export existing local Ollama weights as a baseline, preserving provenance."""
 from __future__ import annotations
 

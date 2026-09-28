@@ -1,5 +1,7 @@
 # Auditoría y plan de finalización: motor HYDRA + modelo GGUF
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Fecha: 29 de septiembre de 2026. Inspección iniciada el día 28, hora de Madrid.
 
 ## Dictamen

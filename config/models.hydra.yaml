@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 # Real local candidate. Import models/hydra-pilot/HYDRA.gguf as hydra-local first.
 # Capabilities below are routing priors, not measured benchmark scores.
 models:

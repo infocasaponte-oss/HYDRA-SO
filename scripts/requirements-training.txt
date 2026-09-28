@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 # Use with the CUDA-enabled torch 2.5.1 installation; tested imports recorded in docs.
 transformers==4.46.3
 peft==0.13.2

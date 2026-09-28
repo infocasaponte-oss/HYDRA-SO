@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Train, merge and build a traceable HYDRA.gguf candidate. No automatic promotion.
 
 python -m hydra.model_factory.build_hydra --recipe config/recipes/hydra-pilot.json

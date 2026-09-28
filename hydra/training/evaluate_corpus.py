@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Evaluate a real Ollama model on the frozen coding holdout using Docker."""
 from __future__ import annotations
 

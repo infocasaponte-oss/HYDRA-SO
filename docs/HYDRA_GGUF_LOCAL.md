@@ -1,5 +1,7 @@
 # Motor HYDRA y construcción local de HYDRA.gguf
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Estado de implementación: 29/09/2026, rama `codex/finish-hydra-gguf`, basada en `integration/hydra-1.0`.
 
 ## Entregas verificadas
