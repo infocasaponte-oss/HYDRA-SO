@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-_BLOCKED_NAMES = {".venv", "__pycache__", ".pytest_cache", "runtime"}
+_BLOCKED_NAMES = {".git", ".venv", "__pycache__", ".pytest_cache", "runtime"}
 
 
 @dataclass(frozen=True)
