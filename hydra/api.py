@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from hydra import __version__
@@ -22,7 +22,9 @@ from hydra.outbox_dispatcher import OutboxDispatcher
 from hydra.outbox_worker import OutboxWorker
 from hydra.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.provider import LocalLLM
+from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.readiness import evaluate_readiness
+from hydra.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.translation import GlossaryStore, TranslationService
 from hydra.workspaces import WorkspaceManager
 
@@ -47,6 +49,19 @@ outbox_dispatcher = OutboxDispatcher(
     learning.corpus,
 )
 outbox_worker = OutboxWorker(capture_uow.outbox, outbox_dispatcher)
+security_config = SecurityConfig(
+    api_token=settings.api_token,
+    admin_token=settings.admin_token,
+)
+rate_limiter = SlidingWindowRateLimiter()
+api_rate_limit = RateLimit(
+    requests=settings.api_rate_limit_per_minute,
+    window_seconds=60,
+)
+admin_rate_limit = RateLimit(
+    requests=settings.admin_rate_limit_per_minute,
+    window_seconds=60,
+)
 
 
 @asynccontextmanager
@@ -116,7 +131,9 @@ async def ready(response: Response) -> dict:
 
 
 @app.post("/v1/chat")
-async def chat(req: ChatRequest) -> dict:
+async def chat(req: ChatRequest, request: Request) -> dict:
+    identity = require_api_access(request, security_config)
+    rate_limiter.check(f"chat:{identity}", api_rate_limit)
     try:
         budget.validate_input(req.message)
         answer = await llm.chat(
@@ -131,7 +148,9 @@ async def chat(req: ChatRequest) -> dict:
 
 
 @app.post("/v1/translate")
-async def translate(req: TranslationRequest) -> dict:
+async def translate(req: TranslationRequest, request: Request) -> dict:
+    identity = require_api_access(request, security_config)
+    rate_limiter.check(f"translate:{identity}", api_rate_limit)
     try:
         answer = await translations.translate(
             req.text, req.target_language, req.source_language, req.glossary_id
@@ -175,8 +194,10 @@ async def route_task(task: HydraTask) -> dict:
 
 
 @app.post("/hydra/v1/tasks/execute")
-async def execute_task(task: HydraTask) -> dict:
+async def execute_task(task: HydraTask, request: Request) -> dict:
     """Execute a safe local cognitive task through the HYDRA kernel."""
+    identity = require_api_access(request, security_config)
+    rate_limiter.check(f"task-execute:{identity}", api_rate_limit)
     try:
         result = await kernel.run(task, llm)
         return result.model_dump(mode="json")
@@ -188,9 +209,12 @@ async def execute_task(task: HydraTask) -> dict:
 
 
 @app.post("/hydra/v1/coding/verify-fix")
-async def verify_code_fix(req: CodingRequest) -> dict:
+async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
     """Generate and verify a patch in an expendable, container-tested workspace."""
     from uuid import uuid4
+
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"coding:{identity}", admin_rate_limit)
 
     task_id = uuid4()
     trace_id = uuid4().hex
