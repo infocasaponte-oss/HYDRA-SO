@@ -1,4 +1,4 @@
-import subprocess
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -49,8 +49,22 @@ async def test_code_agent_demonstrates_repair_and_uses_source_context(tmp_path):
     source = tmp_path / "repo"
     source.mkdir()
     (source / "app.py").write_text("VALUE = 1\n")
-    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
-    subprocess.run(["git", "add", "app.py"], cwd=source, check=True)
+    init = await asyncio.create_subprocess_exec(
+        "git", "init",
+        cwd=source,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await init.communicate()
+    assert init.returncode == 0
+    add = await asyncio.create_subprocess_exec(
+        "git", "add", "app.py",
+        cwd=source,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await add.communicate()
+    assert add.returncode == 0
 
     llm = RepairLLM()
     agent = CodeAgent(
