@@ -187,9 +187,39 @@ borrarla cuando el equivalente local cubra sus tests.
 5. `hydra doctor`: 10/10 invariantes en PASS; red team 12/12.
 6. Licencia y cabeceras al 100 %; decisión de visibilidad del repositorio tomada.
 
-## 8. Estado de la prueba en seco
+## 8. Estado de la ejecución (29/09/2026)
 
-Ramas **solo locales** (no publicadas), útiles para ejecutar las Fases 2–3:
+| Fase | Estado | Evidencia |
+|---|---|---|
+| 0 | Hecho en parte | `codex/finish-hydra-gguf` avanzado en `integration/hydra-1.0`. **Pendiente del titular:** visibilidad del repositorio y protección de `main` (requieren permisos de administración en GitHub) |
+| 1 | Hecho | `f8bd276` outbox FIFO (con test que reproduce el empate), `cc953dc` entorno de Windows, `add1047` symlinks |
+| 2 | Hecho | `bf9bbd1` movimiento (198 renombrados, sin cambios de lógica), `cc28a8f` cabeceras |
+| 3 | Hecho | `c9efbd8`: merge sin conflictos; suite 327 passed; CI de Linux en verde |
+| 4 | Hecho (ver §5.4) | Retirados: rate limit, circuit breaker, idioma, perfiles de hardware. Adoptados: límites de workspace, detector de privacidad, límites GGUF, telemetría de VRAM, presupuestos de traducción, outbox del capture, verificación por capas en GoalRunner. Adaptadores: anclaje de cadenas en el ledger, creencias hacia el World Model, puente de despliegue HYDRA.gguf, métricas del outbox en Prometheus |
+| 5 | Hecho | `57533d2`: un solo gateway con 17 rutas runtime montadas; `/v1/models` del runtime pasa a `/hydra/v1/models/artifacts` |
+| 6 | Hecho | Un único token (`HYDRA_API_KEY`/`HYDRA_API_TOKEN`; cabeceras Bearer, X-API-Key y X-Hydra-Token); `.env.example` unificado; imagen `hydra-sandbox:py312-v3` construida y con preflight OK |
+| 7 | Hecho | 1.1.0; ruff limpio; CI en Ubuntu y Windows en cada push y PR; smoke test del wheel fuera del árbol; test de cabeceras de copyright (482/482 ficheros) |
+| 8 | Pendiente | PR `integration/hydra-1.0` → `main` (un avance rápido: `main` ya es ancestro), etiqueta `v1.1.0`, borrado de ramas fusionadas |
+
+Fallos reales que la integración sacó a la luz y quedaron corregidos:
+- Outbox con orden aleatorio.
+- WorkspaceManager de la plataforma: `task_id` y rutas de ficheros podían salir del directorio, y la copia seguía symlinks.
+- Lector GGUF sin límites (asignaciones de exabytes, bucles de 2^60 elementos).
+- Una GPU sin telemetría se leía como 0 MB de VRAM, y las GPU de 4 GB se degradaban a `cpu_only`.
+- Párrafos de traducción sin trocear.
+- Escrituras del capture perdidas en silencio si fallaban.
+- Test de laboratorio intermitente por la latencia.
+
+Queda deliberadamente en `hydra.runtime`:
+- `kernel`, `router`, `planner`, `contracts` y `executor`, que sirven el contrato estable de `/hydra/v1/tasks/route|execute`.
+- `config`, un dataclass que ya comparte nombres de variable con los `Settings` de la plataforma.
+- El formato de los stores JSONL de replay.
+
+Retirarlos exige versionar ese contrato de API.
+
+## 9. Estado de la prueba en seco
+
+Las ramas de la prueba en seco se borraron; la ejecución real rehízo las Fases 2–3 con el mismo script. Estado original:
 
 - `prep/runtime-namespace` (`56a260e`): `main` movido a `hydra.runtime`.
 - `prep/merge-dryrun` (`d3c0323`): merge con `codex/finish-hydra-gguf`.

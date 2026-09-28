@@ -1,4 +1,4 @@
-# HYDRA OS 1.0
+# HYDRA OS 1.1
 
 Construcción local del motor y del candidato `HYDRA.gguf`: [guía, evidencia y estado actual](docs/HYDRA_GGUF_LOCAL.md).
 
@@ -102,6 +102,15 @@ provenance, hash y linaje, derechos y privacidad, Policy Kernel, evals, releases
 fallos distribuidos limpios, sin auto-modificación) y la **Definition of Done** fila a fila con evidencia
 (PASS / PARTIAL / FAIL). `hydra e2e` ejecuta **HYDRA-E2E-100** (100 tareas en 8 categorías).
 
+## Línea runtime HYDRA-SO (integrada en 1.1)
+
+El gateway sirve también la línea HYDRA-SO (`hydra.runtime`, con su historia completa): `/ready`, `/v1/chat`,
+`/hydra/v1/tasks/route|execute`, `/hydra/v1/admin/*` (despliegues shadow/canary/rollback, métricas, dead
+letters, auditoría de replay) y `/hydra/v1/coding/verify-fix`. Un único token (`HYDRA_API_KEY` o
+`HYDRA_API_TOKEN`) protege ambas líneas; las rutas admin exigen `HYDRA_ADMIN_TOKEN` y fallan cerradas sin él.
+Imagen de sandbox endurecida: `docker build -t hydra-sandbox:py312-v3 -f infra/sandbox/Dockerfile .`
+Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN.md](docs/INTEGRATION_PLAN.md).
+
 ## Despliegue
 
 * **DEV**: `docker compose up -d` (gateway, worker del fabric, Model Factory, PostgreSQL, Redis, Ollama, sandbox);
@@ -113,7 +122,7 @@ fallos distribuidos limpios, sin auto-modificación) y la **Definition of Done**
 ## Pruebas
 
 ```bash
-pytest                                   # unitarias + extremo a extremo offline
+ruff check . && pytest                   # lint + unitarias + extremo a extremo offline (ambas líneas)
 set HYDRA_IT_POSTGRES=postgresql://hydra:hydra@localhost:5432/hydra
 set HYDRA_IT_REDIS=redis://localhost:6379/0
 set HYDRA_IT_NATS=nats://localhost:4222
@@ -131,4 +140,4 @@ set HYDRA_IT_NATS=nats://localhost:4222
 * HYDRA registra evidencia técnica y de autoría; no decide patentabilidad ni autoría legal.
 
 Documentación: [docs/architecture.md](docs/architecture.md), [docs/adr/](docs/adr/),
-[docs/security.md](docs/security.md), [docs/ip-process.md](docs/ip-process.md).
+[docs/security.md](docs/security.md), [docs/ip-process.md](docs/ip-process.md), [docs/runtime/](docs/runtime/).

@@ -26,6 +26,29 @@ Local por defecto (`HYDRA_DATA_DIR`): `ledger/` (JSONL encadenado + anclas), `ar
 `ip/`, `flight/`, `fabric/queue.db` (SQLite WAL), `planning/`, `training/`, `configs/`, `keys/`.
 Multi-nodo: tablas equivalentes en `sql/schema.sql`, blobs en almacenamiento de objetos, bus NATS/Redis.
 
+## Línea runtime (HYDRA-SO) integrada
+
+`hydra.runtime` contiene la línea HYDRA-SO v0.4 (392 commits de historia, `git log --follow hydra/runtime/…`),
+documentada en [docs/runtime/](runtime/). El mismo gateway (`hydra serve`) sirve sus rutas y ejecuta su outbox
+transaccional; plan y decisiones en [INTEGRATION_PLAN.md](INTEGRATION_PLAN.md).
+
+| Pieza de la línea runtime | Dónde vive ahora | Estado |
+|---|---|---|
+| `rate_limit`, `circuit_breaker`, `language`, `hardware` | `governance.rate_limit`, `registry.circuit_breaker`, `hydra.language`, `edge.profiles` | Una implementación; `hydra.runtime.*` las reexporta |
+| Límites de `workspaces` (symlinks, ficheros, bytes) | `tools.workspace.scan_source` | Adoptado por el WorkspaceManager de la plataforma |
+| Patrones de `privacy` | `policy.kernel` + `corpus.gates.PrivacyGate` | Un único detector; `PrivacyScanner` delega en él |
+| Límites de inspección de `gguf` | `model_factory.gguf` | Adoptados; `GGUFError` compartido |
+| `gpu_telemetry` (pico de VRAM, falla cerrado) | backend de `edge.autobuild` | Adoptado |
+| Presupuestos de `translation` | `edge.translation` + `/v1/translate` | Fusionado |
+| `outbox`, `outbox_worker` | `core.capture_outbox` (reintentos del capture) + línea runtime | Adoptado |
+| `code_verification` (criterios por capas) | `planning.runner.verification_report` | Adoptado por GoalRunner |
+| `events`, `provenance` (cadenas hash) | anclados en `ledger` firmado (`ledger.runtime_anchor`) | Adaptador |
+| `beliefs` | `world.runtime_beliefs` → World Model | Adaptador (se conserva el JSONL para replay) |
+| `deployment*`, `promotion_gate` | `model_factory.deploy_bridge` (HYDRA.gguf → PROMOTED → despliegue) | Puente |
+| `outbox_metrics` | `/metrics` (Prometheus) | Fusionado |
+| `api` | `api.runtime_routes` (rutas montadas en el gateway) | Fusionado; la plataforma gana las colisiones |
+| `kernel`, `router`, `planner`, `contracts`, `executor` | siguen en `hydra.runtime` | Sirven `/hydra/v1/tasks/route` y `/execute` (contrato estable) |
+
 ## Cadenas de suministro
 
 Código, datos, modelos e IP siguen la misma disciplina: artefacto → evaluación → firma → linaje → gate
