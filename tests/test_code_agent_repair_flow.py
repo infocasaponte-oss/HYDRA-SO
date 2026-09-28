@@ -41,7 +41,11 @@ class RepairSandbox:
         self.calls += 1
         if self.calls == 1:
             return SandboxResult(False, "FAILED app.py:1 - expected 2", 1)
-        return SandboxResult(True, "1 passed", 0)
+        return SandboxResult(True, f"1 passed for {target}", 0)
+
+    async def py_compile(self, paths):
+        assert paths == ["app.py"]
+        return SandboxResult(True, "syntax ok", 0)
 
 
 @pytest.mark.asyncio
@@ -90,3 +94,6 @@ async def test_code_agent_demonstrates_repair_and_uses_source_context(tmp_path):
     kinds = [record.kind for record in result.artifacts]
     assert "applied-patch" in kinds
     assert "verified-patch" in kinds
+    assert "verification-report" in kinds
+    assert "syntax-check" in kinds
+    assert "tests-targeted" in kinds
