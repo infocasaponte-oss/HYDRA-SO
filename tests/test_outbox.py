@@ -22,14 +22,13 @@ def test_outbox_commit_persists_message(tmp_path):
 
 def test_outbox_rollback_is_atomic(tmp_path):
     outbox = TransactionalOutbox(tmp_path / "hydra.db")
-    with pytest.raises(RuntimeError):
-        with outbox.transaction() as connection:
-            outbox.enqueue(
-                connection,
-                topic="hydra.task.completed",
-                aggregate_id=uuid4(),
-                trace_id="trace",
-                payload={"ok": True},
-            )
-            raise RuntimeError("boom")
+    with pytest.raises(RuntimeError), outbox.transaction() as connection:
+        outbox.enqueue(
+            connection,
+            topic="hydra.task.completed",
+            aggregate_id=uuid4(),
+            trace_id="trace",
+            payload={"ok": True},
+        )
+        raise RuntimeError("boom")
     assert outbox.pending() == []
