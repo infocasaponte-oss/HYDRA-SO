@@ -4,7 +4,6 @@ import hashlib
 import os
 from pathlib import Path
 
-
 _SKIP_PARTS = {".git", ".venv", "__pycache__", ".pytest_cache", "runtime"}
 
 
