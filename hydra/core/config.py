@@ -54,6 +54,8 @@ class Settings(BaseSettings):
 
     # Gateway protection. Empty -> no auth (development).
     api_key: str = ""
+    api_rate_limit_per_minute: int = 60
+    """Per-client limit for authenticated API routes. Set <= 0 to disable."""
 
     # Poll runtime metrics (vLLM/llama.cpp /metrics, Ollama /api/ps, nvidia-smi) for load-aware routing.
     runtime_monitor: bool = True
