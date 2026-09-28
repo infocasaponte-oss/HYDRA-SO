@@ -5,12 +5,19 @@ from pathlib import Path
 
 from hydra.deployment import Deployment, DeploymentState
 from hydra.deployment_registry import DeploymentRegistry
+from hydra.deployment_validation import DeploymentArtifactValidator
 from hydra.model_factory import ModelVariant
 
 
 class DeploymentStore:
-    def __init__(self, path: str | Path = "runtime/deployments.json"):
+    def __init__(
+        self,
+        path: str | Path = "runtime/deployments.json",
+        *,
+        validator: DeploymentArtifactValidator | None = None,
+    ):
         self.path = Path(path)
+        self.validator = validator
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def save(self, registry: DeploymentRegistry) -> None:
@@ -38,12 +45,18 @@ class DeploymentStore:
         body = json.loads(self.path.read_text(encoding="utf-8"))
         for raw in body:
             variant = ModelVariant.model_validate(raw["variant"])
+            metadata = raw.get("metadata", {})
+            if self.validator is not None:
+                self.validator.validate(
+                    variant,
+                    expected_fingerprint=metadata.get("gguf_fingerprint"),
+                )
             deployment = Deployment(
                 variant=variant,
                 capabilities=set(raw["capabilities"]),
                 state=DeploymentState(raw["state"]),
                 generation=raw["generation"],
-                metadata=raw.get("metadata", {}),
+                metadata=metadata,
             )
             registry.add(deployment)
         return registry
