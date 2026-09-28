@@ -66,7 +66,7 @@ workspaces = WorkspaceManager(
     max_files=settings.workspace_max_files,
     max_bytes=settings.workspace_max_bytes,
 )
-learning = LearningCapture()
+learning = LearningCapture(artifacts_store=artifacts)
 replay_store = ReplayStore()
 deployment_artifact_validator = DeploymentArtifactValidator(settings.models_dir)
 deployment_store = DeploymentStore(
