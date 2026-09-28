@@ -95,6 +95,21 @@ class CodeAgent:
             metadata={"exit_code": before.exit_code},
         ))
 
+        if before.ok:
+            self.events.append(
+                event_type="hydra.code.baseline_passing",
+                aggregate_id=task_id,
+                producer="hydra.code_agent",
+                trace_id=trace_id,
+                payload={"reason": "verification_baseline_already_passed"},
+            )
+            return CodeAgentResult(
+                False,
+                "Baseline tests already pass; a fix cannot be demonstrated.",
+                records,
+                workspace,
+            )
+
         context_files = self.context_selector.select(
             workspace.root,
             before.output[-20_000:],
