@@ -78,3 +78,23 @@ class CorpusStore:
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(record.model_dump_json() + "\n")
         return record
+
+    def contains_hash(self, content_hash: str) -> bool:
+        if not self.path.exists():
+            return False
+        with self.path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                existing = CorpusRecord.model_validate_json(line)
+                if existing.content_hash == content_hash:
+                    return True
+        return False
+
+    def append_once(self, record: CorpusRecord) -> bool:
+        if not record.content_hash:
+            raise ValueError("Corpus record must have content_hash")
+        if self.contains_hash(record.content_hash):
+            return False
+        self.append(record)
+        return True
