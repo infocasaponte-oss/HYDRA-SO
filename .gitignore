@@ -9,7 +9,12 @@ workspace/
 dist/
 build/
 data/
-runtime/
-models/
+/runtime/
+/models/
 *.gguf
 *.safetensors
+
+.ruff_cache/
+*.log
+.DS_Store
+/repositories/
