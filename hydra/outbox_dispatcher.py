@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from hydra.corpus import CorpusRecord, CorpusStore
 from hydra.events import JsonlEventStore
 from hydra.outbox import OutboxMessage, TransactionalOutbox
 from hydra.provenance import ProvenanceLedger, ProvenanceRecord
@@ -20,10 +21,12 @@ class OutboxDispatcher:
         outbox: TransactionalOutbox,
         events: JsonlEventStore,
         provenance: ProvenanceLedger,
+        corpus: CorpusStore | None = None,
     ):
         self.outbox = outbox
         self.events = events
         self.provenance = provenance
+        self.corpus = corpus
 
     def dispatch_once(self, limit: int = 100) -> DispatchResult:
         published = 0
@@ -62,5 +65,9 @@ class OutboxDispatcher:
             )
             return
         if message.topic == "corpus":
+            if self.corpus is None:
+                raise RuntimeError("Corpus store is not configured")
+            record = CorpusRecord.model_validate(message.payload)
+            self.corpus.append_once(record)
             return
         raise ValueError(f"Unknown outbox topic: {message.topic}")
