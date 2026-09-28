@@ -116,6 +116,67 @@ class OciSandbox:
         output = stdout.decode("utf-8", errors="replace")[-50_000:]
         return SandboxResult(proc.returncode == 0, output, proc.returncode)
 
+    def _relative_targets(self, paths: list[str]) -> list[str]:
+        relative_paths: list[str] = []
+        for raw in paths:
+            target_path = (self.workspace / raw).resolve()
+            if self.workspace not in target_path.parents:
+                raise ValueError("Sandbox analysis target escape rejected")
+            if not target_path.is_file():
+                raise ValueError(f"Sandbox analysis target missing: {raw}")
+            relative_paths.append(str(target_path.relative_to(self.workspace)))
+        return relative_paths
+
+    async def _analysis_command(self, argv: list[str]) -> SandboxResult:
+        cmd = [
+            self.runtime, "run", "--rm",
+            "--network", "none",
+            "--read-only",
+            "--cap-drop", "ALL",
+            "--security-opt", "no-new-privileges",
+            "--memory", self.limits.memory,
+            "--cpus", str(self.limits.cpus),
+            "--pids-limit", str(self.limits.pids),
+            "--user", "65532:65532",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m",
+            "--mount", f"type=bind,src={self.workspace},dst=/workspace,rw",
+            "--workdir", "/workspace",
+            self.image,
+            *argv,
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except FileNotFoundError:
+            return SandboxResult(False, "sandbox runtime unavailable", 127)
+        try:
+            stdout, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=self.limits.timeout_seconds
+            )
+        except TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return SandboxResult(False, "sandbox timeout", 124)
+        output = stdout.decode("utf-8", errors="replace")[-50_000:]
+        return SandboxResult(proc.returncode == 0, output, proc.returncode)
+
+    async def ruff_check(self, paths: list[str]) -> SandboxResult:
+        if not paths:
+            return SandboxResult(True, "no Python files changed", 0)
+        targets = self._relative_targets(paths)
+        return await self._analysis_command(["ruff", "check", *targets])
+
+    async def mypy_check(self, paths: list[str]) -> SandboxResult:
+        if not paths:
+            return SandboxResult(True, "no Python files changed", 0)
+        targets = self._relative_targets(paths)
+        return await self._analysis_command(
+            ["mypy", "--follow-imports=skip", "--ignore-missing-imports", *targets]
+        )
+
     async def pytest(self, target: str = ".") -> SandboxResult:
         target_path = (self.workspace / target).resolve()
         if target_path != self.workspace and self.workspace not in target_path.parents:
