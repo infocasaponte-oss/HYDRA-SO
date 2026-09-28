@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
@@ -51,7 +52,14 @@ outbox_worker = OutboxWorker(capture_uow.outbox, outbox_dispatcher)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.bootstrap = bootstrap_runtime(outbox_worker)
-    yield
+    worker_task = asyncio.create_task(outbox_worker.run_forever())
+    app.state.outbox_worker_task = worker_task
+    try:
+        yield
+    finally:
+        worker_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await worker_task
 
 
 app = FastAPI(title="HYDRA-SO", version=__version__, lifespan=lifespan)
