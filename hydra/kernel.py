@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 from uuid import uuid4
 
+from hydra.capture_uow import CaptureUnitOfWork, TaskCommit
 from hydra.contracts import HydraResult, HydraTask, Route, TaskStatus
 from hydra.events import JsonlEventStore
 from hydra.executor import ExecutionOutput, Executor
@@ -22,12 +24,14 @@ class HydraKernel:
         planner: Planner | None = None,
         model_registry: ModelRegistry | None = None,
         runtime_bridge: RuntimeBridge | None = None,
+        capture_uow: CaptureUnitOfWork | None = None,
     ):
         self.router = router or CapabilityRouter()
         self.events = events or JsonlEventStore()
         self.planner = planner or Planner()
         self.model_registry = model_registry or ModelRegistry()
         self.runtime_bridge = runtime_bridge
+        self.capture_uow = capture_uow
 
     def _transition(self, task: HydraTask, target: TaskStatus, trace_id: str) -> None:
         validate_transition(task.status, target)
@@ -132,20 +136,60 @@ class HydraKernel:
         else:
             self._transition(task, TaskStatus.SYNTHESIZING, trace_id)
 
-        self._transition(task, TaskStatus.COMPLETED, trace_id)
+        if self.capture_uow is None:
+            self._transition(task, TaskStatus.COMPLETED, trace_id)
+            result = HydraResult(
+                task_id=task.id,
+                status=task.status,
+                answer=output.answer,
+                confidence=confidence,
+                trace_id=trace_id,
+                metadata={"model_id": output.model_id, "capability": route.capability},
+            )
+            self.events.append(
+                event_type="hydra.task.completed",
+                aggregate_id=task.id,
+                producer="hydra.kernel",
+                trace_id=trace_id,
+                payload={"confidence": confidence, "model_id": output.model_id},
+            )
+            return result
+
+        validate_transition(task.status, TaskStatus.COMPLETED)
         result = HydraResult(
             task_id=task.id,
-            status=task.status,
+            status=TaskStatus.COMPLETED,
             answer=output.answer,
             confidence=confidence,
             trace_id=trace_id,
             metadata={"model_id": output.model_id, "capability": route.capability},
         )
-        self.events.append(
-            event_type="hydra.task.completed",
-            aggregate_id=task.id,
-            producer="hydra.kernel",
-            trace_id=trace_id,
-            payload={"confidence": confidence, "model_id": output.model_id},
+        answer_hash = hashlib.sha256(output.answer.encode()).hexdigest()
+        corpus_payload = task.metadata.get("corpus_record")
+        self.capture_uow.commit_terminal(
+            TaskCommit(
+                task_id=task.id,
+                trace_id=trace_id,
+                status=TaskStatus.COMPLETED.value,
+                result=result.model_dump(mode="json"),
+            ),
+            event_payload={
+                "event_type": "hydra.task.completed",
+                "producer": "hydra.kernel",
+                "payload": {
+                    "confidence": confidence,
+                    "model_id": output.model_id,
+                },
+            },
+            provenance_payload={
+                "action": "task.completed",
+                "inputs": {"capability": route.capability},
+                "outputs": {
+                    "answer_sha256": answer_hash,
+                    "model_id": output.model_id,
+                },
+            },
+            corpus_payload=corpus_payload,
         )
+        task.status = TaskStatus.COMPLETED
         return result
