@@ -46,3 +46,67 @@ def test_activate_preserves_previous_for_rollback():
     restored = registry.rollback("reasoning.general")
     assert restored is old
     assert old.state == DeploymentState.ACTIVE
+
+
+def test_partial_capability_rollout_does_not_orphan_other_capabilities():
+    registry = DeploymentRegistry()
+
+    old = Deployment(
+        variant=promoted("Q4_K_M"),
+        capabilities={"reasoning.general", "coding.python"},
+        generation=1,
+    )
+    old.transition(DeploymentState.SHADOW)
+    old.transition(DeploymentState.CANARY)
+    registry.add(old)
+    registry.activate(str(old.variant_id))
+
+    new = Deployment(
+        variant=promoted("Q5_K_M"),
+        capabilities={"reasoning.general"},
+        generation=2,
+    )
+    new.transition(DeploymentState.SHADOW)
+    new.transition(DeploymentState.CANARY)
+    registry.add(new)
+    registry.activate(str(new.variant_id))
+
+    assert registry.active_for("reasoning.general") is new
+    assert registry.active_for("coding.python") is old
+    assert old.state == DeploymentState.ACTIVE
+    assert old.metadata["active_capabilities"] == ["coding.python"]
+
+
+def test_partial_capability_rollback_restores_only_requested_binding():
+    registry = DeploymentRegistry()
+
+    old = Deployment(
+        variant=promoted("Q4_K_M"),
+        capabilities={"reasoning.general", "coding.python"},
+        generation=1,
+    )
+    old.transition(DeploymentState.SHADOW)
+    old.transition(DeploymentState.CANARY)
+    registry.add(old)
+    registry.activate(str(old.variant_id))
+
+    new = Deployment(
+        variant=promoted("Q5_K_M"),
+        capabilities={"reasoning.general"},
+        generation=2,
+    )
+    new.transition(DeploymentState.SHADOW)
+    new.transition(DeploymentState.CANARY)
+    registry.add(new)
+    registry.activate(str(new.variant_id))
+
+    restored = registry.rollback("reasoning.general")
+
+    assert restored is old
+    assert registry.active_for("reasoning.general") is old
+    assert registry.active_for("coding.python") is old
+    assert new.state == DeploymentState.DEPRECATED
+    assert sorted(old.metadata["active_capabilities"]) == [
+        "coding.python",
+        "reasoning.general",
+    ]
