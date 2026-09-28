@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 from hydra.corpus import CorpusRecord, CorpusStore
 from hydra.events import JsonlEventStore
 from hydra.outbox import OutboxMessage, TransactionalOutbox
