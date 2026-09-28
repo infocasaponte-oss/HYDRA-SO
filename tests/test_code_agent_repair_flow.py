@@ -1,0 +1,78 @@
+import subprocess
+from uuid import uuid4
+
+import pytest
+
+from hydra.artifacts import ArtifactStore
+from hydra.code_agent import CodeAgent
+from hydra.events import JsonlEventStore
+from hydra.sandbox import SandboxResult
+from hydra.workspaces import WorkspaceManager
+
+
+class RepairLLM:
+    def __init__(self):
+        self.prompt = ""
+
+    async def chat(self, messages, *, temperature=0.0, max_tokens=1024):
+        self.prompt = messages[0]["content"]
+        return (
+            "```diff\n"
+            "--- a/app.py\n"
+            "+++ b/app.py\n"
+            "@@ -1 +1 @@\n"
+            "-VALUE = 1\n"
+            "+VALUE = 2\n"
+            "```"
+        )
+
+
+class RepairSandbox:
+    image = "hydra-sandbox:py311-v1"
+
+    def __init__(self, workspace):
+        self.workspace = workspace
+        self.calls = 0
+
+    async def preflight(self):
+        return SandboxResult(True, "ok", 0)
+
+    async def pytest(self, target="."):
+        self.calls += 1
+        if self.calls == 1:
+            return SandboxResult(False, "FAILED app.py:1 - expected 2", 1)
+        return SandboxResult(True, "1 passed", 0)
+
+
+@pytest.mark.asyncio
+async def test_code_agent_demonstrates_repair_and_uses_source_context(tmp_path):
+    source = tmp_path / "repo"
+    source.mkdir()
+    (source / "app.py").write_text("VALUE = 1\n")
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    subprocess.run(["git", "add", "app.py"], cwd=source, check=True)
+
+    llm = RepairLLM()
+    agent = CodeAgent(
+        llm,
+        WorkspaceManager(tmp_path / "workspaces"),
+        ArtifactStore(tmp_path / "artifacts"),
+        JsonlEventStore(tmp_path / "events.jsonl"),
+        sandbox_factory=RepairSandbox,
+    )
+
+    result = await agent.run(
+        task_id=uuid4(),
+        trace_id="trace",
+        goal="Make VALUE equal 2",
+        source=source,
+        max_tokens=256,
+    )
+
+    assert result.accepted is True
+    assert "FILE: app.py" in llm.prompt
+    assert "VALUE = 1" in llm.prompt
+    assert (result.workspace.root / "app.py").read_text() == "VALUE = 2\n"
+    kinds = [record.kind for record in result.artifacts]
+    assert "applied-patch" in kinds
+    assert "verified-patch" in kinds
