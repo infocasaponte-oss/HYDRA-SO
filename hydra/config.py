@@ -12,6 +12,9 @@ class Settings:
     models_dir: str = os.getenv("HYDRA_MODELS_DIR", "models")
     repositories_root: str = os.getenv("HYDRA_REPOSITORIES_ROOT", "repositories")
     runtime_db: str = os.getenv("HYDRA_RUNTIME_DB", "runtime/hydra.db")
+    deployments_file: str = os.getenv(
+        "HYDRA_DEPLOYMENTS_FILE", "runtime/deployments.json"
+    )
     readiness_max_pending: int = int(os.getenv("HYDRA_READINESS_MAX_PENDING", "1000"))
     readiness_max_pending_age_seconds: float = float(
         os.getenv("HYDRA_READINESS_MAX_PENDING_AGE_SECONDS", "300")
