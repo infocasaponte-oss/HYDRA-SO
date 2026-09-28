@@ -6,7 +6,6 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-
 _PROCESS_LOCKS: dict[str, Lock] = {}
 _PROCESS_LOCKS_GUARD = Lock()
 
