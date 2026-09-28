@@ -15,8 +15,7 @@ async def benchmark_chat_stream(
     prompt: str,
     max_tokens: int = 128,
 ) -> tuple[StreamMetrics, str]:
-    metrics = StreamMetrics(start()
-    )
+    metrics = StreamMetrics.start()
     pieces: list[str] = []
     payload = {
         "model": model,
