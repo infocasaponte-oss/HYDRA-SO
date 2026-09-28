@@ -1,5 +1,7 @@
 # HYDRA OS 1.0
 
+Construcción local del motor y del candidato `HYDRA.gguf`: [guía, evidencia y estado actual](docs/HYDRA_GGUF_LOCAL.md).
+
 **Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.**
 Software propietario — consulte [LICENSE](LICENSE).
 
