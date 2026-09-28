@@ -25,7 +25,7 @@ class Settings:
         os.getenv("HYDRA_ADMIN_RATE_LIMIT_PER_MINUTE", "6")
     )
     sandbox_image: str = os.getenv(
-        "HYDRA_SANDBOX_IMAGE", "hydra-sandbox:py311-v1"
+        "HYDRA_SANDBOX_IMAGE", "hydra-sandbox:py311-v2"
     )
     sandbox_runtime: str = os.getenv("HYDRA_SANDBOX_RUNTIME", "docker")
     code_verification_mode: str = os.getenv(
