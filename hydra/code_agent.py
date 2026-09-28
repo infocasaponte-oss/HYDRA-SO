@@ -9,6 +9,7 @@ from uuid import UUID
 from hydra.artifacts import ArtifactRecord, ArtifactStore
 from hydra.code_context import CodeContextSelector
 from hydra.code_verification import (
+    VerificationReport,
     build_verification_report,
     changed_python_paths,
     extract_targeted_test,
@@ -28,6 +29,7 @@ class CodeAgentResult:
     answer: str
     artifacts: list[ArtifactRecord]
     workspace: TaskWorkspace
+    verification: VerificationReport | None = None
 
 
 def extract_unified_diff(text: str) -> str:
@@ -262,6 +264,7 @@ class CodeAgent:
                 "Patch rejected: verification report did not pass.",
                 records,
                 workspace,
+                report,
             )
 
         records.append(self.artifacts.put_text(
@@ -283,5 +286,9 @@ class CodeAgent:
             },
         )
         return CodeAgentResult(
-            True, "Patch verified in isolated task workspace.", records, workspace
+            True,
+            "Patch verified in isolated task workspace.",
+            records,
+            workspace,
+            report,
         )
