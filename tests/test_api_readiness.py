@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-import hydra.api as api
+from hydra import api
 
 
 def test_health_is_liveness_only():
