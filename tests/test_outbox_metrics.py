@@ -18,6 +18,8 @@ def test_metrics_count_pending_and_dead_letters(tmp_path):
     metrics = collect_outbox_metrics(outbox)
     assert metrics.pending == 1
     assert metrics.dead_letters == 0
+    assert metrics.oldest_pending_age_seconds is not None
+    assert metrics.oldest_pending_age_seconds >= 0
 
     outbox.record_failure(
         message.id,
@@ -28,3 +30,4 @@ def test_metrics_count_pending_and_dead_letters(tmp_path):
     metrics = collect_outbox_metrics(outbox)
     assert metrics.pending == 0
     assert metrics.dead_letters == 1
+    assert metrics.oldest_pending_age_seconds is None
