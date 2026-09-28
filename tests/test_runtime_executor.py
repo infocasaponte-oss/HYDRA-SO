@@ -3,8 +3,8 @@ import pytest
 from hydra.deployment import Deployment, DeploymentState
 from hydra.deployment_registry import DeploymentRegistry
 from hydra.model_factory import BuildState, ModelLineage, ModelVariant
-from hydra.runtime_executor import RuntimeExecutor
 from hydra.runtime_evidence import RuntimeEvidenceStore
+from hydra.runtime_executor import RuntimeExecutor
 from hydra.runtime_health import RuntimeHealth
 from hydra.traffic_router import TrafficRouter
 
