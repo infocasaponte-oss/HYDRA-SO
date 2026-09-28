@@ -77,19 +77,26 @@ def anchor_now(ledger) -> dict | None:
 
 
 @asynccontextmanager
-async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor_interval_s: float = 300.0):
+async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor_interval_s: float = 300.0,
+                           world=None):
     """Outbox recovery + worker of the runtime line, bound to the gateway lifespan.
 
     A gateway token given in code (not only through HYDRA_API_KEY/HYDRA_API_TOKEN) also
     protects the runtime routes while this app is running. With a ledger, the runtime
-    evidence chains are anchored in it periodically and on shutdown."""
+    evidence chains are anchored in it periodically and on shutdown; with a world model,
+    runtime beliefs (verified patches) are recorded in it."""
     if not enabled:
         yield
         return
     runtime = runtime_module()
     previous = runtime.security_config
+    previous_beliefs = runtime.learning.beliefs
     if api_key:
         runtime.security_config = replace(previous, api_token=api_key)
+    if world is not None:
+        from hydra.world.runtime_beliefs import WorldBeliefStore
+
+        runtime.learning.beliefs = WorldBeliefStore(world, previous_beliefs.path)
     worker = getattr(runtime.app.state, "outbox_worker_task", None)
     running = worker is not None and not worker.done()  # already started by another app in this process
 
@@ -107,6 +114,7 @@ async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor
             yield
     finally:
         runtime.security_config = previous
+        runtime.learning.beliefs = previous_beliefs
         if anchoring is not None:
             anchoring.cancel()
             with suppress(asyncio.CancelledError):
