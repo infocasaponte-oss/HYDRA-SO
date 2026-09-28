@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hydra-so"
-version = "0.3.1.dev0"
+version = "0.4.0.dev0"
 description = "HYDRA hybrid cognitive operating system"
 readme = "README.md"
 requires-python = ">=3.11"
