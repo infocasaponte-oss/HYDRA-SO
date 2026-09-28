@@ -14,6 +14,7 @@ from hydra.budgets import BudgetExceeded, RequestBudget
 from hydra.capture_uow import CaptureUnitOfWork
 from hydra.code_agent import CodeAgent
 from hydra.code_replay import build_code_replay_evidence
+from hydra.code_verification import VerificationMode, VerificationPolicy
 from hydra.coding_request import CodingRequest, resolve_repository
 from hydra.config import settings
 from hydra.contracts import HydraTask
@@ -327,6 +328,9 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
                 image=settings.sandbox_image,
                 runtime=settings.sandbox_runtime,
             ),
+            verification_policy=VerificationPolicy(
+                VerificationMode(settings.code_verification_mode)
+            ),
         )
         result = await agent.run(
             task_id=task_id,
@@ -353,6 +357,9 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
                 "targeted_passed": result.verification.targeted_passed,
                 "full_suite_passed": result.verification.full_suite_passed,
                 "syntax_passed": result.verification.syntax_passed,
+                "ruff_passed": result.verification.ruff_passed,
+                "mypy_passed": result.verification.mypy_passed,
+                "analysis_mode": result.verification.analysis_mode.value,
                 "improvement_demonstrated": (
                     result.verification.improvement_demonstrated
                 ),
