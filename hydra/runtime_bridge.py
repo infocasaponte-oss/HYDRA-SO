@@ -21,6 +21,8 @@ class RuntimeBridge:
         task_id: UUID,
         trace_id: str,
         capability: str,
+        prompt: str,
+        max_tokens: int,
     ) -> RuntimeExecution:
         decision = self.executor.router.route(capability, trace_id)
         selected = decision.canary or decision.primary
@@ -36,6 +38,8 @@ class RuntimeBridge:
         result = await self.executor.execute(
             capability=capability,
             trace_id=trace_id,
+            prompt=prompt,
+            max_tokens=max_tokens,
         )
         if result.primary_variant_id != selected_id:
             self.events.failover(
