@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hydra.startup_recovery import RecoveryResult, recover_pending
 from hydra.outbox_worker import OutboxWorker
+from hydra.startup_recovery import RecoveryResult, recover_pending
 
 
 @dataclass(frozen=True)
