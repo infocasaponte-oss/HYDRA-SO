@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from uuid import UUID
 
 from hydra import __version__
 from hydra.artifacts import ArtifactStore
