@@ -48,6 +48,7 @@ class OutboxDispatcher:
                 producer=payload.get("producer", "hydra.outbox"),
                 trace_id=message.trace_id,
                 payload=payload.get("payload", {}),
+                source_message_id=message.id,
             )
             return
         if message.topic == "provenance":
@@ -59,6 +60,7 @@ class OutboxDispatcher:
                     action=payload["action"],
                     inputs=payload.get("inputs", {}),
                     outputs=payload.get("outputs", {}),
+                    source_message_id=message.id,
                 )
             )
             return
