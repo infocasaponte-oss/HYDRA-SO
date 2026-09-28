@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import Path
 
-_PATH_RE = re.compile(r"(?P<path>[A-Za-z0-9_./\\-]+\.py)(?::\d+)?")
 _BLOCKED_NAMES = {
     ".env",
     ".env.local",
@@ -38,8 +36,12 @@ class CodeContextSelector:
         candidates: list[Path] = []
         seen: set[Path] = set()
 
-        for match in _PATH_RE.finditer(pytest_output):
-            raw = match.group("path").replace("\\", "/")
+        for token in pytest_output.split():
+            cleaned = token.strip("()[]{}<>,;'\"")
+            marker = cleaned.find(".py")
+            if marker < 0:
+                continue
+            raw = cleaned[: marker + 3].replace("\\", "/")
             path = (root / raw).resolve()
             if self._eligible(root, path) and path not in seen:
                 candidates.append(path)
