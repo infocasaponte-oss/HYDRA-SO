@@ -54,6 +54,21 @@ class CorpusGate:
         return record
 
 
+class CorpusIndex:
+    """In-memory exact-dedup index suitable for ingestion gates."""
+
+    def __init__(self) -> None:
+        self._hashes: set[str] = set()
+
+    def accept(self, record: CorpusRecord) -> bool:
+        if not record.content_hash:
+            raise ValueError("Corpus record must be hashed before deduplication")
+        if record.content_hash in self._hashes:
+            return False
+        self._hashes.add(record.content_hash)
+        return True
+
+
 class CorpusStore:
     def __init__(self, path: str | Path = "runtime/corpus.jsonl"):
         self.path = Path(path)
