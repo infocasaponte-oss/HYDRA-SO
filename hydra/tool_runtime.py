@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from hydra.policy import PolicyEngine, ToolPermission
 from hydra.tools import ToolRegistry, Workspace
 
+_WINDOWS_SYSTEM_ENV = ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP")
+
 
 @dataclass(frozen=True)
 class ToolResult:
@@ -70,6 +72,8 @@ class ToolRuntime:
             # Constrained subprocess: fixed executable/arguments, no shell, no network feature.
             target = self.workspace.resolve(arguments.get("path", "."))
             env = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(self.workspace.root)}
+            # Windows cannot start Python (Winsock/CRT init) without these system variables.
+            env.update({k: os.environ[k] for k in _WINDOWS_SYSTEM_ENV if k in os.environ})
             proc = await asyncio.create_subprocess_exec(
                 "python", "-m", "pytest", "-q", str(target),
                 cwd=str(self.workspace.root),
