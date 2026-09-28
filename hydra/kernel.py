@@ -202,27 +202,27 @@ class HydraKernel:
         ):
             self.capture_uow.commit_terminal(
                 TaskCommit(
-                task_id=task.id,
-                trace_id=trace_id,
-                status=TaskStatus.COMPLETED.value,
-                result=result.model_dump(mode="json"),
-            ),
-            event_payload={
-                "event_type": "hydra.task.completed",
-                "producer": "hydra.kernel",
-                "payload": {
-                    "confidence": confidence,
-                    "model_id": output.model_id,
+                    task_id=task.id,
+                    trace_id=trace_id,
+                    status=TaskStatus.COMPLETED.value,
+                    result=result.model_dump(mode="json"),
+                ),
+                event_payload={
+                    "event_type": "hydra.task.completed",
+                    "producer": "hydra.kernel",
+                    "payload": {
+                        "confidence": confidence,
+                        "model_id": output.model_id,
+                    },
                 },
-            },
-            provenance_payload={
-                "action": "task.completed",
-                "inputs": {"capability": route.capability},
-                "outputs": {
-                    "answer_sha256": answer_hash,
-                    "model_id": output.model_id,
+                provenance_payload={
+                    "action": "task.completed",
+                    "inputs": {"capability": route.capability},
+                    "outputs": {
+                        "answer_sha256": answer_hash,
+                        "model_id": output.model_id,
+                    },
                 },
-            },
                 corpus_payload=corpus_payload,
             )
         task.status = TaskStatus.COMPLETED
