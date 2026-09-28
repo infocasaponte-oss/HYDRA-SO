@@ -35,7 +35,7 @@ class LearningCapture:
                 claim="Candidate patch passed the configured verification tests.",
                 status=BeliefStatus.VERIFIED,
                 evidence=evidence,
-                verifier="hydra.oci.pytest",
+                verifier="hydra.code.verification.v2",
             )
         )
         record = CorpusRecord(
