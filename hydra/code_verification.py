@@ -52,3 +52,24 @@ def build_verification_report(
         improvement_demonstrated=improvement,
         verified=verified,
     )
+
+
+def changed_python_paths(diff: str) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    for line in diff.splitlines():
+        if not line.startswith("+++ "):
+            continue
+        raw = line[4:].split("\t", 1)[0].strip()
+        if raw == "/dev/null":
+            continue
+        if raw.startswith("b/"):
+            raw = raw[2:]
+        path = Path(raw)
+        if path.is_absolute() or ".." in path.parts:
+            continue
+        normalized = path.as_posix()
+        if normalized.endswith(".py") and normalized not in seen:
+            paths.append(normalized)
+            seen.add(normalized)
+    return paths
