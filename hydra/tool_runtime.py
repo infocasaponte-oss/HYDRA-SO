@@ -3,8 +3,6 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
-from pathlib import Path
-
 from hydra.policy import PolicyEngine, ToolPermission
 from hydra.tools import ToolRegistry, Workspace
 
