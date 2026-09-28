@@ -83,3 +83,19 @@ def test_deployment_validator_rejects_path_escape(tmp_path):
         DeploymentArtifactValidator(root).validate(
             _variant("../outside.gguf", digest)
         )
+
+
+def test_deployment_validator_rejects_metadata_fingerprint_drift(tmp_path):
+    path = tmp_path / "model.gguf"
+    digest = _write_runtime_gguf(path)
+    validator = DeploymentArtifactValidator(tmp_path)
+    artifact = validator.validate(_variant("model.gguf", digest))
+    fingerprint = validator.artifact_fingerprint(artifact)
+
+    with pytest.raises(ValueError, match="fingerprint"):
+        validator.validate(
+            _variant("model.gguf", digest),
+            expected_fingerprint="0" * 64,
+        )
+
+    assert len(fingerprint) == 64
