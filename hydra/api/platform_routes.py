@@ -17,7 +17,6 @@ from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from pydantic import AliasChoices, BaseModel, Field
 
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message
-from hydra.core.events import EventType
 from hydra.core.kernel import HydraTaskFailed
 from hydra.core.task import EventEnvelope, HydraResult, HydraTask
 from hydra.runtime.budgets import BudgetExceeded

@@ -8,7 +8,6 @@ never Think -> Rewrite itself)."""
 from __future__ import annotations
 
 import json
-import math
 import sys
 import time
 from enum import Enum

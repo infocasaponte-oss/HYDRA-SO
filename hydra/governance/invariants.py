@@ -17,7 +17,6 @@ Checks run against the live runtime and report honest PASS / PARTIAL / FAIL with
 from __future__ import annotations
 
 import importlib.util
-import json
 import shutil
 import tempfile
 from pathlib import Path

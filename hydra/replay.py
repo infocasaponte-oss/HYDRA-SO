@@ -12,7 +12,6 @@ go through benchmark -> shadow -> canary like any other change."""
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 

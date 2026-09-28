@@ -12,7 +12,6 @@ setting, OLLAMA_KV_CACHE_TYPE, recorded but not varied)."""
 from __future__ import annotations
 
 import asyncio
-import json
 import shutil
 import subprocess
 import tempfile

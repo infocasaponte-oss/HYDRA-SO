@@ -81,7 +81,9 @@ class OllamaBenchmark:
                 tokens = sum(r.get("eval_count", 0) for r in res if isinstance(r, dict))
                 conc = round(tokens / wall, 2) if wall else None
 
-        avg = (lambda xs: round(sum(xs) / len(xs), 2) if xs else None)
+        def avg(xs):
+            return round(sum(xs) / len(xs), 2) if xs else None
+
         return BenchmarkResult(artifact_id=artifact_id, variant_id=variant_id, tokens_per_second=avg(tps),
                                prompt_tokens_per_second=avg(ptps), ttft_ms=avg(ttft), load_ms=round(load_ms, 1),
                                ram_gb=ram, vram_gb=vram, context_degradation=degradation,

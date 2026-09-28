@@ -133,7 +133,7 @@ class WorkQueue:
                     self._save(c, w)
                 marks = ",".join("?" * len(capabilities))
                 interactive_waiting = c.execute(
-                    f"SELECT COUNT(*) FROM work WHERE status='queued' AND priority<=? AND available_at<=?",
+                    "SELECT COUNT(*) FROM work WHERE status='queued' AND priority<=? AND available_at<=?",
                     (int(Priority.INTERACTIVE), now)).fetchone()[0]
                 max_pri = int(Priority.BACKGROUND_LAB) if (allow_background_when_busy or not interactive_waiting) \
                     else int(Priority.BATCH)

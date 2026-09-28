@@ -27,7 +27,7 @@ from hydra.blackboard.projector import replay
 from hydra.core.bootstrap import HydraRuntime, build_runtime
 from hydra.core.config import Settings
 from hydra.core.contracts import ExecutionMode, HydraRequest, HydraResponse, Message, TaskType
-from hydra.core.events import EventType, HydraEvent
+from hydra.core.events import HydraEvent
 from hydra.core.kernel import HydraTaskFailed
 from hydra.memory.graph import MemoryGraph
 from hydra.memory.models import MemoryStatus, MemoryType

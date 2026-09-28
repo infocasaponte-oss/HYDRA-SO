@@ -14,7 +14,7 @@ import sqlite3
 import time
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from hydra.verification.math_check import safe_arith
 

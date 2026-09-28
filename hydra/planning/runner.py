@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message
 from hydra.core.hashing import now_iso
-from hydra.governance.security import ActionEnvelope, ActionGate, Principal, RiskDecision, principal_for
+from hydra.governance.security import ActionEnvelope, ActionGate, Principal, principal_for
 from hydra.planning.goals import ExecutionPlan, Goal, PlanNode, PlanWeights, pareto_plans
 from hydra.planning.htn import decompose, infer_goal
 from hydra.planning.procedures import ProcedureMiner, ProcedureStore, Trace, ValueModel
