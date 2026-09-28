@@ -15,6 +15,7 @@ class ModelArtifact:
     sha256: str
     gguf_valid: bool = False
     gguf_version: int | None = None
+    tensor_count: int | None = None
     architecture: str | None = None
     model_name: str | None = None
     context_length: int | None = None
@@ -23,6 +24,7 @@ class ModelArtifact:
     file_type: int | None = None
     quantization_version: int | None = None
     metadata_error: str | None = None
+    runtime_eligible: bool = False
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -61,6 +63,7 @@ def scan_models(models_root: str | Path) -> list[ModelArtifact]:
                 sha256=_sha256(resolved),
                 gguf_valid=metadata is not None,
                 gguf_version=metadata.version if metadata else None,
+                tensor_count=metadata.tensor_count if metadata else None,
                 architecture=metadata.architecture if metadata else None,
                 model_name=metadata.model_name if metadata else None,
                 context_length=metadata.context_length if metadata else None,
@@ -71,6 +74,17 @@ def scan_models(models_root: str | Path) -> list[ModelArtifact]:
                     metadata.quantization_version if metadata else None
                 ),
                 metadata_error=metadata_error,
+                runtime_eligible=bool(
+                    metadata
+                    and metadata.tensor_count > 0
+                    and metadata.architecture
+                    and metadata.context_length
+                    and metadata.context_length > 0
+                    and metadata.embedding_length
+                    and metadata.embedding_length > 0
+                    and metadata.block_count
+                    and metadata.block_count > 0
+                ),
             )
         )
     return artifacts
