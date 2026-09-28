@@ -37,7 +37,9 @@ async def test_shadow_is_not_authoritative(tmp_path):
         str(shadow.variant_id): "shadow-answer",
     }
 
-    async def call(variant_id: str) -> str:
+    async def call(variant_id: str, prompt: str, max_tokens: int) -> str:
+        assert prompt == "hello"
+        assert max_tokens == 64
         return answers[variant_id]
 
     health = RuntimeHealth()
@@ -51,6 +53,8 @@ async def test_shadow_is_not_authoritative(tmp_path):
     result = await executor.execute(
         capability="reasoning.general",
         trace_id="trace",
+        prompt="hello",
+        max_tokens=64,
     )
     assert result.answer == "active-answer"
     assert result.shadow_answer == "shadow-answer"
