@@ -28,6 +28,9 @@ class Settings:
         "HYDRA_SANDBOX_IMAGE", "hydra-sandbox:py311-v1"
     )
     sandbox_runtime: str = os.getenv("HYDRA_SANDBOX_RUNTIME", "docker")
+    code_verification_mode: str = os.getenv(
+        "HYDRA_CODE_VERIFICATION_MODE", "advisory"
+    )
     workspace_max_files: int = int(os.getenv("HYDRA_WORKSPACE_MAX_FILES", "20000"))
     workspace_max_bytes: int = int(
         os.getenv("HYDRA_WORKSPACE_MAX_BYTES", str(256 * 1024 * 1024))
