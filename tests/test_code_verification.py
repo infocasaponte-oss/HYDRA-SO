@@ -1,4 +1,9 @@
-from hydra.code_verification import build_verification_report, extract_targeted_test
+from hydra.code_verification import (
+    VerificationMode,
+    VerificationPolicy,
+    build_verification_report,
+    extract_targeted_test,
+)
 from hydra.sandbox import SandboxResult
 
 
@@ -18,6 +23,8 @@ def test_verification_requires_all_layers():
         targeted=passed,
         full_suite=passed,
         syntax=passed,
+        ruff=passed,
+        mypy=passed,
     )
     assert report.improvement_demonstrated is True
     assert report.verified is True
@@ -28,5 +35,41 @@ def test_verification_requires_all_layers():
         targeted=passed,
         full_suite=passed,
         syntax=SandboxResult(False, "syntax", 1),
+        ruff=passed,
+        mypy=passed,
     )
     assert rejected.verified is False
+
+
+def test_strict_policy_requires_mypy_and_ruff():
+    failed = SandboxResult(False, "failed", 1)
+    passed = SandboxResult(True, "passed", 0)
+    report = build_verification_report(
+        baseline=failed,
+        targeted_target="test_app.py",
+        targeted=passed,
+        full_suite=passed,
+        syntax=passed,
+        ruff=passed,
+        mypy=SandboxResult(False, "mypy failed", 1),
+        policy=VerificationPolicy(VerificationMode.STRICT),
+    )
+    assert report.verified is False
+    assert report.analysis_mode == VerificationMode.STRICT
+
+
+def test_advisory_policy_records_static_failure_without_blocking():
+    failed = SandboxResult(False, "failed", 1)
+    passed = SandboxResult(True, "passed", 0)
+    report = build_verification_report(
+        baseline=failed,
+        targeted_target="test_app.py",
+        targeted=passed,
+        full_suite=passed,
+        syntax=passed,
+        ruff=SandboxResult(False, "ruff failed", 1),
+        mypy=SandboxResult(False, "mypy failed", 1),
+    )
+    assert report.verified is True
+    assert report.ruff_passed is False
+    assert report.mypy_passed is False
