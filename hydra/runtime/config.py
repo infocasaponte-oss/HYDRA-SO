@@ -20,7 +20,8 @@ class Settings:
     readiness_max_pending_age_seconds: float = float(
         os.getenv("HYDRA_READINESS_MAX_PENDING_AGE_SECONDS", "300")
     )
-    api_token: str | None = os.getenv("HYDRA_API_TOKEN") or None
+    # One gateway token for both lines: HYDRA_API_TOKEN (HYDRA-SO) or HYDRA_API_KEY (platform).
+    api_token: str | None = os.getenv("HYDRA_API_TOKEN") or os.getenv("HYDRA_API_KEY") or None
     admin_token: str | None = os.getenv("HYDRA_ADMIN_TOKEN") or None
     api_rate_limit_per_minute: int = int(
         os.getenv("HYDRA_API_RATE_LIMIT_PER_MINUTE", "60")

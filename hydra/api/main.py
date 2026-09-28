@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 import hydra
 from hydra.api.os_routes import register_os_routes
 from hydra.api.platform_routes import register_platform_routes
+from hydra.api.runtime_routes import register_runtime_routes, runtime_lifespan
 from hydra.blackboard.projector import replay
 from hydra.core.bootstrap import HydraRuntime, build_runtime
 from hydra.core.config import Settings
@@ -64,7 +65,8 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         app.state.runtime = runtime
         app.state.listeners = Listeners()
         await runtime.bus.subscribe(None, app.state.listeners)
-        yield
+        async with runtime_lifespan(settings.runtime_api, settings.api_key):
+            yield
         await runtime.close()
 
     app = FastAPI(
@@ -79,7 +81,8 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
 
     async def auth(request: Request,
                    authorization: str | None = Header(default=None),
-                   x_api_key: str | None = Header(default=None)) -> str:
+                   x_api_key: str | None = Header(default=None),
+                   x_hydra_token: str | None = Header(default=None)) -> str:
         if not settings.api_key:
             host = request.client.host if request.client else ""
             local = host in {"localhost", "testclient"}
@@ -91,7 +94,7 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
             if not local:
                 raise HTTPException(503, "API key is not configured for remote access")
             return f"local:{host}"
-        token = x_api_key or (authorization or "").removeprefix("Bearer ").strip()
+        token = x_api_key or x_hydra_token or (authorization or "").removeprefix("Bearer ").strip()
         if not secrets.compare_digest(token or "", settings.api_key):
             raise HTTPException(401, "invalid API key")
         return "api:" + hashlib.sha256(token.encode()).hexdigest()
@@ -111,7 +114,7 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
                 with contextlib.suppress(Exception):
                     checks[name] = await asyncio.wait_for(provider.health(), 5)
                 checks.setdefault(name, False)
-        return {"status": "ok", "version": hydra.__version__, "offline": runtime.settings.offline,
+        return {"status": "ok", "hydra": "ok", "version": hydra.__version__, "offline": runtime.settings.offline,
                 "runtimes": checks}
 
     # ---------------------------------------------------------------- core
@@ -280,6 +283,8 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
 
     register_os_routes(app, rt, secured)
     register_platform_routes(app, rt, secured)
+    if settings.runtime_api:  # after platform routes: they win on (path, method) collisions
+        app.state.runtime_routes = register_runtime_routes(app)
     return app
 
 

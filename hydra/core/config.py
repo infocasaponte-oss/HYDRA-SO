@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _SOURCE_ROOT = Path(__file__).resolve().parents[2]
@@ -56,7 +57,8 @@ class Settings(BaseSettings):
     network_domains: str = ""
 
     # Gateway protection. Empty -> no auth (development).
-    api_key: str = ""
+    api_key: str = Field(default="", validation_alias=AliasChoices("api_key", "HYDRA_API_KEY", "HYDRA_API_TOKEN"))
+    """Gateway token (HYDRA_API_KEY, or HYDRA_API_TOKEN as used by the runtime line)."""
     api_rate_limit_per_minute: int = 60
     """Per-client limit for authenticated API routes. Set <= 0 to disable."""
 
@@ -96,6 +98,9 @@ class Settings(BaseSettings):
     # Request budgets shared with the runtime line (HYDRA_MAX_INPUT_CHARS, HYDRA_MAX_TRANSLATION_CHUNKS).
     max_input_chars: int = 50_000
     max_translation_chunks: int = 64
+
+    runtime_api: bool = True
+    """Serve the HYDRA-SO runtime line (/ready, /v1/chat, /hydra/v1/admin/*, coding) from the gateway."""
 
     hedge_after_ms: float = 3500
     breaker_failures: int = 5

@@ -20,7 +20,7 @@ def _provided_token(request: Request) -> str | None:
     authorization = request.headers.get("authorization", "")
     if authorization.lower().startswith("bearer "):
         return authorization[7:].strip()
-    return request.headers.get("x-hydra-token")
+    return request.headers.get("x-hydra-token") or request.headers.get("x-api-key")
 
 
 def _local_request(request: Request) -> bool:
