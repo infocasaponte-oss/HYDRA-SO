@@ -162,6 +162,23 @@ class TransactionalOutbox:
                 ),
             )
 
+    def requeue_dead_letter(self, message_id: UUID) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE outbox
+                SET dead_lettered_at = NULL,
+                    next_attempt_at = NULL,
+                    last_error = NULL,
+                    attempts = 0
+                WHERE id = ?
+                  AND dead_lettered_at IS NOT NULL
+                  AND published_at IS NULL
+                """,
+                (str(message_id),),
+            )
+            return cursor.rowcount == 1
+
     def dead_letters(self, limit: int = 100) -> list[OutboxMessage]:
         with self._connect() as connection:
             rows = connection.execute(
