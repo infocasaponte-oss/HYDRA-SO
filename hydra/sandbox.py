@@ -20,6 +20,9 @@ class SandboxResult:
     exit_code: int
 
 
+DEFAULT_SANDBOX_IMAGE = "hydra-sandbox:py311-v1"
+
+
 class OciSandbox:
     """
     Host-controlled Docker-compatible sandbox.
@@ -32,7 +35,7 @@ class OciSandbox:
         self,
         workspace: str | Path,
         *,
-        image: str = "python:3.11-slim",
+        image: str = DEFAULT_SANDBOX_IMAGE,
         runtime: str = "docker",
         limits: SandboxLimits | None = None,
     ):
@@ -40,6 +43,29 @@ class OciSandbox:
         self.image = image
         self.runtime = runtime
         self.limits = limits or SandboxLimits()
+
+    async def preflight(self) -> SandboxResult:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.runtime,
+                "image",
+                "inspect",
+                self.image,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except FileNotFoundError:
+            return SandboxResult(False, "sandbox runtime unavailable", 127)
+
+        stdout, _ = await proc.communicate()
+        output = stdout.decode("utf-8", errors="replace")[-10_000:]
+        if proc.returncode != 0:
+            return SandboxResult(
+                False,
+                output or f"sandbox image unavailable: {self.image}",
+                proc.returncode,
+            )
+        return SandboxResult(True, output, 0)
 
     async def pytest(self, target: str = ".") -> SandboxResult:
         target_path = (self.workspace / target).resolve()
@@ -63,11 +89,14 @@ class OciSandbox:
             self.image,
             "python", "-m", "pytest", "-q", relative,
         ]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except FileNotFoundError:
+            return SandboxResult(False, "sandbox runtime unavailable", 127)
         try:
             stdout, _ = await asyncio.wait_for(
                 proc.communicate(), timeout=self.limits.timeout_seconds
