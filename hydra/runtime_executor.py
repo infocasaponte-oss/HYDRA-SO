@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from hydra.runtime_evidence import RuntimeEvidenceStore
 from hydra.runtime_health import RuntimeHealth
 from hydra.traffic_router import TrafficDecision, TrafficRouter
-
 
 InferenceCall = Callable[[str, str, int], Awaitable[str]]
 
