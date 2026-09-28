@@ -18,8 +18,14 @@ from hydra.code_verification import VerificationMode, VerificationPolicy
 from hydra.coding_request import CodingRequest, resolve_repository
 from hydra.config import settings
 from hydra.contracts import HydraTask
+from hydra.deployment import Deployment
+from hydra.deployment_controller import DeploymentController
+from hydra.deployment_evidence import CanaryEvidence, ShadowEvidence
+from hydra.deployment_evidence_store import DeploymentEvidenceStore
+from hydra.deployment_store import DeploymentStore
 from hydra.kernel import HydraKernel
 from hydra.learning_capture import LearningCapture
+from hydra.model_factory import ModelVariant
 from hydra.model_scout import scan_models
 from hydra.operating_metrics import collect_operating_metrics
 from hydra.outbox_dispatcher import OutboxDispatcher
@@ -52,6 +58,13 @@ workspaces = WorkspaceManager(
 )
 learning = LearningCapture()
 replay_store = ReplayStore()
+deployment_store = DeploymentStore(settings.deployments_file)
+deployment_registry = deployment_store.load()
+deployment_evidence_store = DeploymentEvidenceStore(settings.runtime_db)
+deployment_controller = DeploymentController(
+    deployment_registry,
+    evidence_store=deployment_evidence_store,
+)
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(capture_uow=capture_uow)
 outbox_dispatcher = OutboxDispatcher(
@@ -107,6 +120,24 @@ class TranslationRequest(BaseModel):
 
 class GlossaryRequest(BaseModel):
     terms: dict[str, str] = Field(default_factory=dict)
+
+
+class DeploymentRegisterRequest(BaseModel):
+    variant: ModelVariant
+    capabilities: list[str] = Field(min_length=1)
+    generation: int = Field(default=0, ge=0)
+
+
+class ShadowEvidenceRequest(BaseModel):
+    samples: int = Field(ge=0)
+    agreement_rate: float = Field(ge=0, le=1)
+    error_rate: float = Field(ge=0, le=1)
+
+
+class CanaryEvidenceRequest(BaseModel):
+    requests: int = Field(ge=0)
+    error_rate: float = Field(ge=0, le=1)
+    p95_latency_ms: float = Field(ge=0)
 
 
 @app.get("/health")
@@ -281,6 +312,7 @@ async def admin_metrics(request: Request) -> dict:
     metrics = collect_operating_metrics(
         outbox=capture_uow.outbox,
         trace_path=kernel.tracer.store.path,
+        deployments=deployment_registry,
     )
     return {
         "outbox_pending": metrics.outbox_pending,
@@ -291,6 +323,154 @@ async def admin_metrics(request: Request) -> dict:
         "avg_span_duration_ms": metrics.avg_span_duration_ms,
         "spans_by_name": metrics.spans_by_name,
         "deployments_by_state": metrics.deployments_by_state,
+    }
+
+
+@app.get("/hydra/v1/admin/deployments")
+async def list_deployments(request: Request) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-deployments-list:{identity}", admin_rate_limit)
+    items = sorted(
+        deployment_registry.deployments.values(),
+        key=lambda item: (item.generation, str(item.variant_id)),
+    )
+    return {
+        "count": len(items),
+        "deployments": [
+            {
+                "variant_id": str(item.variant_id),
+                "state": item.state.value,
+                "generation": item.generation,
+                "capabilities": sorted(item.capabilities),
+                "quantization": item.variant.quantization,
+                "artifact_sha256": item.variant.artifact_sha256,
+            }
+            for item in items
+        ],
+    }
+
+
+@app.post("/hydra/v1/admin/deployments/register")
+async def register_deployment(
+    req: DeploymentRegisterRequest,
+    request: Request,
+) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-deployments-register:{identity}", admin_rate_limit)
+    try:
+        deployment = Deployment(
+            variant=req.variant,
+            capabilities=set(req.capabilities),
+            generation=req.generation,
+        )
+        deployment_registry.add(deployment)
+        deployment_store.save(deployment_registry)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/deployments/register",
+        outcome="registered",
+        identity_hash=identity,
+        aggregate_id=deployment.variant_id,
+    )
+    return {
+        "variant_id": str(deployment.variant_id),
+        "state": deployment.state.value,
+        "generation": deployment.generation,
+    }
+
+
+@app.post("/hydra/v1/admin/deployments/{variant_id}/shadow")
+async def begin_deployment_shadow(variant_id: UUID, request: Request) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-deployment-shadow:{identity}", admin_rate_limit)
+    deployment = deployment_registry.deployments.get(str(variant_id))
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    try:
+        deployment_controller.begin_shadow(deployment)
+        deployment_store.save(deployment_registry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/deployments/shadow",
+        outcome="shadow",
+        identity_hash=identity,
+        aggregate_id=variant_id,
+    )
+    return {"variant_id": str(variant_id), "state": deployment.state.value}
+
+
+@app.post("/hydra/v1/admin/deployments/{variant_id}/canary")
+async def approve_deployment_canary(
+    variant_id: UUID,
+    req: ShadowEvidenceRequest,
+    request: Request,
+) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-deployment-canary:{identity}", admin_rate_limit)
+    deployment = deployment_registry.deployments.get(str(variant_id))
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    evidence = ShadowEvidence(
+        samples=req.samples,
+        agreement_rate=req.agreement_rate,
+        error_rate=req.error_rate,
+    )
+    try:
+        deployment_controller.approve_canary(deployment, evidence)
+        deployment_store.save(deployment_registry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"variant_id": str(variant_id), "state": deployment.state.value}
+
+
+@app.post("/hydra/v1/admin/deployments/{variant_id}/activate")
+async def activate_deployment(
+    variant_id: UUID,
+    req: CanaryEvidenceRequest,
+    request: Request,
+) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-deployment-activate:{identity}", admin_rate_limit)
+    deployment = deployment_registry.deployments.get(str(variant_id))
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    evidence = CanaryEvidence(
+        requests=req.requests,
+        error_rate=req.error_rate,
+        p95_latency_ms=req.p95_latency_ms,
+    )
+    try:
+        active = deployment_controller.activate(deployment, evidence)
+        deployment_store.save(deployment_registry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"variant_id": str(active.variant_id), "state": active.state.value}
+
+
+@app.post("/hydra/v1/admin/deployments/rollback/{capability}")
+async def rollback_deployment(capability: str, request: Request) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-deployment-rollback:{identity}", admin_rate_limit)
+    try:
+        restored = deployment_registry.rollback(capability)
+        deployment_store.save(deployment_registry)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/deployments/rollback",
+        outcome="rolled_back",
+        identity_hash=identity,
+        aggregate_id=restored.variant_id,
+    )
+    return {
+        "variant_id": str(restored.variant_id),
+        "state": restored.state.value,
+        "capability": capability,
     }
 
 
