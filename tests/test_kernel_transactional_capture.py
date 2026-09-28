@@ -39,3 +39,22 @@ async def test_kernel_commits_terminal_state_before_marking_completed(tmp_path):
     assert "hydra.task.completed" in names
     assert events.verify_integrity().valid is True
     assert provenance.verify_integrity().valid is True
+
+
+class FailingCapture:
+    def commit_terminal(self, *args, **kwargs):
+        raise RuntimeError("storage unavailable")
+
+
+@pytest.mark.asyncio
+async def test_failed_terminal_commit_does_not_mark_task_completed(tmp_path):
+    kernel = HydraKernel(
+        events=JsonlEventStore(tmp_path / "events.jsonl"),
+        capture_uow=FailingCapture(),
+    )
+    task = HydraTask(goal="Hola")
+
+    with pytest.raises(RuntimeError, match="storage unavailable"):
+        await kernel.run(task, FakeLLM())
+
+    assert task.status == TaskStatus.SYNTHESIZING
