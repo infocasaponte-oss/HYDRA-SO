@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hydra.deployment import Deployment
+from hydra.deployment import Deployment, DeploymentState
 from hydra.deployment_registry import DeploymentRegistry
 from hydra.model_factory import ModelVariant
 
@@ -41,7 +41,7 @@ class DeploymentStore:
             deployment = Deployment(
                 variant=variant,
                 capabilities=set(raw["capabilities"]),
-                state=raw["state"],
+                state=DeploymentState(raw["state"]),
                 generation=raw["generation"],
                 metadata=raw.get("metadata", {}),
             )
