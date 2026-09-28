@@ -100,25 +100,38 @@ class HydraKernel:
                 task_id=task.id,
                 attributes={"capability": route.capability},
             ):
-                if self.runtime_bridge is not None:
-                    if route.needs_tools:
-                        raise RuntimeError(
-                            "Physical runtime cannot execute tool plans directly"
+                executor = Executor(llm, self.model_registry, Verifier())
+                if self.runtime_bridge is not None and not route.needs_tools:
+                    try:
+                        runtime_output = await self.runtime_bridge.execute(
+                            task_id=task.id,
+                            trace_id=trace_id,
+                            capability=route.capability,
+                            prompt=task.goal,
+                            max_tokens=task.budget.max_output_tokens,
                         )
-                    runtime_output = await self.runtime_bridge.execute(
-                        task_id=task.id,
-                        trace_id=trace_id,
-                        capability=route.capability,
-                        prompt=task.goal,
-                        max_tokens=task.budget.max_output_tokens,
-                    )
-                    output = ExecutionOutput(
-                        answer=runtime_output.answer,
-                        model_id=runtime_output.primary_variant_id,
-                        verification=None,
-                    )
+                    except LookupError as exc:
+                        self.events.append(
+                            event_type="hydra.runtime.logical_fallback",
+                            aggregate_id=task.id,
+                            producer="hydra.kernel",
+                            trace_id=trace_id,
+                            payload={
+                                "capability": route.capability,
+                                "reason": type(exc).__name__,
+                            },
+                        )
+                        output = await executor.execute(
+                            plan,
+                            task.budget.max_output_tokens,
+                        )
+                    else:
+                        output = ExecutionOutput(
+                            answer=runtime_output.answer,
+                            model_id=runtime_output.primary_variant_id,
+                            verification=None,
+                        )
                 else:
-                    executor = Executor(llm, self.model_registry, Verifier())
                     output = await executor.execute(
                         plan,
                         task.budget.max_output_tokens,
