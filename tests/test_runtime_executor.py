@@ -4,6 +4,7 @@ from hydra.deployment import Deployment, DeploymentState
 from hydra.deployment_registry import DeploymentRegistry
 from hydra.model_factory import BuildState, ModelLineage, ModelVariant
 from hydra.runtime_executor import RuntimeExecutor
+from hydra.runtime_evidence import RuntimeEvidenceStore
 from hydra.runtime_health import RuntimeHealth
 from hydra.traffic_router import TrafficRouter
 
@@ -25,7 +26,7 @@ def deployment(state: DeploymentState, generation: int) -> Deployment:
 
 
 @pytest.mark.asyncio
-async def test_shadow_is_not_authoritative():
+async def test_shadow_is_not_authoritative(tmp_path):
     registry = DeploymentRegistry()
     active = deployment(DeploymentState.ACTIVE, 1)
     shadow = deployment(DeploymentState.SHADOW, 2)
@@ -40,10 +41,12 @@ async def test_shadow_is_not_authoritative():
         return answers[variant_id]
 
     health = RuntimeHealth()
+    evidence = RuntimeEvidenceStore(tmp_path / "evidence.jsonl")
     executor = RuntimeExecutor(
         TrafficRouter(registry, health),
         health,
         call,
+        evidence,
     )
     result = await executor.execute(
         capability="reasoning.general",
@@ -51,3 +54,6 @@ async def test_shadow_is_not_authoritative():
     )
     assert result.answer == "active-answer"
     assert result.shadow_answer == "shadow-answer"
+    saved = (tmp_path / "evidence.jsonl").read_text()
+    assert "active-answer" not in saved
+    assert "shadow-answer" not in saved
