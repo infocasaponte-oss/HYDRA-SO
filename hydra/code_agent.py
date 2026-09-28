@@ -7,11 +7,17 @@ from uuid import UUID
 
 from hydra.artifacts import ArtifactRecord, ArtifactStore
 from hydra.code_context import CodeContextSelector
+from hydra.code_verification import (
+    build_verification_report,
+    changed_python_paths,
+    extract_targeted_test,
+)
 from hydra.events import JsonlEventStore
 from hydra.patching import PatchTool
 from hydra.provider import LocalLLM
 from hydra.sandbox import OciSandbox
 from hydra.tools import Workspace
+from hydra.workspace_hash import workspace_sha256
 from hydra.workspaces import TaskWorkspace, WorkspaceManager
 
 
@@ -110,6 +116,8 @@ class CodeAgent:
                 workspace,
             )
 
+        baseline_workspace_hash = workspace_sha256(workspace.root)
+        targeted_target = extract_targeted_test(before.output, workspace.root)
         context_files = self.context_selector.select(
             workspace.root,
             before.output[-20_000:],
@@ -167,37 +175,109 @@ class CodeAgent:
             )
             return CodeAgentResult(False, "Patch could not be applied.", records, workspace)
 
+        changed_python = changed_python_paths(diff)
+        if targeted_target is not None:
+            targeted = await sandbox.pytest(targeted_target)
+        else:
+            targeted = await sandbox.pytest(".")
+
         after = await sandbox.pytest(".")
+        syntax = await sandbox.py_compile(changed_python)
+        final_workspace_hash = workspace_sha256(workspace.root)
+
+        records.append(self.artifacts.put_text(
+            task_id=task_id,
+            kind="tests-targeted",
+            text=targeted.output,
+            metadata={
+                "exit_code": targeted.exit_code,
+                "target": targeted_target,
+            },
+        ))
         records.append(self.artifacts.put_text(
             task_id=task_id, kind="tests-after", text=after.output,
             metadata={"exit_code": after.exit_code},
         ))
         records.append(self.artifacts.put_text(
+            task_id=task_id, kind="syntax-check", text=syntax.output,
+            metadata={
+                "exit_code": syntax.exit_code,
+                "paths": changed_python,
+            },
+        ))
+        records.append(self.artifacts.put_text(
             task_id=task_id, kind="applied-patch", text=diff
         ))
 
-        if not after.ok:
+        report = build_verification_report(
+            baseline=before,
+            targeted_target=targeted_target,
+            targeted=targeted,
+            full_suite=after,
+            syntax=syntax,
+        )
+        report_text = (
+            "{"
+            f'"baseline_failed": {str(report.baseline_failed).lower()}, '
+            f'"targeted_target": {repr(report.targeted_target)}, '
+            f'"targeted_passed": {str(report.targeted_passed).lower()}, '
+            f'"full_suite_passed": {str(report.full_suite_passed).lower()}, '
+            f'"syntax_passed": {str(report.syntax_passed).lower()}, '
+            f'"improvement_demonstrated": {str(report.improvement_demonstrated).lower()}, '
+            f'"verified": {str(report.verified).lower()}, '
+            f'"baseline_workspace_sha256": "{baseline_workspace_hash}", '
+            f'"final_workspace_sha256": "{final_workspace_hash}"'
+            "}"
+        )
+        records.append(self.artifacts.put_text(
+            task_id=task_id,
+            kind="verification-report",
+            text=report_text,
+            metadata={
+                "verified": report.verified,
+                "baseline_workspace_sha256": baseline_workspace_hash,
+                "final_workspace_sha256": final_workspace_hash,
+            },
+        ))
+
+        if not report.verified:
             workspace = self.workspace_manager.create(task_id, source)
             self.events.append(
                 event_type="hydra.code.patch_rejected",
                 aggregate_id=task_id,
                 producer="hydra.code_agent",
                 trace_id=trace_id,
-                payload={"reason": "tests_failed_after_patch"},
+                payload={
+                    "reason": "verification_report_failed",
+                    "targeted_passed": report.targeted_passed,
+                    "full_suite_passed": report.full_suite_passed,
+                    "syntax_passed": report.syntax_passed,
+                },
             )
             return CodeAgentResult(
-                False, "Patch rejected: verification tests failed.", records, workspace
+                False,
+                "Patch rejected: verification report did not pass.",
+                records,
+                workspace,
             )
 
         records.append(self.artifacts.put_text(
-            task_id=task_id, kind="verified-patch", text=diff
+            task_id=task_id, kind="verified-patch", text=diff,
+            metadata={
+                "baseline_workspace_sha256": baseline_workspace_hash,
+                "final_workspace_sha256": final_workspace_hash,
+            },
         ))
         self.events.append(
             event_type="hydra.code.patch_verified",
             aggregate_id=task_id,
             producer="hydra.code_agent",
             trace_id=trace_id,
-            payload={"artifact_ids": [str(r.artifact_id) for r in records]},
+            payload={
+                "artifact_ids": [str(r.artifact_id) for r in records],
+                "baseline_workspace_sha256": baseline_workspace_hash,
+                "final_workspace_sha256": final_workspace_hash,
+            },
         )
         return CodeAgentResult(
             True, "Patch verified in isolated task workspace.", records, workspace
