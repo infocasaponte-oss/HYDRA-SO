@@ -20,3 +20,46 @@ def test_patch_applies_inside_git_workspace(tmp_path):
     result = PatchTool(Workspace(tmp_path)).apply(diff)
     assert result.ok
     assert (tmp_path / "a.txt").read_text() == "new\n"
+
+
+def test_patch_rejects_symlink_mode(tmp_path):
+    patcher = PatchTool(Workspace(tmp_path))
+    diff = (
+        "diff --git a/link b/link\n"
+        "new file mode 120000\n"
+        "--- /dev/null\n"
+        "+++ b/link\n"
+        "@@ -0,0 +1 @@\n"
+        "+../outside\n"
+    )
+    with pytest.raises(ValueError, match="Symlink"):
+        patcher.apply(diff)
+
+
+def test_patch_rejects_rename_metadata(tmp_path):
+    patcher = PatchTool(Workspace(tmp_path))
+    diff = (
+        "diff --git a/a.txt b/b.txt\n"
+        "rename from a.txt\n"
+        "rename to b.txt\n"
+        "--- a/a.txt\n"
+        "+++ b/b.txt\n"
+        "@@ -1 +1 @@\n"
+        "-a\n"
+        "+b\n"
+    )
+    with pytest.raises(ValueError, match="Unsupported patch metadata"):
+        patcher.apply(diff)
+
+
+def test_patch_rejects_git_metadata_path(tmp_path):
+    patcher = PatchTool(Workspace(tmp_path))
+    diff = (
+        "--- a/.git/config\n"
+        "+++ b/.git/config\n"
+        "@@ -1 +1 @@\n"
+        "-a\n"
+        "+b\n"
+    )
+    with pytest.raises(ValueError, match="Git metadata"):
+        patcher.apply(diff)
