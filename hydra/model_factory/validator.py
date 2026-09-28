@@ -82,8 +82,11 @@ class QualityGate:
         suites: list[str] | None = None,
     ) -> tuple[ValidationReport, EvalReport]:
         reasons: list[str] = []
-        report = await self.evaluator.run_model(profile, suites or ["coding", "reasoning", "structured",
-                                                                    "tool_use", "hallucination"])
+        requested = suites or ["coding", "reasoning", "structured", "tool_use", "hallucination"]
+        report = await self.evaluator.run_model(profile, requested)
+        for name in requested:
+            if name not in report.suites or report.suites[name].total <= 0:
+                reasons.append(f"missing evaluation suite: {name}")
         load_ok = any(not c.detail.startswith("error") for c in report.cases)
         if not load_ok:
             reasons.append("model failed to load / answer")
@@ -111,8 +114,11 @@ class QualityGate:
         if v.task_score < self.t.min_task_score:
             reasons.append(f"task score {v.task_score:.2f} < {self.t.min_task_score}")
         if reference_eval is not None:
-            ref_task = sum(reference_eval.suites[s].score for s in ("coding", "reasoning")
-                           if s in reference_eval.suites) / 2
+            task_suites = [s for s in ("coding", "reasoning") if s in report.suites]
+            if not task_suites or any(s not in reference_eval.suites for s in task_suites):
+                reasons.append("missing comparable reference task suites")
+            ref_task = sum(reference_eval.suites[s].score for s in task_suites
+                           if s in reference_eval.suites) / max(1, len(task_suites))
             if v.task_score < ref_task - self.t.max_task_drop:
                 reasons.append(f"task score dropped {ref_task - v.task_score:.2f} vs reference")
         if v.structured_output_score < self.t.min_structured:
@@ -123,10 +129,16 @@ class QualityGate:
             reasons.append(f"KL divergence {v.kl_divergence:.3f} > {self.t.max_kl_divergence}")
         if v.perplexity_delta is not None and v.perplexity_delta > self.t.max_perplexity_increase:
             reasons.append(f"perplexity +{v.perplexity_delta:.1%}")
-        if self.t.max_memory_gb and v.memory_gb and v.memory_gb > self.t.max_memory_gb:
-            reasons.append(f"memory {v.memory_gb} GB > {self.t.max_memory_gb} GB")
-        if self.t.max_ttft_ms and benchmark and benchmark.ttft_ms and benchmark.ttft_ms > self.t.max_ttft_ms:
-            reasons.append(f"TTFT {benchmark.ttft_ms} ms > {self.t.max_ttft_ms} ms")
+        if self.t.max_memory_gb is not None:
+            if v.memory_gb is None or v.memory_gb <= 0:
+                reasons.append("missing memory measurement")
+            elif v.memory_gb > self.t.max_memory_gb:
+                reasons.append(f"memory {v.memory_gb} GB > {self.t.max_memory_gb} GB")
+        if self.t.max_ttft_ms is not None:
+            if benchmark is None or benchmark.ttft_ms is None or benchmark.ttft_ms <= 0:
+                reasons.append("missing TTFT measurement")
+            elif benchmark.ttft_ms > self.t.max_ttft_ms:
+                reasons.append(f"TTFT {benchmark.ttft_ms} ms > {self.t.max_ttft_ms} ms")
 
         v.reasons = reasons
         v.approved = load_ok and not reasons

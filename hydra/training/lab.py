@@ -196,6 +196,10 @@ class TrainingBackends:
     def choose(self, recipe: TrainingRecipe) -> str:
         if recipe.method == "classifier":
             return "builtin"
+        if recipe.method == "qlora" and recipe.backend in ("auto", "trl"):
+            if self._has("peft") and self._has("transformers") and self._has("bitsandbytes"):
+                return "peft"
+            raise ToolMissing("QLoRA requires peft, transformers and bitsandbytes")
         if recipe.backend != "auto":
             return recipe.backend
         av = self.available()
@@ -419,15 +423,21 @@ class EvalArena:
 
     @staticmethod
     def summarize(report) -> tuple[dict[str, float], dict[str, float], float | None]:
-        slices = {s.suite: s.score for s in report.suites}
-        lats = [c.latency_ms for s in report.suites for c in s.cases if c.latency_ms]
+        slices = {name: s.score for name, s in report.suites.items()}
+        lats = [c.latency_ms for c in report.cases if c.latency_ms > 0]
         return {"overall": report.overall}, slices, (sum(lats) / len(lats) if lats else None)
 
     def compare(self, cand_report, base_report) -> ArenaResult:
         oc, sc, lc = self.summarize(cand_report)
         ob, sb, lb = self.summarize(base_report)
         ok, regs, reasons = self.guard.check(oc, ob, sc, sb, lc, lb)
-        return ArenaResult(candidate=cand_report.model, baseline=base_report.model, overall={**oc, "baseline": ob["overall"]},
+        if not cand_report.cases or not base_report.cases or not sc or not sb:
+            ok = False
+            reasons.append("missing evaluation evidence")
+        if set(sc) != set(sb):
+            ok = False
+            reasons.append("candidate and baseline suites differ")
+        return ArenaResult(candidate=cand_report.target, baseline=base_report.target, overall={**oc, "baseline": ob["overall"]},
                            slices={"candidate": sc, "baseline": sb},
                            metrics={"latency_ms": lc, "baseline_latency_ms": lb}, regressions=regs, passed=ok,
                            reasons=reasons)
@@ -520,7 +530,10 @@ class TrainingOrchestrator:
             elif "valid_accuracy" in run.metrics:
                 run.metrics["eval"] = {"passed": run.metrics["valid_accuracy"] >= 0.7,
                                        "accuracy": run.metrics["valid_accuracy"]}
-            passed = bool((run.metrics.get("eval") or {}).get("passed", True))
+            evaluation = run.metrics.get("eval")
+            passed = isinstance(evaluation, dict) and evaluation.get("passed") is True
+            if not passed:
+                run.error = "evaluation missing or did not explicitly pass"
             run.to(RunStatus.PACKAGING)
             manifest = {"run": run.id, "recipe": recipe.model_dump(), "dataset": release.id,
                         "artifacts": run.output_artifacts, "metrics": run.metrics,
