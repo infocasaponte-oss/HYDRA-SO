@@ -1,23 +1,55 @@
+import hashlib
+import struct
+
 from fastapi.testclient import TestClient
 
 from hydra import api
 from hydra.deployment_controller import DeploymentController
 from hydra.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.deployment_store import DeploymentStore
+from hydra.deployment_validation import DeploymentArtifactValidator
 from hydra.model_factory import BuildState, ModelLineage, ModelVariant
 from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.security import SecurityConfig
 
 
-def _variant(quantization: str) -> ModelVariant:
+def _string(value: str) -> bytes:
+    raw = value.encode("utf-8")
+    return struct.pack("<Q", len(raw)) + raw
+
+
+def _variant(models_root, quantization: str) -> ModelVariant:
+    entries = [
+        _string("general.architecture")
+        + struct.pack("<I", 8)
+        + _string("llama"),
+        _string("llama.context_length")
+        + struct.pack("<I", 4)
+        + struct.pack("<I", 8192),
+        _string("llama.embedding_length")
+        + struct.pack("<I", 4)
+        + struct.pack("<I", 4096),
+        _string("llama.block_count")
+        + struct.pack("<I", 4)
+        + struct.pack("<I", 32),
+    ]
+    payload = (
+        b"GGUF"
+        + struct.pack("<I", 3)
+        + struct.pack("<Q", 1)
+        + struct.pack("<Q", len(entries))
+        + b"".join(entries)
+    )
+    filename = f"{quantization}.gguf"
+    (models_root / filename).write_bytes(payload)
     return ModelVariant(
         lineage=ModelLineage(
             base_model="base",
             base_model_sha256="a" * 64,
         ),
         quantization=quantization,
-        artifact_path=f"{quantization}.gguf",
-        artifact_sha256="b" * 64,
+        artifact_path=filename,
+        artifact_sha256=hashlib.sha256(payload).hexdigest(),
         state=BuildState.PROMOTED,
     )
 
@@ -28,6 +60,7 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
     original_registry = api.deployment_registry
     original_evidence_store = api.deployment_evidence_store
     original_controller = api.deployment_controller
+    original_validator = api.deployment_artifact_validator
     original_limiter = api.rate_limiter
     original_limit = api.admin_rate_limit
 
@@ -35,6 +68,8 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
     temp_store = DeploymentStore(path)
     temp_registry = temp_store.load()
     temp_evidence = DeploymentEvidenceStore(tmp_path / "hydra.db")
+    models_root = tmp_path / "models"
+    models_root.mkdir()
 
     api.security_config = SecurityConfig(api_token=None, admin_token="admin-secret")
     api.deployment_store = temp_store
@@ -44,6 +79,7 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
         temp_registry,
         evidence_store=temp_evidence,
     )
+    api.deployment_artifact_validator = DeploymentArtifactValidator(models_root)
     api.rate_limiter = SlidingWindowRateLimiter()
     api.admin_rate_limit = RateLimit(requests=100, window_seconds=60)
 
@@ -51,8 +87,8 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
 
     try:
         with TestClient(api.app) as client:
-            first = _variant("Q4_K_M")
-            second = _variant("Q5_K_M")
+            first = _variant(models_root, "Q4_K_M")
+            second = _variant(models_root, "Q5_K_M")
 
             for generation, variant in [(1, first), (2, second)]:
                 registered = client.post(
@@ -127,5 +163,6 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
         api.deployment_registry = original_registry
         api.deployment_evidence_store = original_evidence_store
         api.deployment_controller = original_controller
+        api.deployment_artifact_validator = original_validator
         api.rate_limiter = original_limiter
         api.admin_rate_limit = original_limit
