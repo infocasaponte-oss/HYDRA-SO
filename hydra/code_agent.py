@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -216,18 +217,20 @@ class CodeAgent:
             full_suite=after,
             syntax=syntax,
         )
-        report_text = (
-            "{"
-            f'"baseline_failed": {str(report.baseline_failed).lower()}, '
-            f'"targeted_target": {repr(report.targeted_target)}, '
-            f'"targeted_passed": {str(report.targeted_passed).lower()}, '
-            f'"full_suite_passed": {str(report.full_suite_passed).lower()}, '
-            f'"syntax_passed": {str(report.syntax_passed).lower()}, '
-            f'"improvement_demonstrated": {str(report.improvement_demonstrated).lower()}, '
-            f'"verified": {str(report.verified).lower()}, '
-            f'"baseline_workspace_sha256": "{baseline_workspace_hash}", '
-            f'"final_workspace_sha256": "{final_workspace_hash}"'
-            "}"
+        report_text = json.dumps(
+            {
+                "baseline_failed": report.baseline_failed,
+                "targeted_target": report.targeted_target,
+                "targeted_passed": report.targeted_passed,
+                "full_suite_passed": report.full_suite_passed,
+                "syntax_passed": report.syntax_passed,
+                "improvement_demonstrated": report.improvement_demonstrated,
+                "verified": report.verified,
+                "baseline_workspace_sha256": baseline_workspace_hash,
+                "final_workspace_sha256": final_workspace_hash,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
         )
         records.append(self.artifacts.put_text(
             task_id=task_id,
