@@ -83,6 +83,10 @@ def resolve_profile(gpu_name: str, vram_mb: int) -> HardwareProfile:
         return HardwareProfile(gpu_name=gpu_name, vram_mb=vram_mb, profile="nvidia_low_vram", quant="Q4_K_M",
                                context=4096, parallel=1, kv_k="q8_0", kv_v="q8_0", cuda_arch=arch,
                                max_recommended_model_class="7B Q4 (partial offload) / 3-4B Q5")
+    if vram_mb > 0:  # a 4 GB GPU still fully offloads 1-3B Q4 models (HYDRA-SO semantics)
+        return HardwareProfile(gpu_name=gpu_name, vram_mb=vram_mb, profile="nvidia_low_vram", quant="Q4_K_M",
+                               context=4096, parallel=1, kv_k="q8_0", kv_v="q8_0", cuda_arch=arch,
+                               max_recommended_model_class="1-3B Q4 (full offload)")
     return HardwareProfile(gpu_name=gpu_name or "cpu", vram_mb=vram_mb, profile="cpu_only", quant="Q4_K_M",
                            context=4096, parallel=1, kv_k="q8_0", kv_v="q8_0", gpu_layers=0,
                            max_recommended_model_class="1-3B Q4 on CPU")

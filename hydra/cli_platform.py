@@ -154,6 +154,11 @@ def add_platform_parsers(sub) -> None:
     ed.add_argument("action", choices=["profile", "scout", "residency", "pin-cpu"])
     ed.add_argument("target", nargs="?")
     ed.add_argument("--dirs", nargs="*", default=["models"])
+    ed.add_argument("--gpu", help="profile this GPU instead of detecting the local one")
+    ed.add_argument("--vram-mb", type=int, help="VRAM of --gpu in MB")
+    pf = sub.add_parser("profile", help="hardware profile (HYDRA-SO alias of 'edge profile')")
+    pf.add_argument("--gpu")
+    pf.add_argument("--vram-mb", type=int)
 
     tl = sub.add_parser("translate", help="Translation Engine (language.translate)")
     tl.add_argument("text", nargs="?")
@@ -216,7 +221,7 @@ def argparse_remainder():
     return argparse.REMAINDER
 
 
-NO_RUNTIME = {"backup", "restore", "build", "edge", "release_verify"}
+NO_RUNTIME = {"backup", "restore", "build", "edge", "profile", "release_verify"}
 
 
 async def run_platform(args, rt) -> int:  # noqa: C901 - command table
@@ -590,11 +595,16 @@ def run_without_runtime(args, settings) -> int:
         rep = restore(Path(args.archive), Path(args.data_dir), overwrite=args.overwrite)
         _print(rep)
         return 0 if rep.ok else 4
+    if cmd == "profile":
+        cmd, args.action = "edge", "profile"
     if cmd == "edge":
-        from hydra.edge.profiles import detect_profile, llamacpp_cmake_args
+        from hydra.edge.profiles import detect_profile, llamacpp_cmake_args, resolve_profile
         from hydra.edge.scout import best_fit, scan_gguf, scan_ollama
 
-        p = detect_profile()
+        if bool(args.gpu) != (args.vram_mb is not None):
+            print("--gpu and --vram-mb go together", file=sys.stderr)
+            return 2
+        p = resolve_profile(args.gpu, args.vram_mb) if args.gpu else detect_profile()
         match args.action:
             case "profile":
                 _print({**p.as_dict(), "llamacpp_cmake_args": llamacpp_cmake_args(p)})
