@@ -21,9 +21,9 @@ from hydra.contracts import HydraTask
 from hydra.kernel import HydraKernel
 from hydra.learning_capture import LearningCapture
 from hydra.model_scout import scan_models
+from hydra.operating_metrics import collect_operating_metrics
 from hydra.outbox_dispatcher import OutboxDispatcher
 from hydra.outbox_worker import OutboxWorker
-from hydra.operating_metrics import collect_operating_metrics
 from hydra.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.provider import LocalLLM
 from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
