@@ -9,7 +9,9 @@
     ├── FlightRecorder     reproducible manifest (code/policy/world/corpus versions, models, hashes)
     └── LearningSnapshot   what HYDRA learned from this task
 
-Every stage is non-fatal: capture never fails a user request. Shadow runs capture nothing."""
+Every stage is non-fatal: capture never fails a user request. Shadow runs capture nothing.
+Ledger and corpus writes that fail inline are deferred to the capture outbox (retry +
+dead-letter) instead of being lost."""
 
 from __future__ import annotations
 
@@ -29,7 +31,7 @@ log = logging.getLogger("hydra.capture")
 class CapturePipeline:
     def __init__(self, *, world=None, compiler=None, corpus=None, ledger=None, artifacts=None,
                  flight_dir: Path | None = None, capture_policy=None, policy_version: str = "",
-                 config_ref=None, registry=None) -> None:
+                 config_ref=None, registry=None, outbox=None) -> None:
         self.world = world
         self.compiler = compiler
         self.corpus = corpus
@@ -40,8 +42,30 @@ class CapturePipeline:
         self.policy_version = policy_version
         self.config_ref = config_ref  # callable -> str
         self.registry = registry
+        self.outbox = outbox  # CaptureOutbox | None
         if flight_dir is not None:
             flight_dir.mkdir(parents=True, exist_ok=True)
+
+    def _ingest(self, task_id: str, rec, deferred: list[str]):
+        try:
+            return self.corpus.ingest(rec)[0]
+        except Exception:
+            if self.outbox is None:
+                raise
+            self.outbox.defer("capture.corpus", task_id, {"record": rec.model_dump(mode="json")})
+            deferred.append(f"corpus:{rec.id}")
+            return None
+
+    def _append_ledger(self, task_id: str, payload: dict, options: dict, deferred: list[str]):
+        try:
+            return self.ledger.append("TASK_EXECUTED", payload, **options)
+        except Exception:
+            if self.outbox is None:
+                raise
+            self.outbox.defer("capture.ledger", task_id,
+                              {"event_type": "TASK_EXECUTED", "payload": payload, "options": options})
+            deferred.append("ledger")
+            return None
 
     def _cost(self, ctx) -> float:
         total = 0.0
@@ -56,6 +80,7 @@ class CapturePipeline:
                       confidence: float, verified: bool) -> dict[str, Any]:
         task_id = str(ctx.task_id)
         snap: dict[str, Any] = {"task_id": task_id}
+        deferred: list[str] = []
         world_before = getattr(self.world, "version", None)
         models = list(dict.fromkeys(ctx.state.models_used))
         tools = list(dict.fromkeys(ctx.state.tools_used))
@@ -107,7 +132,9 @@ class CapturePipeline:
                 statuses: Counter = Counter()
                 ids = []
                 for r in recs:
-                    rec, _ = self.corpus.ingest(r)
+                    rec = self._ingest(task_id, r, deferred)
+                    if rec is None:
+                        continue
                     statuses[rec.training_status.value] += 1
                     ids.append(rec.id)
                 snap["corpus"] = {"candidates": len(recs), "status": dict(statuses), "record_ids": ids}
@@ -141,16 +168,19 @@ class CapturePipeline:
                 log.exception("flight recorder failed")
         if self.ledger is not None:
             try:
-                e = self.ledger.append("TASK_EXECUTED", {
+                e = self._append_ledger(task_id, {
                     "task": task_id, "task_type": task_type, "models": models, "tools": tools, "artifacts": refs,
                     "manifest_hash": manifest["manifest_hash"], "answer_hash": manifest["answer_hash"],
                     "world_version": snap.get("world_version"), "corpus": snap.get("corpus", {}).get("record_ids", []),
                     "verified": verified, "confidence": confidence},
-                    object_type="task", object_id=task_id, producer="kernel",
-                    confidentiality="CONFIDENTIAL" if ctx.sensitivity >= 2 else "INTERNAL_CONFIDENTIAL")
-                snap["ledger_event"] = {"sequence": e.sequence, "hash": e.event_hash}
+                    {"object_type": "task", "object_id": task_id, "producer": "kernel",
+                     "confidentiality": "CONFIDENTIAL" if ctx.sensitivity >= 2 else "INTERNAL_CONFIDENTIAL"}, deferred)
+                if e is not None:
+                    snap["ledger_event"] = {"sequence": e.sequence, "hash": e.event_hash}
             except Exception:
                 log.exception("ledger capture failed")
+        if deferred:
+            snap["deferred"] = deferred
         snap["potential_ip"] = None
         return snap
 
@@ -163,12 +193,12 @@ class CapturePipeline:
                                       sensitivity=ctx.sensitivity,
                                       task_type=ctx.route.task_type.value if ctx.route else "chat",
                                       policy=self.capture_policy):
-                    self.corpus.ingest(r)
+                    self._ingest(str(ctx.task_id), r, [])
             except Exception:
                 log.exception("failure capture failed")
         if self.ledger is not None:
             try:
-                self.ledger.append("TASK_EXECUTED", {"task": str(ctx.task_id), "failed": True, "error": error[:500]},
-                                   object_type="task", object_id=str(ctx.task_id), producer="kernel")
+                self._append_ledger(str(ctx.task_id), {"task": str(ctx.task_id), "failed": True, "error": error[:500]},
+                                    {"object_type": "task", "object_id": str(ctx.task_id), "producer": "kernel"}, [])
             except Exception:
                 log.exception("ledger failure capture failed")

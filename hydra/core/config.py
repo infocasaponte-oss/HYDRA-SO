@@ -80,6 +80,8 @@ class Settings(BaseSettings):
     """License profiles and registered component licenses."""
     capture: bool = True
     """Capture pipeline: world model, artifacts (CAS), corpus, ledger, flight recorder."""
+    capture_outbox_poll_s: float = 2.0
+    """How often deferred capture writes (ledger/corpus) are retried from the outbox."""
     corpus_auto_training_max_sensitivity: int = 0
     """Own executions at or below this sensitivity are trainable by default (0 = PUBLIC)."""
     deterministic_first: bool = False

@@ -103,6 +103,7 @@ class HydraRuntime:
     tenants: Any = None
     tracer: Any = None
     executor: Any = None
+    capture_outbox: Any = None
     _goal_runner: Any = None
     _bg: list[Any] = field(default_factory=list)
 
@@ -239,6 +240,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     # ---- HYDRA 1.0 planes: ledger, artifacts, world, corpus, IP, governance ---------------
     from hydra.artifacts.store import ArtifactStore
     from hydra.core.capture import CapturePipeline
+    from hydra.core.capture_outbox import CaptureOutbox
     from hydra.corpus.capture import CapturePolicy
     from hydra.corpus.dedup import ContaminationGuard, Deduplicator
     from hydra.corpus.factory import DatasetFactory
@@ -299,7 +301,8 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         world=world, compiler=knowledge, corpus=corpus, ledger=ledger, artifacts=artifact_store,
         flight_dir=data / "flight",
         capture_policy=CapturePolicy(auto_training_max_sensitivity=settings.corpus_auto_training_max_sensitivity),
-        policy_version=policy_dsl.version, config_ref=config_ref, registry=registry)
+        policy_version=policy_dsl.version, config_ref=config_ref, registry=registry,
+        outbox=CaptureOutbox(data / "capture_outbox.db", ledger=ledger, corpus=corpus))
 
     # ---- cognition ------------------------------------------------------------------
     model_compiler = ModelCompiler()
@@ -369,6 +372,18 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.observability.tracing import CognitiveTracer
 
     runtime.tracer = CognitiveTracer(settings.otel_endpoint or None, registry=registry)
+    runtime.capture_outbox = capture.outbox
+    if settings.capture:
+        import asyncio
+
+        async def capture_outbox_loop() -> None:  # retries deferred ledger/corpus writes
+            while True:
+                try:
+                    await asyncio.to_thread(capture.outbox.drain)
+                except Exception:
+                    log.exception("capture outbox drain failed")
+                await asyncio.sleep(settings.capture_outbox_poll_s)
+        runtime._bg.append(asyncio.create_task(capture_outbox_loop()))
     await bus.subscribe(None, runtime.tracer.observe)
     if not settings.offline and "registry" not in overrides:
         import asyncio

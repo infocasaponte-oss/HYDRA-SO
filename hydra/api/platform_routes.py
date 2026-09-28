@@ -454,6 +454,14 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     async def ledger_verify(request: Request):
         return rt(request).ledger.verify().model_dump()
 
+    @app.get("/hydra/v1/capture/outbox", dependencies=secured)
+    async def capture_outbox(request: Request, limit: int = 100):
+        """Capture writes (ledger/corpus) waiting for retry, and those that exhausted their retries."""
+        outbox = rt(request).capture_outbox
+        if outbox is None:
+            return {"pending": 0, "dead_letters": 0, "messages": []}
+        return {**outbox.stats(), "messages": outbox.dead_letters(limit)}
+
     @app.get("/hydra/v1/ledger/events", dependencies=secured)
     async def ledger_events(request: Request, object_type: str | None = None, object_id: str | None = None,
                             event_type: str | None = None, limit: int = 200):
