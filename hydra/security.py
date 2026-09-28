@@ -6,7 +6,6 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, status
 
-
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
