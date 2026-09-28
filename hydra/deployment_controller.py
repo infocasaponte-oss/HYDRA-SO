@@ -8,6 +8,7 @@ from hydra.deployment_evidence import (
     canary_passes,
     shadow_passes,
 )
+from hydra.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.deployment_registry import DeploymentRegistry
 
 
@@ -16,9 +17,11 @@ class DeploymentController:
         self,
         registry: DeploymentRegistry,
         policy: DeploymentPolicy | None = None,
+        evidence_store: DeploymentEvidenceStore | None = None,
     ):
         self.registry = registry
         self.policy = policy or DeploymentPolicy()
+        self.evidence_store = evidence_store
 
     def begin_shadow(self, deployment: Deployment) -> None:
         deployment.transition(DeploymentState.SHADOW)
@@ -31,6 +34,8 @@ class DeploymentController:
         if not shadow_passes(evidence, self.policy):
             raise ValueError("Shadow evidence did not pass deployment policy")
         deployment.metadata["shadow_samples"] = evidence.samples
+        if self.evidence_store is not None:
+            self.evidence_store.append_shadow(str(deployment.variant_id), evidence)
         deployment.transition(DeploymentState.CANARY)
 
     def activate(
@@ -41,4 +46,6 @@ class DeploymentController:
         if not canary_passes(evidence, self.policy):
             raise ValueError("Canary evidence did not pass deployment policy")
         deployment.metadata["canary_requests"] = evidence.requests
+        if self.evidence_store is not None:
+            self.evidence_store.append_canary(str(deployment.variant_id), evidence)
         return self.registry.activate(str(deployment.variant_id))
