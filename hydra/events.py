@@ -22,6 +22,7 @@ class EventEnvelope(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     payload_hash: str
     previous_hash: str | None = None
+    source_message_id: UUID | None = None
     event_hash: str = ""
 
 
@@ -70,9 +71,14 @@ class JsonlEventStore:
         producer: str,
         trace_id: str,
         payload: dict[str, Any] | None = None,
+        source_message_id: UUID | None = None,
     ) -> EventEnvelope:
         body = payload or {}
         with self._lock:
+            if source_message_id is not None:
+                existing = self.by_source_message_id(source_message_id)
+                if existing is not None:
+                    return existing
             self._sequence += 1
             event = EventEnvelope(
                 event_type=event_type,
@@ -83,6 +89,7 @@ class JsonlEventStore:
                 payload=body,
                 payload_hash=canonical_hash(body),
                 previous_hash=self._last_hash,
+                source_message_id=source_message_id,
             )
             event.event_hash = canonical_hash(_event_body(event))
             with self.path.open("a", encoding="utf-8") as handle:
@@ -90,6 +97,18 @@ class JsonlEventStore:
                 handle.flush()
             self._last_hash = event.event_hash
             return event
+
+    def by_source_message_id(self, source_message_id: UUID) -> EventEnvelope | None:
+        if not self.path.exists():
+            return None
+        with self.path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                event = EventEnvelope.model_validate_json(line)
+                if event.source_message_id == source_message_id:
+                    return event
+        return None
 
     def for_aggregate(self, aggregate_id: UUID) -> list[EventEnvelope]:
         if not self.path.exists():
