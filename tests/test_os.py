@@ -350,8 +350,9 @@ async def test_eval_engine_profiles_a_model(runtime):
 # ------------------------------------------------------------------ HYDRA Lab
 async def test_lab_shadow_canary_promotion(runtime):
     lab = runtime.lab
+    # Offline latencies are a few ms, so a +25% latency gate would make this flow test flaky.
     exp = lab.create("stricter acceptance", "policy", {"accept_confidence": 0.7},
-                     gates=Gates(shadow_samples=3, canary_samples=3))
+                     gates=Gates(shadow_samples=3, canary_samples=3, latency_increase=100.0))
     exp = await lab.run_benchmark(exp.id, ["reasoning"])
     assert exp.status == ExperimentStatus.SHADOW
     for i in range(4):
