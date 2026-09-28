@@ -98,6 +98,7 @@ async def ready(response: Response) -> dict:
         llm_healthy=bool(llm_healthy),
         worker_running=worker_running,
         max_pending=settings.readiness_max_pending,
+        max_oldest_pending_age_seconds=settings.readiness_max_pending_age_seconds,
     )
     if not status.ready:
         response.status_code = 503
@@ -110,6 +111,7 @@ async def ready(response: Response) -> dict:
         "provenance_integrity": status.provenance_integrity,
         "llm_healthy": status.llm_healthy,
         "worker_running": status.worker_running,
+        "oldest_pending_age_seconds": status.oldest_pending_age_seconds,
     }
 
 
