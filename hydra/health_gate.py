@@ -17,7 +17,7 @@ async def wait_for_health(
         while monotonic() < deadline:
             try:
                 response = await client.get(url)
-                if response.status_code < 500:
+                if 200 <= response.status_code < 300:
                     return True
             except httpx.HTTPError:
                 pass
