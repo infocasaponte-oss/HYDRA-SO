@@ -51,6 +51,28 @@ class ArtifactStore:
         )
         return record
 
+    def get_bytes(self, sha256: str, *, max_bytes: int | None = None) -> bytes:
+        if len(sha256) != 64:
+            raise ValueError("Artifact SHA-256 must contain 64 hex characters")
+        try:
+            int(sha256, 16)
+        except ValueError as exc:
+            raise ValueError("Artifact SHA-256 must be hexadecimal") from exc
+
+        blob = self.root / "sha256" / sha256[:2] / sha256
+        if not blob.is_file():
+            raise FileNotFoundError(f"Artifact blob not found: {sha256}")
+        if max_bytes is not None and blob.stat().st_size > max_bytes:
+            raise ValueError("Artifact exceeds read limit")
+        return blob.read_bytes()
+
+    def get_text(self, sha256: str, *, max_bytes: int | None = None) -> str:
+        data = self.get_bytes(sha256, max_bytes=max_bytes)
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Artifact is not valid UTF-8 text") from exc
+
     def put_text(self, *, task_id: UUID, kind: str, text: str, metadata: dict | None = None):
         return self.put_bytes(
             task_id=task_id,
