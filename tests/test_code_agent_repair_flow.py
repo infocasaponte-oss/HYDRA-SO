@@ -47,6 +47,14 @@ class RepairSandbox:
         assert paths == ["app.py"]
         return SandboxResult(True, "syntax ok", 0)
 
+    async def ruff_check(self, paths):
+        assert paths == ["app.py"]
+        return SandboxResult(True, "ruff ok", 0)
+
+    async def mypy_check(self, paths):
+        assert paths == ["app.py"]
+        return SandboxResult(True, "mypy ok", 0)
+
 
 @pytest.mark.asyncio
 async def test_code_agent_demonstrates_repair_and_uses_source_context(tmp_path):
@@ -97,3 +105,5 @@ async def test_code_agent_demonstrates_repair_and_uses_source_context(tmp_path):
     assert "verification-report" in kinds
     assert "syntax-check" in kinds
     assert "tests-targeted" in kinds
+    assert "ruff-check" in kinds
+    assert "mypy-check" in kinds
