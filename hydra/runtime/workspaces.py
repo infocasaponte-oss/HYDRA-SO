@@ -1,11 +1,12 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from __future__ import annotations
 
-import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
+
+from hydra.tools.workspace import scan_source, validate_no_symlinks
 
 _BLOCKED_NAMES = {".git", ".venv", "__pycache__", ".pytest_cache", "runtime"}
 
@@ -42,48 +43,13 @@ class WorkspaceManager:
         self.max_bytes = max_bytes
 
     def _scan_source(self, source: Path) -> WorkspaceStats:
-        files = 0
-        total_bytes = 0
-
-        if source.is_symlink():
-            raise ValueError("Workspace source may not be a symlink")
-
-        for directory, dirnames, filenames in os.walk(source, followlinks=False):
-            directory_path = Path(directory)
-
-            allowed_dirs: list[str] = []
-            for name in dirnames:
-                path = directory_path / name
-                if path.is_symlink():
-                    raise ValueError(f"Workspace source contains symlink: {path}")
-                if name not in _BLOCKED_NAMES:
-                    allowed_dirs.append(name)
-            dirnames[:] = allowed_dirs
-
-            for name in filenames:
-                if name in _BLOCKED_NAMES:
-                    continue
-                path = directory_path / name
-                if path.is_symlink():
-                    raise ValueError(f"Workspace source contains symlink: {path}")
-                if not path.is_file():
-                    raise ValueError(f"Workspace source contains non-regular file: {path}")
-                files += 1
-                total_bytes += path.stat().st_size
-                if files > self.max_files:
-                    raise ValueError("Workspace source exceeds maximum file count")
-                if total_bytes > self.max_bytes:
-                    raise ValueError("Workspace source exceeds maximum byte size")
-
+        files, total_bytes = scan_source(
+            source, _BLOCKED_NAMES, max_files=self.max_files, max_bytes=self.max_bytes
+        )
         return WorkspaceStats(files=files, bytes=total_bytes)
 
     def _validate_no_symlinks(self, root: Path) -> None:
-        for directory, dirnames, filenames in os.walk(root, followlinks=False):
-            directory_path = Path(directory)
-            for name in [*dirnames, *filenames]:
-                path = directory_path / name
-                if path.is_symlink():
-                    raise ValueError(f"Copied workspace contains symlink: {path}")
+        validate_no_symlinks(root)
 
     def create(self, task_id: UUID, source: str | Path) -> TaskWorkspace:
         raw_source = Path(source)

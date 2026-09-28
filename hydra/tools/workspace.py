@@ -16,6 +16,7 @@ import asyncio
 import difflib
 import fnmatch
 import json
+import os
 import re
 import shutil
 from pathlib import Path
@@ -56,18 +57,67 @@ class Workspace(BaseModel):
         return self.root / "metadata"
 
 
+MAX_SNAPSHOT_FILES = 20_000
+_TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def scan_source(source: Path, blocked: set[str] = IGNORE, *, max_files: int = MAX_SNAPSHOT_FILES,
+                max_bytes: int = MAX_SNAPSHOT_BYTES) -> tuple[int, int]:
+    """Reject symlinks, non-regular files and oversized trees before anything is copied.
+
+    Returns ``(files, bytes)``. Blocked directory names are skipped, never traversed."""
+    if source.is_symlink():
+        raise ValueError("Workspace source may not be a symlink")
+    files = total = 0
+    for directory, dirnames, filenames in os.walk(source, followlinks=False):
+        here = Path(directory)
+        kept = []
+        for name in dirnames:
+            if (here / name).is_symlink():
+                raise ValueError(f"Workspace source contains symlink: {here / name}")
+            if name not in blocked:
+                kept.append(name)
+        dirnames[:] = kept
+        for name in filenames:
+            if name in blocked:
+                continue
+            path = here / name
+            if path.is_symlink():
+                raise ValueError(f"Workspace source contains symlink: {path}")
+            if not path.is_file():
+                raise ValueError(f"Workspace source contains non-regular file: {path}")
+            files += 1
+            total += path.stat().st_size
+            if files > max_files:
+                raise ValueError("Workspace source exceeds maximum file count")
+            if total > max_bytes:
+                raise ValueError(f"Workspace source exceeds maximum byte size ({max_bytes // 2**20} MB)")
+    return files, total
+
+
+def validate_no_symlinks(root: Path) -> None:
+    for directory, dirnames, filenames in os.walk(root, followlinks=False):
+        for name in [*dirnames, *filenames]:
+            if (Path(directory) / name).is_symlink():
+                raise ValueError(f"Copied workspace contains symlink: {Path(directory) / name}")
+
+
+def contained(base: Path, rel: str) -> Path:
+    """Resolve ``rel`` under ``base``; reject absolute paths and ``..`` escapes."""
+    target = (base / rel).resolve()
+    if target != base.resolve() and base.resolve() not in target.parents:
+        raise ValueError(f"path escapes workspace: {rel}")
+    return target
+
+
 def _copy(src: Path, dst: Path) -> int:
-    total = 0
+    _, total = scan_source(src)
 
     def ignore(d, names):
         return [n for n in names if n in IGNORE]
 
-    for p in src.rglob("*"):
-        if p.is_file() and not any(part in IGNORE for part in p.parts):
-            total += p.stat().st_size
-            if total > MAX_SNAPSHOT_BYTES:
-                raise ValueError(f"workspace source too large (> {MAX_SNAPSHOT_BYTES // 2**20} MB)")
-    shutil.copytree(src, dst, ignore=ignore, dirs_exist_ok=True)
+    shutil.copytree(src, dst, ignore=ignore, symlinks=True, dirs_exist_ok=True)
+    validate_no_symlinks(dst)
     return total
 
 
@@ -77,13 +127,15 @@ class WorkspaceManager:
         root.mkdir(parents=True, exist_ok=True)
 
     def create(self, task_id: str, source: Path | None = None, files: dict[str, str] | None = None) -> Workspace:
+        if not _TASK_ID.match(task_id):
+            raise ValueError(f"invalid task id for workspace: {task_id!r}")
         ws = Workspace(task_id=task_id, root=self.root / task_id, source=str(source) if source else None)
         for d in (ws.input, ws.working, ws.outputs, ws.metadata):
             d.mkdir(parents=True, exist_ok=True)
         if source is not None:
             _copy(source, ws.input)
         for rel, content in (files or {}).items():
-            p = ws.input / rel
+            p = contained(ws.input, rel)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content, encoding="utf-8")
         shutil.copytree(ws.input, ws.working, dirs_exist_ok=True)
@@ -91,6 +143,8 @@ class WorkspaceManager:
         return ws
 
     def get(self, task_id: str) -> Workspace | None:
+        if not _TASK_ID.match(task_id):
+            return None
         p = self.root / task_id / "metadata" / "workspace.json"
         return Workspace.model_validate_json(p.read_text(encoding="utf-8")) if p.exists() else None
 
