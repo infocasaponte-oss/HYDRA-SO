@@ -68,7 +68,11 @@ workspaces = WorkspaceManager(
 )
 learning = LearningCapture()
 replay_store = ReplayStore()
-deployment_store = DeploymentStore(settings.deployments_file)
+deployment_artifact_validator = DeploymentArtifactValidator(settings.models_dir)
+deployment_store = DeploymentStore(
+    settings.deployments_file,
+    validator=deployment_artifact_validator,
+)
 deployment_registry = deployment_store.load()
 deployment_evidence_store = DeploymentEvidenceStore(settings.runtime_db)
 operating_metrics_store = OperatingMetricsStore(settings.runtime_db)
@@ -76,7 +80,6 @@ deployment_controller = DeploymentController(
     deployment_registry,
     evidence_store=deployment_evidence_store,
 )
-deployment_artifact_validator = DeploymentArtifactValidator(settings.models_dir)
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(capture_uow=capture_uow)
 runtime_health_store = RuntimeHealthStore(settings.runtime_db)
@@ -414,7 +417,13 @@ async def register_deployment(
             metadata={
                 "gguf_architecture": artifact.architecture,
                 "gguf_context_length": artifact.context_length,
+                "gguf_embedding_length": artifact.embedding_length,
+                "gguf_block_count": artifact.block_count,
                 "gguf_file_type": artifact.file_type,
+                "gguf_tensor_count": artifact.tensor_count,
+                "gguf_fingerprint": deployment_artifact_validator.artifact_fingerprint(
+                    artifact
+                ),
             },
         )
         deployment_registry.add(deployment)
