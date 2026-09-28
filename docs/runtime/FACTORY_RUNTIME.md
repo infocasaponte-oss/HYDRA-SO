@@ -1,5 +1,7 @@
 # Model Factory Runtime
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 The runtime closes several pre-alpha correctness gaps.
 
 ## BuildSupervisor

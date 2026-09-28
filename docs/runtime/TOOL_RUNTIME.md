@@ -1,5 +1,7 @@
 # HYDRA Tool Runtime
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 The Tool Runtime is the only permitted bridge between cognition and host-side actions.
 
 ## Current tools

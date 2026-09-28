@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.sandbox import SandboxResult
 from hydra.runtime.static_analysis import AnalysisKind, from_sandbox
 

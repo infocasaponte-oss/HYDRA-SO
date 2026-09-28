@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from uuid import uuid4
 
 from hydra.runtime.corpus import CorpusGate, CorpusRecord, CorpusStore

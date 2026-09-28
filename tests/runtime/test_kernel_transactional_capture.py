@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 import pytest
 
 from hydra.runtime.capture_uow import CaptureUnitOfWork

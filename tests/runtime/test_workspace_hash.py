@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.workspace_hash import workspace_sha256
 
 

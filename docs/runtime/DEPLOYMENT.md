@@ -1,5 +1,7 @@
 # HYDRA Deployment Lifecycle
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Model quality promotion and production deployment are separate decisions.
 
 PROMOTED -> CANDIDATE -> SHADOW -> CANARY -> ACTIVE -> DEPRECATED -> RETIRED

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.benchmark_suite import RTX3060TI_ALPHA_SUITE
 from hydra.runtime.model_factory import BuildState, ModelLineage, ModelVariant
 from hydra.runtime.physical_registry import PhysicalModelRegistry

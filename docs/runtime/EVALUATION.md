@@ -1,5 +1,7 @@
 # HYDRA Evaluation and Promotion
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Performance never overrides correctness.
 
 A physical model variant must pass:

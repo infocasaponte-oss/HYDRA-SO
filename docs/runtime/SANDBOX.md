@@ -1,5 +1,7 @@
 # HYDRA OCI Sandbox
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 HYDRA's coding verifier can run repository tests in an ephemeral Docker-compatible container.
 
 Security defaults:

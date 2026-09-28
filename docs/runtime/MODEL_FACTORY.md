@@ -1,5 +1,7 @@
 # HYDRA Model Factory
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 The Model Factory never treats a filename as proof that a model was built.
 
 A promotable variant requires:

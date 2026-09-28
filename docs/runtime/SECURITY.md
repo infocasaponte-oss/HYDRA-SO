@@ -1,5 +1,7 @@
 # Security Policy
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 HYDRA is currently pre-alpha.
 
 ## Current constraints

@@ -1,5 +1,7 @@
 # HYDRA Runtime v0.3.1
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 ## Local development
 
 HYDRA deliberately binds its API to localhost during pre-alpha.

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from fastapi.testclient import TestClient
 
 from hydra.runtime import api

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

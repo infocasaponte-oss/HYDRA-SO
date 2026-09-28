@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.circuit_breaker import CircuitState
 from hydra.runtime.runtime_health import RuntimeHealth
 from hydra.runtime.runtime_health_store import RuntimeHealthStore

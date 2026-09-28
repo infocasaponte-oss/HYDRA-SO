@@ -1,5 +1,7 @@
 # HYDRA-SO
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 **HYDRA** es un sistema operativo cognitivo híbrido orientado a orquestar modelos locales/cloud, herramientas, memoria, verificación, corpus de entrenamiento y trazabilidad de modelos/datos/IP.
 
 > Estado: **pre-alpha / research & engineering prototype**.

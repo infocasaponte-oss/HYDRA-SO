@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 import tempfile
 from pathlib import Path
 from uuid import uuid4

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.llama_factory import LlamaCppFactory
 from hydra.runtime.quant_profiles import RTX3060TI_PROFILES
 

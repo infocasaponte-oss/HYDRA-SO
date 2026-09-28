@@ -1,5 +1,7 @@
 # HYDRA Architecture
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 HYDRA separates four planes.
 
 ## Cognitive Plane

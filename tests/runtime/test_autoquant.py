@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.autoquant import AutoQuant, HardwareTarget
 from hydra.runtime.benchmarking import BenchmarkResult
 from hydra.runtime.optimization_report import OptimizationReportStore

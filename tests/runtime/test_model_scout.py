@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 import struct
 
 from hydra.runtime.model_scout import scan_models

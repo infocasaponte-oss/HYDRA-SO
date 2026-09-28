@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.events import JsonlEventStore
 from hydra.runtime.security_audit import SecurityAudit
 

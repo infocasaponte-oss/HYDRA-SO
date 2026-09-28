@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.contracts import HydraTask, TaskType
 from hydra.runtime.router import CapabilityRouter
 

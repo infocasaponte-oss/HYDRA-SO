@@ -1,5 +1,7 @@
 # Roadmap
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 ## v0.4.0-dev — Cognitive Runtime Hardening
 
 Implemented in the current development line:

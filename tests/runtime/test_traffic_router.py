@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.deployment import Deployment, DeploymentState
 from hydra.runtime.deployment_registry import DeploymentRegistry
 from hydra.runtime.model_factory import BuildState, ModelLineage, ModelVariant

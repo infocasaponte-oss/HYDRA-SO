@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.contracts import HydraTask, TaskStatus, TaskType
 from hydra.runtime.events import JsonlEventStore
 from hydra.runtime.kernel import HydraKernel

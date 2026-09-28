@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from hydra.runtime.observability import CognitiveTracer, TraceStore
 from hydra.runtime.operating_metrics import collect_operating_metrics
 from hydra.runtime.outbox import TransactionalOutbox

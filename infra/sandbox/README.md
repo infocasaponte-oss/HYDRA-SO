@@ -1,5 +1,7 @@
 # HYDRA sandbox image
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Build locally:
 
     docker build -t hydra-sandbox:py311-v2 -f infra/sandbox/Dockerfile .
