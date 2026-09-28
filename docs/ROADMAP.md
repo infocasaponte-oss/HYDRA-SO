@@ -1,35 +1,64 @@
 # Roadmap
 
-## v0.3.1 — Audit Hardening
+## v0.4.0-dev — Cognitive Runtime Hardening
 
-- reproducible runtime build
-- real GGUF metadata inspection
-- real per-artifact benchmarks
-- process supervision
-- request budgets and local-only defaults
-- translation glossary and document chunking
+Implemented in the current development line:
 
-## v0.4 — Cognitive Kernel
+- typed task contracts and task state machine
+- deterministic capability router and planner
+- physical model deployment lifecycle with shadow/canary/rollback
+- health-aware runtime routing and circuit breakers
+- RTX 3060 Ti Model Factory/AutoQuant contracts and measured-vs-planned gates
+- transactional SQLite outbox with retries, dead-letter queue and startup recovery
+- hash-chained Event Store and Provenance verification
+- replay manifests with physical model and coding-verification identity
+- API liveness/readiness separation
+- API/admin token policy and rate limiting
+- protected dead-letter administration
+- bounded workspaces with symlink/file/byte limits
+- HYDRA sandbox image contract with preflight
+- CodeAgent bounded source context
+- patch-policy hardening
+- layered coding verification: failing baseline, targeted test, full suite and syntax check
+- conservative corpus rights gate and persistent exact deduplication
+- dataset manifest factory
 
-- typed task contracts
-- state machine
-- router
-- planner/replanner
-- sandboxed tool runtime
-- verification graph
-- event store
+Still pre-alpha / not production-ready:
+
+- replace local SQLite/JSONL stores with durable multi-process storage
+- inter-process/file locking and transactional event materialization
+- immutable/signed container and model artifact digests
+- real GPU CI/benchmark execution on an RTX 3060 Ti
+- broader HYDRA-E2E evaluation suite
+- authentication suitable for multi-user deployments
+- persistent distributed rate limiting
+- full World Model / Belief Graph
+- full memory compiler and hybrid retrieval
+- production secrets broker
+- multi-node GPU scheduler
+- signed IP/license ledger and release gate
+
+## v0.4.x — Verification and Operating Plane
+
+- targeted test selection improvements
+- static/type analysis adapters
+- richer replay executor
+- operational metrics and tracing
+- persistent deployment evidence
+- runtime/model lifecycle API
 
 ## v0.5 — Learning Plane
 
 - memory compiler
-- corpus engine
-- provenance/IP ledger
-- dataset factory
-- replay/counterfactual evaluation
+- semantic/episodic/procedural stores
+- richer corpus quality tiers and privacy scanning
+- SFT/preference/process dataset compilers
+- evaluation contamination guard
+- model/dataset release attestations
 
 ## v0.6+
 
-- Model Factory and capability discovery
+- capability discovery
 - Cognitive JIT specialists
 - GPU-aware distributed scheduler
 - multimodal/VLM
