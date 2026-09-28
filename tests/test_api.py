@@ -96,3 +96,20 @@ def test_models_tools_memory_endpoints(client):
     g = client.get("/v1/memory/graph", params={"node": "Redis", "predicate": "depends_on"}).json()
     assert g["dependents"] == ["HydraAPI"]
     assert client.get("/v1/memory/search", params={"q": "Redis"}).json()
+
+
+def test_api_rate_limit_is_enforced(tmp_path):
+    settings = Settings(
+        offline=True,
+        sandbox_backend="subprocess",
+        workspace_dir=tmp_path / "ws",
+        data_dir=tmp_path / "data",
+        api_key="secret",
+        api_rate_limit_per_minute=1,
+    )
+    with TestClient(create_app(settings, sandbox=SubprocessSandbox())) as c:
+        headers = {"X-API-Key": "secret"}
+        assert c.get("/v1/models", headers=headers).status_code == 200
+        limited = c.get("/v1/models", headers=headers)
+        assert limited.status_code == 429
+        assert limited.json()["detail"] == "HYDRA rate limit exceeded"
