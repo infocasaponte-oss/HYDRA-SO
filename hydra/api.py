@@ -11,6 +11,7 @@ from hydra.coding_request import CodingRequest, resolve_repository
 from hydra.config import settings
 from hydra.contracts import HydraTask
 from hydra.kernel import HydraKernel
+from hydra.learning_capture import LearningCapture
 from hydra.model_scout import scan_models
 from hydra.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.provider import LocalLLM
@@ -30,6 +31,7 @@ kernel = HydraKernel()
 artifacts = ArtifactStore()
 provenance = ProvenanceLedger()
 workspaces = WorkspaceManager()
+learning = LearningCapture()
 
 
 class ChatRequest(BaseModel):
@@ -142,6 +144,16 @@ async def verify_code_fix(req: CodingRequest) -> dict:
             source=source,
             max_tokens=budget.output_tokens(req.max_tokens),
         )
+        belief_id = None
+        corpus_status = None
+        if result.accepted:
+            belief, corpus_record = learning.capture_verified_patch(
+                task_id=task_id,
+                artifacts=result.artifacts,
+            )
+            belief_id = str(belief.belief_id)
+            corpus_status = corpus_record.status.value
+
         provenance.append(
             ProvenanceRecord(
                 task_id=task_id,
@@ -161,6 +173,8 @@ async def verify_code_fix(req: CodingRequest) -> dict:
             "accepted": result.accepted,
             "answer": result.answer,
             "artifact_ids": [str(a.artifact_id) for a in result.artifacts],
+            "belief_id": belief_id,
+            "corpus_status": corpus_status,
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
