@@ -20,6 +20,10 @@ class OutboxMessage:
     payload: dict[str, Any]
     created_at: str
     published_at: str | None = None
+    attempts: int = 0
+    next_attempt_at: str | None = None
+    last_error: str | None = None
+    dead_lettered_at: str | None = None
 
 
 class TransactionalOutbox:
@@ -46,7 +50,11 @@ class TransactionalOutbox:
                     trace_id TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    published_at TEXT
+                    published_at TEXT,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    next_attempt_at TEXT,
+                    last_error TEXT,
+                    dead_lettered_at TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_outbox_unpublished
                     ON outbox(published_at, created_at);
@@ -102,23 +110,70 @@ class TransactionalOutbox:
 
     def pending(self, limit: int = 100) -> list[OutboxMessage]:
         with self._connect() as connection:
+            now = datetime.now(UTC).isoformat()
             rows = connection.execute(
                 """
                 SELECT * FROM outbox
                 WHERE published_at IS NULL
+                  AND dead_lettered_at IS NULL
+                  AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
                 ORDER BY created_at, id
                 LIMIT ?
                 """,
-                (limit,),
+                (now, limit),
             ).fetchall()
         return [self._row_to_message(row) for row in rows]
 
     def mark_published(self, message_id: UUID) -> None:
         with self._connect() as connection:
             connection.execute(
-                "UPDATE outbox SET published_at = ? WHERE id = ?",
+                """
+                UPDATE outbox
+                SET published_at = ?, last_error = NULL, next_attempt_at = NULL
+                WHERE id = ?
+                """,
                 (datetime.now(UTC).isoformat(), str(message_id)),
             )
+
+    def record_failure(
+        self,
+        message_id: UUID,
+        *,
+        error: str,
+        next_attempt_at: str | None,
+        dead_letter: bool,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                UPDATE outbox
+                SET attempts = attempts + 1,
+                    last_error = ?,
+                    next_attempt_at = ?,
+                    dead_lettered_at = CASE WHEN ? THEN ? ELSE dead_lettered_at END
+                WHERE id = ?
+                """,
+                (
+                    error[:2000],
+                    next_attempt_at,
+                    1 if dead_letter else 0,
+                    datetime.now(UTC).isoformat() if dead_letter else None,
+                    str(message_id),
+                ),
+            )
+
+    def dead_letters(self, limit: int = 100) -> list[OutboxMessage]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM outbox
+                WHERE dead_lettered_at IS NOT NULL
+                ORDER BY dead_lettered_at, id
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [self._row_to_message(row) for row in rows]
 
     @staticmethod
     def _row_to_message(row: sqlite3.Row) -> OutboxMessage:
@@ -130,4 +185,8 @@ class TransactionalOutbox:
             payload=json.loads(row["payload_json"]),
             created_at=row["created_at"],
             published_at=row["published_at"],
+            attempts=row["attempts"],
+            next_attempt_at=row["next_attempt_at"],
+            last_error=row["last_error"],
+            dead_lettered_at=row["dead_lettered_at"],
         )
