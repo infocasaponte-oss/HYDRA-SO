@@ -25,6 +25,7 @@ from hydra.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.provider import LocalLLM
 from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.readiness import evaluate_readiness
+from hydra.sandbox import OciSandbox
 from hydra.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.security_audit import SecurityAudit
 from hydra.translation import GlossaryStore, TranslationService
@@ -40,7 +41,10 @@ glossaries = GlossaryStore()
 translations = TranslationService(llm, budget, glossaries)
 artifacts = ArtifactStore()
 provenance = ProvenanceLedger()
-workspaces = WorkspaceManager()
+workspaces = WorkspaceManager(
+    max_files=settings.workspace_max_files,
+    max_bytes=settings.workspace_max_bytes,
+)
 learning = LearningCapture()
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(capture_uow=capture_uow)
@@ -283,7 +287,17 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
     trace_id = uuid4().hex
     try:
         source = resolve_repository(settings.repositories_root, req.repository)
-        agent = CodeAgent(llm, workspaces, artifacts, kernel.events)
+        agent = CodeAgent(
+            llm,
+            workspaces,
+            artifacts,
+            kernel.events,
+            sandbox_factory=lambda root: OciSandbox(
+                root,
+                image=settings.sandbox_image,
+                runtime=settings.sandbox_runtime,
+            ),
+        )
         result = await agent.run(
             task_id=task_id,
             trace_id=trace_id,
