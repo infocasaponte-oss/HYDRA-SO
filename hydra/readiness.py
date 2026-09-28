@@ -18,6 +18,7 @@ class ReadinessStatus:
     provenance_integrity: bool
     llm_healthy: bool
     worker_running: bool
+    oldest_pending_age_seconds: float | None
 
 
 def evaluate_readiness(
@@ -28,6 +29,7 @@ def evaluate_readiness(
     llm_healthy: bool,
     worker_running: bool = True,
     max_pending: int = 1000,
+    max_oldest_pending_age_seconds: float = 300.0,
 ) -> ReadinessStatus:
     metrics = collect_outbox_metrics(outbox)
     event_report = events.verify_integrity()
@@ -46,6 +48,11 @@ def evaluate_readiness(
         reasons.append("dead_letters_present")
     if metrics.pending > max_pending:
         reasons.append("outbox_backlog_exceeded")
+    if (
+        metrics.oldest_pending_age_seconds is not None
+        and metrics.oldest_pending_age_seconds > max_oldest_pending_age_seconds
+    ):
+        reasons.append("outbox_backlog_stalled")
 
     return ReadinessStatus(
         ready=not reasons,
@@ -56,4 +63,5 @@ def evaluate_readiness(
         provenance_integrity=provenance_report.valid,
         llm_healthy=llm_healthy,
         worker_running=worker_running,
+        oldest_pending_age_seconds=metrics.oldest_pending_age_seconds,
     )
