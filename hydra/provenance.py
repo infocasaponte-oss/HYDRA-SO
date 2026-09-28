@@ -18,6 +18,7 @@ class ProvenanceRecord(BaseModel):
     inputs: dict = Field(default_factory=dict)
     outputs: dict = Field(default_factory=dict)
     previous_hash: str | None = None
+    source_message_id: UUID | None = None
     record_hash: str = ""
 
 
@@ -53,6 +54,10 @@ class ProvenanceLedger:
 
     def append(self, record: ProvenanceRecord) -> ProvenanceRecord:
         with self._lock:
+            if record.source_message_id is not None:
+                existing = self.by_source_message_id(record.source_message_id)
+                if existing is not None:
+                    return existing
             record.previous_hash = self._last_hash
             record.record_hash = canonical_hash(_record_body(record))
             with self.path.open("a", encoding="utf-8") as handle:
@@ -60,6 +65,20 @@ class ProvenanceLedger:
                 handle.flush()
             self._last_hash = record.record_hash
             return record
+
+    def by_source_message_id(
+        self, source_message_id: UUID
+    ) -> ProvenanceRecord | None:
+        if not self.path.exists():
+            return None
+        with self.path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                record = ProvenanceRecord.model_validate_json(line)
+                if record.source_message_id == source_message_id:
+                    return record
+        return None
 
     def verify_integrity(self) -> ProvenanceIntegrity:
         if not self.path.exists():
