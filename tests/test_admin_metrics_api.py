@@ -23,3 +23,30 @@ def test_admin_metrics_requires_admin_token():
     assert "outbox_pending" in body
     assert "spans_total" in body
     assert "spans_by_name" in body
+
+
+def test_admin_metrics_history_is_protected_and_bounded():
+    original = api.security_config
+    api.security_config = SecurityConfig(api_token=None, admin_token="admin-secret")
+    try:
+        with TestClient(api.app) as client:
+            client.get(
+                "/hydra/v1/admin/metrics",
+                headers={"Authorization": "Bearer admin-secret"},
+            )
+            denied = client.get("/hydra/v1/admin/metrics/history")
+            allowed = client.get(
+                "/hydra/v1/admin/metrics/history?limit=1",
+                headers={"Authorization": "Bearer admin-secret"},
+            )
+            invalid = client.get(
+                "/hydra/v1/admin/metrics/history?limit=0",
+                headers={"Authorization": "Bearer admin-secret"},
+            )
+    finally:
+        api.security_config = original
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+    assert allowed.json()["count"] <= 1
+    assert invalid.status_code == 422
