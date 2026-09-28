@@ -3,7 +3,7 @@ import pytest
 from hydra.benchmarking import BenchmarkResult
 from hydra.model_factory import BuildState, ModelLineage, ModelVariant
 from hydra.promotion import PromotionDenied
-from hydra.promotion_gate import apply_promotion_gate
+from hydra.promotion_gate import PromotionPolicy, apply_promotion_gate
 
 
 def model() -> ModelVariant:
@@ -37,3 +37,19 @@ def test_low_quality_cannot_be_promoted():
 
 def test_quality_passing_variant_is_promoted():
     assert apply_promotion_gate(model(), benchmark(0.9)).state == BuildState.PROMOTED
+
+
+def test_vram_ceiling_blocks_promotion():
+    too_large = benchmark(0.9).model_copy(update={"peak_vram_mb": 7900})
+    with pytest.raises(PromotionDenied):
+        apply_promotion_gate(model(), too_large)
+
+
+def test_vram_ceiling_is_configurable():
+    result = benchmark(0.9).model_copy(update={"peak_vram_mb": 7900})
+    promoted = apply_promotion_gate(
+        model(),
+        result,
+        PromotionPolicy(max_peak_vram_mb=8000),
+    )
+    assert promoted.state == BuildState.PROMOTED
