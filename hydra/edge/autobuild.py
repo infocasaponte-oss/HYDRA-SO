@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from hydra.core.hashing import canonical_json, now_iso, sha256_hex
 from hydra.edge.profiles import HardwareProfile, detect_profile, llama_server_args
+from hydra.runtime.gpu_telemetry import PeakVramMonitor
 
 PROMPT = "Reply with exactly ten short English words about local AI inference."
 
@@ -41,7 +42,8 @@ class BuildCandidate(BaseModel):
             return -1e9
         tok_s = float(b.get("tokens_per_second", 0.0))
         ttft = float(b.get("ttft_ms", 99999.0))
-        vram = float(b.get("vram_peak_mb", 99999.0))
+        vram = b.get("vram_peak_mb")
+        vram = 99999.0 if vram is None else float(vram)  # unknown VRAM scores as worst case
         ctx_bonus = min(self.context, 32768) / 8192 * 2.0
         offload_penalty = 0.0 if b.get("fully_on_gpu", True) else 15.0
         ratio = float(b.get("vram_ratio", 0.0))
@@ -58,15 +60,6 @@ def candidates_for(profile: HardwareProfile) -> list[BuildCandidate]:
     base = profile.context
     return [BuildCandidate(quant=profile.quant, context=c, gpu_layers=profile.gpu_layers, kv_k=profile.kv_k,
                            kv_v=profile.kv_v) for c in sorted({max(2048, base // 2), base, base * 2})]
-
-
-def _gpu_used_mb() -> int:
-    try:
-        out = subprocess.run(["nvidia-smi", "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
-                             capture_output=True, text=True, timeout=5).stdout.strip().splitlines()
-        return int(float(out[0]))
-    except Exception:
-        return 0
 
 
 async def bench_ollama(model: str, c: BuildCandidate, base_url: str = "http://localhost:11434",
@@ -114,20 +107,30 @@ async def bench_llama_server(server: str, model_path: str, c: BuildCandidate, pr
                 await asyncio.sleep(0.5)
             else:
                 return {"stable": False, "error": "server_start_timeout", "candidate": c.model_dump()}
-            before = _gpu_used_mb()
+            # sample VRAM while generating (peak, not before/after), failing closed without telemetry
+            monitor = PeakVramMonitor(interval_seconds=0.1)
+            sampling = asyncio.create_task(monitor.run())
             t0 = time.perf_counter()
-            r = await cl.post(f"http://127.0.0.1:{port}/v1/chat/completions", json={
-                "model": "local", "messages": [{"role": "user", "content": PROMPT}], "temperature": 0,
-                "max_tokens": 64})
+            try:
+                r = await cl.post(f"http://127.0.0.1:{port}/v1/chat/completions", json={
+                    "model": "local", "messages": [{"role": "user", "content": PROMPT}], "temperature": 0,
+                    "max_tokens": 64})
+            finally:
+                monitor.stop()
+                await sampling
             r.raise_for_status()
             d = r.json()
             elapsed = time.perf_counter() - t0
             timings = d.get("timings", {})
-            return {"stable": True, "tokens_per_second": round(timings.get("predicted_per_second", 0) or
-                                                               d["usage"]["completion_tokens"] / max(elapsed, 1e-3), 2),
-                    "ttft_ms": round(timings.get("prompt_ms", elapsed * 1000), 1),
-                    "vram_peak_mb": max(before, _gpu_used_mb()), "fully_on_gpu": c.gpu_layers >= 99,
-                    "candidate": c.model_dump(), "sample": d["choices"][0]["message"]["content"][:120]}
+            result = {"stable": True, "tokens_per_second": round(timings.get("predicted_per_second", 0) or
+                                                                 d["usage"]["completion_tokens"] / max(elapsed, 1e-3), 2),
+                      "ttft_ms": round(timings.get("prompt_ms", elapsed * 1000), 1),
+                      "vram_peak_mb": monitor.peak_mb if monitor.samples else None,
+                      "vram_samples": monitor.samples, "fully_on_gpu": c.gpu_layers >= 99,
+                      "candidate": c.model_dump(), "sample": d["choices"][0]["message"]["content"][:120]}
+            if monitor.error or not monitor.samples:
+                result["telemetry_error"] = monitor.error or "no GPU telemetry samples"
+            return result
     except Exception as exc:
         return {"stable": False, "error": f"{type(exc).__name__}: {exc}"[:300], "candidate": c.model_dump()}
     finally:
@@ -136,6 +139,13 @@ async def bench_llama_server(server: str, model_path: str, c: BuildCandidate, pr
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+
+
+def eligible(result: dict[str, Any], profile: HardwareProfile) -> bool:
+    """A GPU configuration without VRAM evidence cannot be selected (fail closed)."""
+    if profile.vram_mb <= 0:
+        return True
+    return "telemetry_error" not in result and result.get("vram_peak_mb") is not None
 
 
 class RuntimeManifest(BaseModel):
@@ -174,7 +184,7 @@ async def autobuild(*, model: str, runtime: str = "ollama", ollama_url: str = "h
             r["vram_ratio"] = round(r["vram_peak_mb"] / profile.vram_mb, 3)
         r["score"] = c.score(r)
         results.append(r)
-    stable = [r for r in results if r.get("stable")]
+    stable = [r for r in results if r.get("stable") and eligible(r, profile)]
     best = max(stable, key=lambda r: r["score"]) if stable else None
     m = RuntimeManifest(runtime=runtime, model=model, hardware=profile.as_dict(), selected=best, all_results=results)
     if signer is not None:
