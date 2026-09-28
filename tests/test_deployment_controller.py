@@ -3,6 +3,7 @@ import pytest
 from hydra.deployment import Deployment, DeploymentState
 from hydra.deployment_controller import DeploymentController
 from hydra.deployment_evidence import CanaryEvidence, ShadowEvidence
+from hydra.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.deployment_registry import DeploymentRegistry
 from hydra.model_factory import BuildState, ModelLineage, ModelVariant
 
@@ -37,3 +38,21 @@ def test_canary_evidence_activates():
     controller.approve_canary(item, ShadowEvidence(20, 0.96, 0.0))
     controller.activate(item, CanaryEvidence(20, 0.0, 500.0))
     assert item.state == DeploymentState.ACTIVE
+
+
+def test_controller_persists_shadow_and_canary_evidence(tmp_path):
+    registry = DeploymentRegistry()
+    item = deployment()
+    registry.add(item)
+    store = DeploymentEvidenceStore(tmp_path / "hydra.db")
+    controller = DeploymentController(registry, evidence_store=store)
+
+    controller.begin_shadow(item)
+    shadow = ShadowEvidence(20, 0.96, 0.0)
+    controller.approve_canary(item, shadow)
+    canary = CanaryEvidence(20, 0.0, 500.0)
+    controller.activate(item, canary)
+
+    variant_id = str(item.variant_id)
+    assert store.latest_shadow(variant_id) == shadow
+    assert store.latest_canary(variant_id) == canary
