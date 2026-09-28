@@ -25,6 +25,7 @@ from hydra.provider import LocalLLM
 from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.readiness import evaluate_readiness
 from hydra.security import SecurityConfig, require_admin_access, require_api_access
+from hydra.security_audit import SecurityAudit
 from hydra.translation import GlossaryStore, TranslationService
 from hydra.workspaces import WorkspaceManager
 
@@ -54,6 +55,7 @@ security_config = SecurityConfig(
     admin_token=settings.admin_token,
 )
 rate_limiter = SlidingWindowRateLimiter()
+security_audit = SecurityAudit(kernel.events)
 api_rate_limit = RateLimit(
     requests=settings.api_rate_limit_per_minute,
     window_seconds=60,
@@ -165,7 +167,13 @@ async def translate(req: TranslationRequest, request: Request) -> dict:
 
 
 @app.put("/v1/glossaries/{glossary_id}")
-async def put_glossary(glossary_id: str, req: GlossaryRequest) -> dict:
+async def put_glossary(
+    glossary_id: str,
+    req: GlossaryRequest,
+    request: Request,
+) -> dict:
+    identity = require_api_access(request, security_config)
+    rate_limiter.check(f"glossary:{identity}", api_rate_limit)
     try:
         return glossaries.save(glossary_id, req.terms)
     except ValueError as exc:
@@ -173,7 +181,9 @@ async def put_glossary(glossary_id: str, req: GlossaryRequest) -> dict:
 
 
 @app.get("/v1/models")
-async def models() -> dict:
+async def models(request: Request) -> dict:
+    identity = require_api_access(request, security_config)
+    rate_limiter.check(f"models:{identity}", api_rate_limit)
     artifacts = scan_models(settings.models_dir)
     return {"count": len(artifacts), "models": [item.as_dict() for item in artifacts]}
 
@@ -215,6 +225,12 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
 
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"coding:{identity}", admin_rate_limit)
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/coding/verify-fix",
+        outcome="allowed",
+        identity_hash=identity,
+    )
 
     task_id = uuid4()
     trace_id = uuid4().hex
