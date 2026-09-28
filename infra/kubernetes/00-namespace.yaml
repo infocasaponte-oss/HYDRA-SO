@@ -1,0 +1,25 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+apiVersion: v1
+kind: Namespace
+metadata: {name: hydra}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: hydra-config, namespace: hydra}
+data:
+  HYDRA_MODELS_CONFIG: /app/config/models.yaml
+  HYDRA_DATA_DIR: /data
+  HYDRA_WORKSPACE_DIR: /workspace
+  HYDRA_NATS_URL: nats://nats.hydra.svc:4222
+  HYDRA_REDIS_URL: redis://redis.hydra.svc:6379/0
+  HYDRA_VLLM_BASE_URL: http://vllm-reasoner.hydra.svc:8000/v1
+  HYDRA_OTEL_ENDPOINT: http://otel-collector.observability.svc:4318
+  HYDRA_SANDBOX_BACKEND: docker
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: hydra-secrets, namespace: hydra}
+type: Opaque
+stringData:
+  HYDRA_API_KEY: change-me
+  HYDRA_POSTGRES_URL: postgresql://hydra:change-me@postgres.hydra.svc:5432/hydra

@@ -1,0 +1,15 @@
+HYDRA OS
+Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+Todos los derechos reservados.
+
+This product is proprietary software. See LICENSE for terms.
+
+This product may interoperate with third-party software distributed under
+their own licenses, including: FastAPI, Starlette, Pydantic, httpx, PyYAML,
+redis-py, asyncpg, nats-py, uvicorn, huggingface_hub, PostgreSQL, Redis, NATS,
+vLLM, Ollama, llama.cpp (convert_hf_to_gguf.py, llama-quantize, llama-imatrix,
+llama-perplexity, llama-server), llm-compressor, mlx-lm, Hugging Face optimum,
+transformers, peft, datasets, TRL, PyTorch, cryptography,
+NumPy, SymPy, pytest, OpenTelemetry (semantic conventions), CycloneDX (specification),
+Flower (flwr), Kubernetes, Terraform, Prometheus and Grafana. Those components are not part of
+this product and remain the property of their respective owners.

@@ -1,0 +1,392 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+"""Wires HYDRA OS from Settings. Infrastructure is optional: without Postgres/Redis/NATS
+everything runs in memory; with ``offline`` no model runtime is needed."""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Any
+
+from hydra.bus.base import EventBus
+from hydra.bus.memory import InMemoryEventBus
+from hydra.cache.semantic import SemanticCache
+from hydra.core.config import Settings
+from hydra.core.events import EventType
+from hydra.core.kernel import HydraKernel, KernelConfig
+from hydra.evals.engine import EvalEngine
+from hydra.evals.suites import load_suites
+from hydra.lab.lab import HydraLab
+from hydra.memory.compiler import MemoryCompiler
+from hydra.memory.embeddings import Embedder, HashingEmbedder, OllamaEmbedder, OpenAIEmbedder
+from hydra.memory.failures import FailureMemory
+from hydra.memory.retriever import MemoryRetriever
+from hydra.memory.store import InMemoryMemoryStore, MemoryStore
+from hydra.policy.kernel import PolicyKernel
+from hydra.providers.adapter import ModelCompiler
+from hydra.providers.base import ModelProvider
+from hydra.providers.mock import MockProvider
+from hydra.providers.ollama import OllamaProvider
+from hydra.providers.openai_compatible import OpenAICompatibleProvider
+from hydra.registry.circuit_breaker import CircuitBreaker
+from hydra.registry.registry import ModelRegistry
+from hydra.registry.runtime_monitor import RuntimeMonitor
+from hydra.research.graph import ResearchWorker
+from hydra.router.learned import LearnedRoutingPolicy
+from hydra.router.router import CognitiveRouter
+from hydra.scheduler.invoker import ModelInvoker
+from hydra.scheduler.planner import Planner
+from hydra.simulation.engine import Simulator
+from hydra.telemetry.metrics import InMemoryTelemetry, TelemetryStore
+from hydra.tools.builtin import register_builtin_tools
+from hydra.tools.executor import ToolExecutor
+from hydra.tools.policy import ToolPolicyEngine
+from hydra.tools.registry import ToolRegistry
+from hydra.tools.sandbox import Sandbox, build_sandbox
+from hydra.verification.verifier import Verifier
+from hydra.workers.coder import CoderWorker
+from hydra.workers.critic import CriticWorker
+from hydra.workers.judge import JudgeWorker
+from hydra.workers.perception import PerceptionWorker
+from hydra.workers.reasoner import ReasonerWorker
+from hydra.workers.synthesizer import SynthesizerWorker
+
+log = logging.getLogger("hydra.bootstrap")
+
+PROVIDER_KINDS = ("ollama", "vllm", "llamacpp", "cloud", "mock")
+
+
+@dataclass
+class HydraRuntime:
+    kernel: HydraKernel
+    settings: Settings
+    bus: EventBus
+    registry: ModelRegistry
+    providers: dict[str, ModelProvider]
+    tools: ToolRegistry
+    memory: MemoryStore
+    retriever: MemoryRetriever
+    memory_compiler: MemoryCompiler
+    telemetry: TelemetryStore
+    policy: PolicyKernel
+    cache: SemanticCache
+    failures: FailureMemory
+    evaluator: EvalEngine
+    lab: HydraLab
+    sandbox: Sandbox
+    embedder: Embedder
+    monitor: RuntimeMonitor | None = None
+    factory: Any = None
+    event_sink: Any = None
+    pool: Any = None
+    closers: list[Any] = field(default_factory=list)
+    # ---- HYDRA 1.0 planes (all local-first, optional infrastructure) ----
+    signer: Any = None
+    ledger: Any = None
+    artifact_store: Any = None
+    world: Any = None
+    world_rag: Any = None
+    knowledge: Any = None
+    corpus: Any = None
+    datasets: Any = None
+    ip: Any = None
+    licenses: Any = None
+    workspaces: Any = None
+    configs: Any = None
+    flags: Any = None
+    secrets: Any = None
+    policy_dsl: Any = None
+    market: Any = None
+    nodes: Any = None
+    scheduler: Any = None
+    queue: Any = None
+    tenants: Any = None
+    tracer: Any = None
+    executor: Any = None
+    _goal_runner: Any = None
+    _bg: list[Any] = field(default_factory=list)
+
+    @property
+    def goals(self):
+        """Planner/Simulator goal runner (created on first use)."""
+        if self._goal_runner is None:
+            from hydra.planning.runner import GoalRunner
+
+            self._goal_runner = GoalRunner(self)
+        return self._goal_runner
+
+    async def close(self) -> None:
+        for t in self._bg:
+            t.cancel()
+        await self.lab.drain()
+        if self.monitor is not None:
+            await self.monitor.stop()
+        for p in {id(p): p for p in self.providers.values()}.values():
+            try:
+                await p.close()
+            except Exception:
+                log.exception("provider close failed")
+        await self.bus.close()
+        if self.pool is not None:
+            await self.pool.close()
+
+
+def build_providers(settings: Settings) -> dict[str, ModelProvider]:
+    if settings.offline:
+        mock = MockProvider()
+        return {kind: mock for kind in PROVIDER_KINDS}
+    providers: dict[str, ModelProvider] = {
+        "ollama": OllamaProvider(settings.ollama_base_url),
+        "vllm": OpenAICompatibleProvider(settings.vllm_base_url, settings.internal_api_key),
+        "llamacpp": OpenAICompatibleProvider(settings.llamacpp_base_url, settings.internal_api_key),
+        "mock": MockProvider(),
+    }
+    if settings.cloud_api_key:
+        providers["cloud"] = OpenAICompatibleProvider(settings.cloud_base_url, settings.cloud_api_key)
+    return providers
+
+
+def build_embedder(settings: Settings) -> Embedder:
+    if settings.offline or settings.embedding_provider == "hashing" or not settings.embedding_model:
+        return HashingEmbedder()
+    if settings.embedding_provider == "ollama":
+        return OllamaEmbedder(settings.ollama_base_url, settings.embedding_model)
+    return OpenAIEmbedder(settings.vllm_base_url, settings.embedding_model, settings.internal_api_key)
+
+
+async def build_bus(settings: Settings) -> EventBus:
+    if settings.nats_url:
+        from hydra.bus.nats import NatsEventBus
+
+        bus = NatsEventBus(settings.nats_url)
+        await bus.connect()
+        return bus
+    if settings.redis_url:
+        from hydra.bus.redis_streams import RedisStreamsEventBus
+
+        return RedisStreamsEventBus(settings.redis_url)
+    return InMemoryEventBus()
+
+
+async def build_runtime(settings: Settings | None = None, **overrides: Any) -> HydraRuntime:
+    """Build the engine. ``overrides`` may replace any component (tests, embedding)."""
+    settings = settings or Settings()
+    settings.workspace_dir.mkdir(parents=True, exist_ok=True)
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+
+    # ---- infrastructure -------------------------------------------------------------
+    bus: EventBus = overrides["bus"] if "bus" in overrides else await build_bus(settings)
+    pool = event_sink = None
+    memory: MemoryStore
+    telemetry: TelemetryStore
+    if settings.postgres_url and "memory" not in overrides:
+        from hydra.memory.store import PostgresMemoryStore
+        from hydra.persistence.postgres import PostgresEventSink, PostgresTelemetry, create_pool
+
+        pool = await create_pool(settings.postgres_url)
+        memory = PostgresMemoryStore(pool)
+        telemetry = PostgresTelemetry(pool)
+        event_sink = PostgresEventSink(pool)
+        await bus.subscribe(None, event_sink)
+    else:
+        memory = overrides.get("memory") or InMemoryMemoryStore()
+        telemetry = overrides.get("telemetry") or InMemoryTelemetry()
+
+    # ---- models ---------------------------------------------------------------------
+    providers = overrides.get("providers") or build_providers(settings)
+    registry = overrides.get("registry") or ModelRegistry.from_yaml(
+        settings.models_config,
+        CircuitBreaker(settings.breaker_failures, settings.breaker_cooldown_s),
+    )
+    if not settings.offline and "registry" not in overrides:
+        for m in registry.all():
+            if m.provider == "cloud" and not settings.cloud_api_key:
+                pass  # disabled below: no credentials
+            elif m.endpoint and m.provider in ("vllm", "llamacpp", "cloud"):
+                key = f"{m.provider}:{m.id}"
+                api_key = settings.cloud_api_key if m.provider == "cloud" else settings.internal_api_key
+                providers[key] = OpenAICompatibleProvider(m.endpoint, api_key)
+                m.provider = key
+            elif m.endpoint and m.provider == "ollama":
+                key = f"ollama:{m.id}"
+                providers[key] = OllamaProvider(m.endpoint)
+                m.provider = key
+            if m.provider not in providers:
+                m.enabled = False
+                log.info("model %s disabled: provider '%s' not configured", m.id, m.provider)
+
+    embedder: Embedder = overrides.get("embedder") or build_embedder(settings)
+    retriever = MemoryRetriever(memory, embedder)
+    compiler = MemoryCompiler(memory, embedder)
+
+    # ---- policy, cache, failure memory ---------------------------------------------------
+    policy = overrides.get("policy") or PolicyKernel.from_yaml(settings.policy_config)
+    cache = SemanticCache(embedder, memory)
+    failures = FailureMemory(settings.data_dir / "failure_memory.json")
+    for et in (EventType.MODEL_COMPLETED, EventType.MODEL_FAILED, EventType.TOOL_COMPLETED, EventType.TOOL_FAILED):
+        await bus.subscribe(et, failures.observe)
+
+    # ---- tools ----------------------------------------------------------------------
+    tools = ToolRegistry()
+    sandbox = overrides.get("sandbox") or build_sandbox(
+        settings.sandbox_backend, settings.sandbox_image, settings.workspace_dir,
+        settings.sandbox_workspace_source or None)
+    register_builtin_tools(tools, sandbox, memory_search=retriever.search)
+    from hydra.tools.workspace import WorkspaceManager, register_workspace_tools
+
+    register_workspace_tools(tools, sandbox)
+
+    # ---- HYDRA 1.0 planes: ledger, artifacts, world, corpus, IP, governance ---------------
+    from hydra.artifacts.store import ArtifactStore
+    from hydra.core.capture import CapturePipeline
+    from hydra.corpus.capture import CapturePolicy
+    from hydra.corpus.dedup import ContaminationGuard, Deduplicator
+    from hydra.corpus.factory import DatasetFactory
+    from hydra.corpus.gates import CorpusCurator
+    from hydra.corpus.store import CorpusStore
+    from hydra.governance.config_registry import ConfigRegistry, FeatureFlags
+    from hydra.governance.policy_dsl import PolicyEngine
+    from hydra.governance.secrets import SecretsBroker
+    from hydra.ledger.chain import Ledger
+    from hydra.ledger.ip import IPRegistry
+    from hydra.ledger.licenses import LicenseEngine
+    from hydra.ledger.signing import Signer
+    from hydra.market import CapabilityMarket
+    from hydra.world.knowledge import GraphRAG, KnowledgeCompiler
+    from hydra.world.model import WorldModel
+
+    data = settings.data_dir
+    signer = overrides.get("signer") or Signer.load_or_create(data / "keys")
+    ledger = Ledger(data / "ledger", signer, anchor_every=settings.ledger_anchor_every)
+    artifact_store = ArtifactStore(data / "artifacts")
+    world = WorldModel(data / "world")
+    world_rag = GraphRAG(world)
+
+    def family_of(model_id: str) -> str:
+        m = registry.models.get(model_id)
+        return (m.logical_model or m.physical_name.split(":")[0]) if m else model_id
+
+    knowledge = KnowledgeCompiler(world, family_of=family_of)
+    corpus = CorpusStore(data / "corpus", CorpusCurator(
+        dedup=Deduplicator(), contamination=ContaminationGuard.from_suites(load_suites(settings.evals_dir))),
+        ledger=ledger)
+    datasets = DatasetFactory(corpus, ledger)
+    ip = IPRegistry(data / "ip", ledger)
+    licenses = LicenseEngine.from_yaml(settings.licenses_config)
+    workspaces = WorkspaceManager(data / "workspaces")
+    configs = ConfigRegistry(data / "configs", ledger)
+    flags = FeatureFlags(data / "flags.json")
+    secrets = SecretsBroker(data / "secrets", audit=lambda et, p: ledger.append(et, p, object_type="secret",
+                                                                                 object_id=p.get("ref", "")))
+    policy_dsl = PolicyEngine.from_yaml(settings.policy_rules_config)
+    market = CapabilityMarket()
+    executor = ToolExecutor(tools, ToolPolicyEngine(policy), bus, simulator=Simulator(), secrets=secrets,
+                            policy_dsl=policy_dsl)
+    from hydra.cluster.capacity import TenantRegistry
+    from hydra.cluster.fabric import WorkQueue
+    from hydra.cluster.nodes import NodeRegistry
+    from hydra.cluster.scheduler import GlobalScheduler
+
+    nodes = NodeRegistry(heartbeat_ttl_s=max(30.0, settings.heartbeat_interval_s * 3))
+    scheduler = GlobalScheduler(nodes)
+    queue = WorkQueue(data / "fabric" / "queue.db")
+
+    def config_ref():
+        cur = configs.current("production")
+        return cur.ref if cur else None
+
+    capture = CapturePipeline(
+        world=world, compiler=knowledge, corpus=corpus, ledger=ledger, artifacts=artifact_store,
+        flight_dir=data / "flight",
+        capture_policy=CapturePolicy(auto_training_max_sensitivity=settings.corpus_auto_training_max_sensitivity),
+        policy_version=policy_dsl.version, config_ref=config_ref, registry=registry)
+
+    # ---- cognition ------------------------------------------------------------------
+    model_compiler = ModelCompiler()
+    invoker = ModelInvoker(providers, registry, hedge_after_ms=settings.hedge_after_ms, compiler=model_compiler)
+    classifier = classifier_model = None
+    if settings.router_model and settings.router_model in registry.models:
+        rm = registry.get(settings.router_model)
+        classifier, classifier_model = providers.get(rm.provider), rm.physical_name
+
+    domains = [d.strip() for d in settings.network_domains.split(",") if d.strip()] or None
+    coder = CoderWorker(invoker, tools, executor)
+    learned = LearnedRoutingPolicy()
+    try:
+        learned.fit(await telemetry.recent_runs())
+    except Exception:
+        log.debug("no telemetry to fit the learned router yet")
+    kernel = HydraKernel(
+        router=CognitiveRouter(classifier, classifier_model),
+        registry=registry,
+        planner=Planner(),
+        reasoner=ReasonerWorker(invoker),
+        coder=coder,
+        critic=CriticWorker(invoker),
+        judge=JudgeWorker(invoker),
+        synthesizer=SynthesizerWorker(invoker),
+        verifier=Verifier(),
+        bus=bus,
+        retriever=retriever,
+        memory_compiler=compiler,
+        telemetry=telemetry,
+        workspace=settings.workspace_dir,
+        network_domains=domains,
+        policy=policy,
+        cache=cache,
+        failures=failures,
+        learned=learned,
+        perception=PerceptionWorker(invoker),
+        research=ResearchWorker(invoker, coder),
+        config=KernelConfig(time_scale=settings.budget_time_scale, capture=settings.capture,
+                            deterministic_first=settings.deterministic_first),
+        capture=capture,
+        world_rag=world_rag,
+        policy_dsl=policy_dsl,
+        solvers=market.solvers,
+        scheduler=scheduler if settings.cluster_rerank else None,
+    )
+    market.sync_registry(registry, tools)
+
+    evaluator = EvalEngine(providers, sandbox, tools, model_compiler, load_suites(settings.evals_dir))
+    lab = HydraLab(kernel, evaluator, settings.data_dir / "lab.json", bus)
+
+    monitor = None
+    if settings.runtime_monitor and not settings.offline and "registry" not in overrides:
+        monitor = RuntimeMonitor(registry, settings.monitor_interval_s, settings.ollama_base_url)
+        monitor.start()
+
+    runtime = HydraRuntime(
+        kernel=kernel, settings=settings, bus=bus, registry=registry, providers=providers, tools=tools,
+        memory=memory, retriever=retriever, memory_compiler=compiler, telemetry=telemetry,
+        policy=policy, cache=cache, failures=failures, evaluator=evaluator, lab=lab, sandbox=sandbox,
+        embedder=embedder, monitor=monitor, event_sink=event_sink, pool=pool,
+        signer=signer, ledger=ledger, artifact_store=artifact_store, world=world, world_rag=world_rag,
+        knowledge=knowledge, corpus=corpus, datasets=datasets, ip=ip, licenses=licenses, workspaces=workspaces,
+        configs=configs, flags=flags, secrets=secrets, policy_dsl=policy_dsl, market=market, nodes=nodes,
+        scheduler=scheduler, queue=queue, tenants=TenantRegistry(), executor=executor,
+    )
+    from hydra.observability.tracing import CognitiveTracer
+
+    runtime.tracer = CognitiveTracer(settings.otel_endpoint or None, registry=registry)
+    await bus.subscribe(None, runtime.tracer.observe)
+    if not settings.offline and "registry" not in overrides:
+        import asyncio
+
+        from hydra.cluster.nodes import detect_local_node
+
+        async def heartbeat_loop() -> None:
+            while True:
+                try:
+                    node = await asyncio.to_thread(detect_local_node, settings.node_id or None,
+                                                   settings.ollama_base_url)
+                    nodes.heartbeat(node)
+                except Exception:
+                    log.debug("local node heartbeat failed", exc_info=True)
+                await asyncio.sleep(settings.heartbeat_interval_s)
+        runtime._bg.append(asyncio.create_task(heartbeat_loop()))
+    from hydra.model_factory.service import ModelFactory  # local import: optional heavy subsystem
+
+    runtime.factory = ModelFactory.from_settings(settings, registry=registry, evaluator=evaluator,
+                                                 telemetry=telemetry, bus=bus, lab=lab)
+    return runtime

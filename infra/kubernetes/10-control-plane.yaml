@@ -1,0 +1,34 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+# CONTROL PLANE: stateless gateway/kernel replicas; state lives in PostgreSQL / NATS / object storage.
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: hydra-api, namespace: hydra}
+spec:
+  replicas: 4
+  selector: {matchLabels: {app: hydra-api}}
+  template:
+    metadata:
+      labels: {app: hydra-api}
+      annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080", prometheus.io/path: /metrics}
+    spec:
+      containers:
+        - name: api
+          image: hydra-engine:1.0.0
+          args: ["serve", "--host", "0.0.0.0", "--port", "8080"]
+          envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /health, port: 8080}, periodSeconds: 10}
+          livenessProbe: {httpGet: {path: /health, port: 8080}, periodSeconds: 30}
+          resources: {requests: {cpu: "1", memory: 2Gi}, limits: {cpu: "4", memory: 8Gi}}
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: hydra-api, namespace: hydra}
+spec: {selector: {app: hydra-api}, ports: [{port: 80, targetPort: 8080}]}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: hydra-data, namespace: hydra}
+spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 200Gi}}}
