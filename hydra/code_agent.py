@@ -138,8 +138,26 @@ class CodeAgent:
         diff = extract_unified_diff(proposal)
 
         patcher = PatchTool(Workspace(workspace.root))
-        applied = patcher.apply(diff)
+        try:
+            applied = patcher.apply(diff)
+        except ValueError as exc:
+            workspace = self.workspace_manager.create(task_id, source)
+            self.events.append(
+                event_type="hydra.code.patch_rejected",
+                aggregate_id=task_id,
+                producer="hydra.code_agent",
+                trace_id=trace_id,
+                payload={"reason": "patch_policy_rejected", "detail": str(exc)},
+            )
+            return CodeAgentResult(
+                False,
+                "Patch rejected by HYDRA patch policy.",
+                records,
+                workspace,
+            )
+
         if not applied.ok:
+            workspace = self.workspace_manager.create(task_id, source)
             self.events.append(
                 event_type="hydra.code.patch_rejected",
                 aggregate_id=task_id,
