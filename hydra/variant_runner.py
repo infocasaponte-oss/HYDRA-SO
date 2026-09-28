@@ -30,6 +30,10 @@ class VariantRunner:
             if not await wait_for_health(health_url):
                 raise VariantRunError("Model server did not become healthy")
             value = await workload()
+            if monitor.error is not None or monitor.samples == 0:
+                raise VariantRunError(
+                    monitor.error or "GPU telemetry produced no samples"
+                )
             return value, monitor.peak_mb, monitor.samples
         finally:
             monitor.stop()
