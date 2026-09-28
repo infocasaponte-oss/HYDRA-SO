@@ -42,6 +42,7 @@ from hydra.runtime_events import RuntimeEventEmitter
 from hydra.runtime_evidence import RuntimeEvidenceStore
 from hydra.runtime_executor import RuntimeExecutor
 from hydra.runtime_health import RuntimeHealth
+from hydra.runtime_health_store import RuntimeHealthStore
 from hydra.sandbox import OciSandbox
 from hydra.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.security_audit import SecurityAudit
@@ -74,7 +75,8 @@ deployment_controller = DeploymentController(
 )
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(capture_uow=capture_uow)
-runtime_health = RuntimeHealth()
+runtime_health_store = RuntimeHealthStore(settings.runtime_db)
+runtime_health = RuntimeHealth(store=runtime_health_store)
 physical_inference = PhysicalInferenceClient(deployment_registry)
 traffic_router = TrafficRouter(deployment_registry, runtime_health)
 runtime_evidence = RuntimeEvidenceStore()
