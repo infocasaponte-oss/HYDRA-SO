@@ -45,6 +45,10 @@ def test_unified_gateway_serves_both_lines(settings):
         assert client.get("/v1/models").status_code == 200  # platform list is unchanged
         # admin routes fail closed without HYDRA_ADMIN_TOKEN
         assert client.get("/hydra/v1/admin/metrics").status_code == 503
+        metrics = client.get("/metrics").text
+        for gauge in ("hydra_capture_outbox_pending", "hydra_capture_outbox_dead_letters",
+                      "hydra_runtime_outbox_pending", "hydra_runtime_outbox_dead_letters"):
+            assert gauge in metrics, gauge
 
 
 def test_one_token_protects_both_lines(settings):

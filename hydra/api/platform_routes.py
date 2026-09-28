@@ -793,6 +793,18 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
                   "hydra_world_version": runtime.world.version, "hydra_corpus_records": len(runtime.corpus.records),
                   "hydra_ledger_events": len(runtime.ledger),
                   "hydra_models_enabled": sum(1 for m in runtime.registry.all() if m.enabled)}
+        if runtime.capture_outbox is not None:
+            stats = runtime.capture_outbox.stats()
+            gauges["hydra_capture_outbox_pending"] = stats["pending"]
+            gauges["hydra_capture_outbox_dead_letters"] = stats["dead_letters"]
+        if runtime.settings.runtime_api:  # HYDRA-SO runtime line (transactional outbox)
+            from hydra.runtime import api as runtime_api
+            from hydra.runtime.outbox_metrics import collect_outbox_metrics
+
+            line = collect_outbox_metrics(runtime_api.capture_uow.outbox)
+            gauges["hydra_runtime_outbox_pending"] = line.pending
+            gauges["hydra_runtime_outbox_dead_letters"] = line.dead_letters
+            gauges["hydra_runtime_outbox_oldest_pending_age_seconds"] = line.oldest_pending_age_seconds or 0
         return runtime.tracer.prometheus(gauges)
 
     # ================================================================== edge / translation
