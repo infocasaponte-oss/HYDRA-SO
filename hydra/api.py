@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from uuid import UUID
 
 from hydra import __version__
 from hydra.artifacts import ArtifactStore
@@ -216,6 +217,52 @@ async def execute_task(task: HydraTask, request: Request) -> dict:
         if isinstance(exc, UnsafePlan):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=502, detail="HYDRA execution failed") from exc
+
+
+
+
+@app.get("/hydra/v1/admin/outbox/dead-letters")
+async def list_dead_letters(request: Request) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-dlq-list:{identity}", admin_rate_limit)
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/outbox/dead-letters",
+        outcome="allowed",
+        identity_hash=identity,
+    )
+    messages = capture_uow.outbox.dead_letters()
+    return {
+        "count": len(messages),
+        "messages": [
+            {
+                "id": str(message.id),
+                "topic": message.topic,
+                "aggregate_id": str(message.aggregate_id),
+                "trace_id": message.trace_id,
+                "attempts": message.attempts,
+                "last_error": message.last_error,
+                "dead_lettered_at": message.dead_lettered_at,
+            }
+            for message in messages
+        ],
+    }
+
+
+@app.post("/hydra/v1/admin/outbox/dead-letters/{message_id}/retry")
+async def retry_dead_letter(message_id: UUID, request: Request) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-dlq-retry:{identity}", admin_rate_limit)
+    requeued = capture_uow.outbox.requeue_dead_letter(message_id)
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/outbox/dead-letters/retry",
+        outcome="requeued" if requeued else "not_found",
+        identity_hash=identity,
+    )
+    if not requeued:
+        raise HTTPException(status_code=404, detail="Dead-letter message not found")
+    return {"requeued": True, "message_id": str(message_id)}
 
 
 @app.post("/hydra/v1/coding/verify-fix")
