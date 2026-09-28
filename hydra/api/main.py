@@ -65,7 +65,8 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         app.state.runtime = runtime
         app.state.listeners = Listeners()
         await runtime.bus.subscribe(None, app.state.listeners)
-        async with runtime_lifespan(settings.runtime_api, settings.api_key):
+        async with runtime_lifespan(settings.runtime_api, settings.api_key, ledger=runtime.ledger,
+                                    anchor_interval_s=settings.runtime_anchor_interval_s):
             yield
         await runtime.close()
 

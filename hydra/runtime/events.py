@@ -50,6 +50,11 @@ class JsonlEventStore:
         self._lock = lock_for(self.path)
         self._sequence, self._last_hash = self._load_tail()
 
+    @property
+    def head(self) -> str | None:
+        """Hash of the last chained event (anchored in the signed platform ledger)."""
+        return self._last_hash
+
     def _load_tail(self) -> tuple[int, str | None]:
         if not self.path.exists():
             return 0, None

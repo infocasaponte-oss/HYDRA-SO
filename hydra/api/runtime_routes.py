@@ -20,13 +20,19 @@ mounted once per process even when several apps are created (tests).
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext, suppress
 from dataclasses import replace
 from types import ModuleType
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+
+from hydra.ledger.runtime_anchor import anchor_runtime_chains
+
+log = logging.getLogger("hydra.api")
 
 RELOCATED = {("/v1/models", "GET"): "/hydra/v1/models/artifacts"}
 _PARAM = re.compile(r"\{[^}]+\}")
@@ -64,12 +70,19 @@ def register_runtime_routes(app: FastAPI) -> list[str]:
     return mounted
 
 
+def anchor_now(ledger) -> dict | None:
+    """Record the runtime event/provenance chain heads in the signed platform ledger."""
+    runtime = runtime_module()
+    return anchor_runtime_chains(ledger, runtime.kernel.events, runtime.provenance)
+
+
 @asynccontextmanager
-async def runtime_lifespan(enabled: bool, api_key: str = ""):
+async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor_interval_s: float = 300.0):
     """Outbox recovery + worker of the runtime line, bound to the gateway lifespan.
 
     A gateway token given in code (not only through HYDRA_API_KEY/HYDRA_API_TOKEN) also
-    protects the runtime routes while this app is running."""
+    protects the runtime routes while this app is running. With a ledger, the runtime
+    evidence chains are anchored in it periodically and on shutdown."""
     if not enabled:
         yield
         return
@@ -79,8 +92,27 @@ async def runtime_lifespan(enabled: bool, api_key: str = ""):
         runtime.security_config = replace(previous, api_token=api_key)
     worker = getattr(runtime.app.state, "outbox_worker_task", None)
     running = worker is not None and not worker.done()  # already started by another app in this process
+
+    async def anchor_loop() -> None:
+        while True:
+            await asyncio.sleep(anchor_interval_s)
+            try:
+                await asyncio.to_thread(anchor_now, ledger)
+            except Exception:
+                log.exception("runtime chain anchoring failed")
+
+    anchoring = asyncio.create_task(anchor_loop()) if ledger is not None and anchor_interval_s > 0 else None
     try:
         async with nullcontext() if running else runtime.lifespan(runtime.app):
             yield
     finally:
         runtime.security_config = previous
+        if anchoring is not None:
+            anchoring.cancel()
+            with suppress(asyncio.CancelledError):
+                await anchoring
+        if ledger is not None:
+            try:
+                anchor_now(ledger)
+            except Exception:
+                log.exception("runtime chain anchoring failed")

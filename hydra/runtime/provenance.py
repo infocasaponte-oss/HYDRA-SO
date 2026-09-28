@@ -41,6 +41,11 @@ class ProvenanceLedger:
         self._lock = lock_for(self.path)
         self._last_hash = self._load_last_hash()
 
+    @property
+    def head(self) -> str | None:
+        """Hash of the last chained record (anchored in the signed platform ledger)."""
+        return self._last_hash
+
     def _load_last_hash(self) -> str | None:
         if not self.path.exists():
             return None

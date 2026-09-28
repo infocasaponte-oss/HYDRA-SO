@@ -103,6 +103,8 @@ class Settings(BaseSettings):
 
     runtime_api: bool = True
     """Serve the HYDRA-SO runtime line (/ready, /v1/chat, /hydra/v1/admin/*, coding) from the gateway."""
+    runtime_anchor_interval_s: float = 300.0
+    """Anchor the runtime event/provenance chain heads in the signed ledger this often (0 = only on shutdown)."""
 
     hedge_after_ms: float = 3500
     breaker_failures: int = 5
