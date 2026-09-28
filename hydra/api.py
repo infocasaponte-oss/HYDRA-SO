@@ -30,15 +30,22 @@ from hydra.model_scout import scan_models
 from hydra.operating_metrics import collect_operating_metrics
 from hydra.outbox_dispatcher import OutboxDispatcher
 from hydra.outbox_worker import OutboxWorker
+from hydra.physical_inference import PhysicalInferenceClient
 from hydra.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.provider import LocalLLM
 from hydra.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.readiness import evaluate_readiness
 from hydra.replay import ReplayManifest, ReplayStore
 from hydra.replay_executor import AuditReplayExecutor
+from hydra.runtime_bridge import RuntimeBridge
+from hydra.runtime_evidence import RuntimeEvidenceStore
+from hydra.runtime_events import RuntimeEventEmitter
+from hydra.runtime_executor import RuntimeExecutor
+from hydra.runtime_health import RuntimeHealth
 from hydra.sandbox import OciSandbox
 from hydra.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.security_audit import SecurityAudit
+from hydra.traffic_router import TrafficRouter
 from hydra.translation import GlossaryStore, TranslationService
 from hydra.workspaces import WorkspaceManager
 
@@ -67,6 +74,22 @@ deployment_controller = DeploymentController(
 )
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(capture_uow=capture_uow)
+runtime_health = RuntimeHealth()
+physical_inference = PhysicalInferenceClient(deployment_registry)
+traffic_router = TrafficRouter(deployment_registry, runtime_health)
+runtime_evidence = RuntimeEvidenceStore()
+runtime_executor = RuntimeExecutor(
+    traffic_router,
+    runtime_health,
+    physical_inference.generate,
+    runtime_evidence,
+)
+runtime_bridge = RuntimeBridge(
+    runtime_executor,
+    runtime_health,
+    RuntimeEventEmitter(kernel.events),
+)
+kernel.runtime_bridge = runtime_bridge
 outbox_dispatcher = OutboxDispatcher(
     capture_uow.outbox,
     kernel.events,
