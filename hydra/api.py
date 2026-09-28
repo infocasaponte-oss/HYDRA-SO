@@ -424,6 +424,13 @@ async def approve_deployment_canary(
         deployment_store.save(deployment_registry)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/deployments/canary",
+        outcome="canary",
+        identity_hash=identity,
+        aggregate_id=variant_id,
+    )
     return {"variant_id": str(variant_id), "state": deployment.state.value}
 
 
@@ -448,6 +455,13 @@ async def activate_deployment(
         deployment_store.save(deployment_registry)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/deployments/activate",
+        outcome="active",
+        identity_hash=identity,
+        aggregate_id=variant_id,
+    )
     return {"variant_id": str(active.variant_id), "state": active.state.value}
 
 
