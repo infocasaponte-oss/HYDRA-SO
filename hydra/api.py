@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 from hydra import __version__
 from hydra.budgets import BudgetExceeded, RequestBudget
 from hydra.config import settings
-from hydra.model_scout import scan_models
 from hydra.contracts import HydraTask
 from hydra.kernel import HydraKernel
+from hydra.model_scout import scan_models
 from hydra.provider import LocalLLM
 from hydra.translation import GlossaryStore, TranslationService
 
