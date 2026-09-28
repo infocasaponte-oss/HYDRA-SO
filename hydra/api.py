@@ -7,6 +7,8 @@ from hydra import __version__
 from hydra.budgets import BudgetExceeded, RequestBudget
 from hydra.config import settings
 from hydra.model_scout import scan_models
+from hydra.contracts import HydraTask
+from hydra.kernel import HydraKernel
 from hydra.provider import LocalLLM
 from hydra.translation import GlossaryStore, TranslationService
 
@@ -19,6 +21,7 @@ budget = RequestBudget(
 )
 glossaries = GlossaryStore()
 translations = TranslationService(llm, budget, glossaries)
+kernel = HydraKernel()
 
 
 class ChatRequest(BaseModel):
@@ -84,3 +87,18 @@ async def put_glossary(glossary_id: str, req: GlossaryRequest) -> dict:
 async def models() -> dict:
     artifacts = scan_models(settings.models_dir)
     return {"count": len(artifacts), "models": [item.as_dict() for item in artifacts]}
+
+
+@app.post("/hydra/v1/tasks/route")
+async def route_task(task: HydraTask) -> dict:
+    """Create and route a native HYDRA task without executing side effects."""
+    try:
+        trace_id, route = kernel.prepare(task)
+        return {
+            "task_id": str(task.id),
+            "status": task.status.value,
+            "trace_id": trace_id,
+            "route": route.model_dump(),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
