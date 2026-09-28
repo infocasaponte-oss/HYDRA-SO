@@ -81,6 +81,21 @@ def test_procedure_mining_versioning_and_value_model(tmp_path):
     assert vm.choose({"goal_type": "debug", "step": 0}, ["code.patch", "workspace.inspect"])[0] == "workspace.inspect"
 
 
+def test_verification_report_layers(tmp_path):
+    from hydra.planning.runner import verification_report
+
+    (tmp_path / "ok.py").write_text("x = 1\n")
+    (tmp_path / "broken.py").write_text("def f(:\n")
+    diff_ok = "--- a/ok.py\n+++ b/ok.py\n@@ -1 +1 @@\n-x = 0\n+x = 1\n"
+    good = verification_report(diff_ok, tmp_path, baseline_failed=True, full_suite_passed=True)
+    assert good["verified"] and good["syntax_passed"]
+    no_red = verification_report(diff_ok, tmp_path, baseline_failed=False, full_suite_passed=True)
+    assert not no_red["improvement_demonstrated"] and not no_red["verified"]
+    diff_broken = diff_ok + "--- a/broken.py\n+++ b/broken.py\n@@ -1 +1 @@\n-x\n+def f(:\n"
+    bad = verification_report(diff_broken, tmp_path, baseline_failed=True, full_suite_passed=True)
+    assert not bad["syntax_passed"] and "broken.py" in bad["syntax_errors"] and not bad["verified"]
+
+
 async def test_goal_runner_fixes_repository(runtime, tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -88,6 +103,9 @@ async def test_goal_runner_fixes_repository(runtime, tmp_path):
     (repo / "test_calc.py").write_text("from calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n")
     res = await runtime.goals.run("Encuentra y corrige el bug del repositorio", workspace=repo)
     assert res.status == "achieved" and res.metrics["tests_pass"] is True
+    verification = res.metrics["verification"]  # HYDRA-SO layered criteria
+    assert verification["baseline_failed"] and verification["improvement_demonstrated"]
+    assert verification["changed_python"] == ["calc.py"] and verification["verified"]
     assert "+    return a + b" in res.patch and (repo / "calc.py").read_text().count("a - b") == 1  # source untouched
     assert any(e.event_type == "PLANNER_DECISION" for e in runtime.ledger.events())
     assert runtime.corpus.search(record_type="action_value")

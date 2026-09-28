@@ -27,6 +27,7 @@ from hydra.planning.goals import ExecutionPlan, Goal, PlanNode, PlanWeights, par
 from hydra.planning.htn import decompose, infer_goal
 from hydra.planning.procedures import ProcedureMiner, ProcedureStore, Trace, ValueModel
 from hydra.planning.simulator import CalibrationEngine, HistoricalSimulator, SimulatorEnsemble, branch_and_bound
+from hydra.runtime.code_verification import changed_python_paths
 
 FILE_BLOCK = re.compile(r"(?:###\s*FILE:\s*|#\s*file:\s*)(?P<path>[\w./\\-]+)\s*\n```[\w+-]*\s*\n(?P<body>.*?)```", re.S)
 DIFF_BLOCK = re.compile(r"```(?:diff|patch)\s*\n(.*?)```", re.S)
@@ -62,6 +63,24 @@ class GoalResult(BaseModel):
     pending_authorizations: list[dict[str, Any]] = Field(default_factory=list)
     checkpoint: str | None = None
     system: str = "system2"
+
+
+def verification_report(diff: str, workdir: Path, *, baseline_failed: bool, full_suite_passed: bool) -> dict:
+    """Layered verification of a code goal (HYDRA-SO CodeAgent criteria): the baseline must fail,
+    the full suite must pass afterwards and every changed Python file must compile."""
+    changed = changed_python_paths(diff)
+    syntax_errors = {}
+    for rel in changed:
+        path = workdir / rel
+        if path.is_file():
+            try:
+                compile(path.read_text(encoding="utf-8"), rel, "exec")
+            except (SyntaxError, ValueError) as exc:
+                syntax_errors[rel] = f"{type(exc).__name__}: {exc}"[:300]
+    improvement = baseline_failed and full_suite_passed
+    return {"baseline_failed": baseline_failed, "full_suite_passed": full_suite_passed,
+            "changed_python": changed, "syntax_passed": not syntax_errors, "syntax_errors": syntax_errors,
+            "improvement_demonstrated": improvement, "verified": improvement and not syntax_errors}
 
 
 class GoalRunner:
@@ -150,6 +169,12 @@ class GoalRunner:
         result.answer = state["answer"]
         result.duration_ms = round((time.perf_counter() - started) * 1000, 1)
         if ws is not None:
+            report = verification_report(self.rt.workspaces.diff(ws), ws.working,
+                                         baseline_failed=state.get("baseline_tests_pass") is False,
+                                         full_suite_passed=state["metrics"].get("tests_pass") is True)
+            state["metrics"]["verification"] = report
+            if result.status == "achieved" and report["changed_python"] and not report["syntax_passed"]:
+                result.status = "incomplete"  # tests pass but a changed file does not even compile
             fin = self.rt.workspaces.finalize(ws, keep_working=False, extra={"goal": goal.description,
                                                                              "status": result.status})
             result.patch = (ws.outputs / "patch.diff").read_text(encoding="utf-8") or None
@@ -260,6 +285,8 @@ class GoalRunner:
             fails = "\n".join(f"{f.test}: {f.message[:400]}" for f in res.failures[:5])
             state["context"].append(f"TESTS: passed={res.passed} failed={res.failed} errors={res.errors}\n{fails}")
             state["tests"] = res.model_dump()
+            if not node.arguments.get("pattern"):
+                state.setdefault("baseline_tests_pass", res.success)  # first full run = baseline
             return True, {"tests_pass": res.success, "tests_failed": res.failed + res.errors,
                           "tests_passed": res.passed}, f"passed={res.passed} failed={res.failed}"
         if action == "world.query":
