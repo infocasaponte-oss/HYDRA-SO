@@ -26,6 +26,7 @@ from hydra.deployment_store import DeploymentStore
 from hydra.kernel import HydraKernel
 from hydra.learning_capture import LearningCapture
 from hydra.model_factory import ModelVariant
+from hydra.metrics_store import OperatingMetricsStore
 from hydra.model_scout import scan_models
 from hydra.operating_metrics import collect_operating_metrics
 from hydra.outbox_dispatcher import OutboxDispatcher
@@ -69,6 +70,7 @@ replay_store = ReplayStore()
 deployment_store = DeploymentStore(settings.deployments_file)
 deployment_registry = deployment_store.load()
 deployment_evidence_store = DeploymentEvidenceStore(settings.runtime_db)
+operating_metrics_store = OperatingMetricsStore(settings.runtime_db)
 deployment_controller = DeploymentController(
     deployment_registry,
     evidence_store=deployment_evidence_store,
@@ -339,7 +341,9 @@ async def admin_metrics(request: Request) -> dict:
         trace_path=kernel.tracer.store.path,
         deployments=deployment_registry,
     )
+    snapshot_id = operating_metrics_store.append(metrics)
     return {
+        "snapshot_id": snapshot_id,
         "outbox_pending": metrics.outbox_pending,
         "outbox_dead_letters": metrics.outbox_dead_letters,
         "oldest_pending_age_seconds": metrics.oldest_pending_age_seconds,
@@ -349,6 +353,23 @@ async def admin_metrics(request: Request) -> dict:
         "spans_by_name": metrics.spans_by_name,
         "deployments_by_state": metrics.deployments_by_state,
     }
+
+
+@app.get("/hydra/v1/admin/metrics/history")
+async def admin_metrics_history(request: Request, limit: int = 100) -> dict:
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-metrics-history:{identity}", admin_rate_limit)
+    security_audit.record(
+        event_type="hydra.security.admin_access",
+        endpoint="/hydra/v1/admin/metrics/history",
+        outcome="allowed",
+        identity_hash=identity,
+    )
+    try:
+        snapshots = operating_metrics_store.recent(limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"count": len(snapshots), "snapshots": snapshots}
 
 
 @app.get("/hydra/v1/admin/deployments")
