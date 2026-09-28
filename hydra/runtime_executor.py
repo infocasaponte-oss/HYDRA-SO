@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Awaitable, Callable
 
+from hydra.runtime_evidence import RuntimeEvidenceStore
 from hydra.runtime_health import RuntimeHealth
 from hydra.traffic_router import TrafficDecision, TrafficRouter
 
@@ -26,10 +27,12 @@ class RuntimeExecutor:
         router: TrafficRouter,
         health: RuntimeHealth,
         inference_call: InferenceCall,
+        evidence_store: RuntimeEvidenceStore | None = None,
     ):
         self.router = router
         self.health = health
         self.inference_call = inference_call
+        self.evidence_store = evidence_store
 
     async def execute(
         self,
@@ -63,6 +66,16 @@ class RuntimeExecutor:
             except Exception:
                 if shadow_id:
                     self.health.failure(shadow_id)
+
+        if self.evidence_store is not None:
+            self.evidence_store.append(
+                trace_id=trace_id,
+                capability=capability,
+                primary_variant_id=primary_id,
+                primary_output=answer,
+                shadow_variant_id=shadow_id,
+                shadow_output=shadow_answer,
+            )
 
         return RuntimeExecution(
             answer=answer,
