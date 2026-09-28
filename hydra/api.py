@@ -89,11 +89,14 @@ async def health() -> dict:
 @app.get("/ready")
 async def ready(response: Response) -> dict:
     llm_healthy = await llm.health()
+    worker_task = getattr(app.state, "outbox_worker_task", None)
+    worker_running = worker_task is not None and not worker_task.done()
     status = evaluate_readiness(
         outbox=capture_uow.outbox,
         events=kernel.events,
         provenance=provenance,
         llm_healthy=bool(llm_healthy),
+        worker_running=worker_running,
         max_pending=settings.readiness_max_pending,
     )
     if not status.ready:
@@ -106,6 +109,7 @@ async def ready(response: Response) -> dict:
         "events_integrity": status.events_integrity,
         "provenance_integrity": status.provenance_integrity,
         "llm_healthy": status.llm_healthy,
+        "worker_running": status.worker_running,
     }
 
 
