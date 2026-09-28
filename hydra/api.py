@@ -23,6 +23,7 @@ from hydra.deployment_controller import DeploymentController
 from hydra.deployment_evidence import CanaryEvidence, ShadowEvidence
 from hydra.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.deployment_store import DeploymentStore
+from hydra.deployment_validation import DeploymentArtifactValidator
 from hydra.kernel import HydraKernel
 from hydra.learning_capture import LearningCapture
 from hydra.metrics_store import OperatingMetricsStore
@@ -75,6 +76,7 @@ deployment_controller = DeploymentController(
     deployment_registry,
     evidence_store=deployment_evidence_store,
 )
+deployment_artifact_validator = DeploymentArtifactValidator(settings.models_dir)
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(capture_uow=capture_uow)
 runtime_health_store = RuntimeHealthStore(settings.runtime_db)
@@ -404,10 +406,16 @@ async def register_deployment(
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-deployments-register:{identity}", admin_rate_limit)
     try:
+        artifact = deployment_artifact_validator.validate(req.variant)
         deployment = Deployment(
             variant=req.variant,
             capabilities=set(req.capabilities),
             generation=req.generation,
+            metadata={
+                "gguf_architecture": artifact.architecture,
+                "gguf_context_length": artifact.context_length,
+                "gguf_file_type": artifact.file_type,
+            },
         )
         deployment_registry.add(deployment)
         deployment_store.save(deployment_registry)
@@ -424,6 +432,9 @@ async def register_deployment(
         "variant_id": str(deployment.variant_id),
         "state": deployment.state.value,
         "generation": deployment.generation,
+        "artifact_sha256": artifact.sha256,
+        "architecture": artifact.architecture,
+        "context_length": artifact.context_length,
     }
 
 
