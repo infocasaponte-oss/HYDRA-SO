@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
@@ -35,6 +36,9 @@ def extract_unified_diff(text: str) -> str:
     return candidate + chr(10)
 
 
+SandboxFactory = Callable[[Path], OciSandbox]
+
+
 class CodeAgent:
     def __init__(
         self,
@@ -42,11 +46,13 @@ class CodeAgent:
         workspace_manager: WorkspaceManager,
         artifacts: ArtifactStore,
         events: JsonlEventStore,
+        sandbox_factory: SandboxFactory | None = None,
     ):
         self.llm = llm
         self.workspace_manager = workspace_manager
         self.artifacts = artifacts
         self.events = events
+        self.sandbox_factory = sandbox_factory or OciSandbox
 
     async def run(
         self,
@@ -58,8 +64,27 @@ class CodeAgent:
         max_tokens: int,
     ) -> CodeAgentResult:
         workspace = self.workspace_manager.create(task_id, source)
-        sandbox = OciSandbox(workspace.root)
+        sandbox = self.sandbox_factory(workspace.root)
         records: list[ArtifactRecord] = []
+
+        preflight = await sandbox.preflight()
+        if not preflight.ok:
+            self.events.append(
+                event_type="hydra.code.sandbox_unavailable",
+                aggregate_id=task_id,
+                producer="hydra.code_agent",
+                trace_id=trace_id,
+                payload={
+                    "exit_code": preflight.exit_code,
+                    "image": getattr(sandbox, "image", None),
+                },
+            )
+            return CodeAgentResult(
+                False,
+                "Sandbox unavailable; coding task was not executed.",
+                records,
+                workspace,
+            )
 
         before = await sandbox.pytest(".")
         records.append(self.artifacts.put_text(
@@ -101,7 +126,7 @@ class CodeAgent:
             metadata={"exit_code": after.exit_code},
         ))
         records.append(self.artifacts.put_text(
-            task_id=task_id, kind="verified-patch", text=diff
+            task_id=task_id, kind="applied-patch", text=diff
         ))
 
         if not after.ok:
@@ -117,6 +142,9 @@ class CodeAgent:
                 False, "Patch rejected: verification tests failed.", records, workspace
             )
 
+        records.append(self.artifacts.put_text(
+            task_id=task_id, kind="verified-patch", text=diff
+        ))
         self.events.append(
             event_type="hydra.code.patch_verified",
             aggregate_id=task_id,
