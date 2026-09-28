@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from hydra.outbox import OutboxMessage, TransactionalOutbox
+from hydra.outbox import TransactionalOutbox
 from hydra.outbox_dispatcher import OutboxDispatcher
 
 
