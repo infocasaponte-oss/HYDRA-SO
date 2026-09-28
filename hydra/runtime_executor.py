@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 from hydra.runtime_evidence import RuntimeEvidenceStore
 from hydra.runtime_health import RuntimeHealth
@@ -46,7 +46,7 @@ class RuntimeExecutor:
         shadow_task = self._start_shadow(decision)
         try:
             answer = await self.inference_call(primary_id)
-        except Exception:
+        except Exception:  # noqa: BLE001
             self.health.failure(primary_id)
             if primary is decision.canary:
                 answer, primary_id = await self._fallback(decision)
@@ -63,7 +63,7 @@ class RuntimeExecutor:
                 shadow_answer = await shadow_task
                 if shadow_id:
                     self.health.success(shadow_id)
-            except Exception:
+            except Exception:  # noqa: BLE001
                 if shadow_id:
                     self.health.failure(shadow_id)
 
