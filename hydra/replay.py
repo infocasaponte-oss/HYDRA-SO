@@ -42,3 +42,9 @@ class ReplayStore:
             manifest.model_dump_json(indent=2), encoding="utf-8"
         )
         return manifest
+
+    def get(self, task_id: UUID) -> ReplayManifest | None:
+        path = self.root / f"{task_id}.json"
+        if not path.is_file():
+            return None
+        return ReplayManifest.model_validate_json(path.read_text(encoding="utf-8"))
