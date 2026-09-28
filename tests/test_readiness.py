@@ -41,3 +41,15 @@ def test_dead_letter_blocks_readiness(tmp_path):
     )
     assert status.ready is False
     assert "dead_letters_present" in status.reasons
+
+
+def test_stopped_worker_blocks_readiness(tmp_path):
+    status = evaluate_readiness(
+        outbox=TransactionalOutbox(tmp_path / "hydra.db"),
+        events=JsonlEventStore(tmp_path / "events.jsonl"),
+        provenance=ProvenanceLedger(tmp_path / "provenance.jsonl"),
+        llm_healthy=True,
+        worker_running=False,
+    )
+    assert status.ready is False
+    assert "outbox_worker_stopped" in status.reasons
