@@ -87,6 +87,17 @@ class CodingLoop:
             )
         )
         accepted = after.ok
+        if not accepted:
+            rollback = self.patcher.reverse(diff)
+            if not rollback.ok:
+                self.events.append(
+                    event_type="hydra.patch.rollback_failed",
+                    aggregate_id=task_id,
+                    producer="hydra.runtime.coding_loop",
+                    trace_id=trace_id,
+                    payload={"reason": "reverse_apply_failed"},
+                )
+                raise RuntimeError("Rejected patch could not be rolled back safely")
         self.events.append(
             event_type="hydra.patch.verified",
             aggregate_id=task_id,
