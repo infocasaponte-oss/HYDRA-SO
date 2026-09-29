@@ -123,6 +123,21 @@ class PatchTool:
                     return True
         return False
 
+    def reverse(self, diff: str) -> PatchResult:
+        """Reverse a previously applied, validated patch inside the workspace."""
+        self._validate_headers(diff)
+        proc = subprocess.run(
+            ["git", "apply", "--reverse", "--whitespace=nowarn", "-"],
+            input=diff,
+            text=True,
+            cwd=self.workspace.root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            timeout=30,
+            check=False,
+        )
+        return PatchResult(proc.returncode == 0, proc.stdout[-20_000:])
+
     def apply(self, diff: str) -> PatchResult:
         self._validate_headers(diff)
         paths = self._patch_paths(diff)
