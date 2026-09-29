@@ -18,6 +18,7 @@ from pydantic import AliasChoices, BaseModel, Field
 
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message
 from hydra.core.kernel import HydraTaskFailed
+from hydra.core.paths import PathNotAllowed, confine, safe_id
 from hydra.core.task import EventEnvelope, HydraResult, HydraTask
 from hydra.runtime.budgets import BudgetExceeded
 
@@ -246,9 +247,14 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     @app.post("/hydra/v1/goals", dependencies=secured)
     async def run_goal(body: GoalBody, request: Request):
         runtime = rt(request)
-        ws = Path(body.workspace) if body.workspace else None
-        if ws is not None and not ws.is_dir():
-            raise HTTPException(400, f"workspace not found: {body.workspace}")
+        ws = None
+        if body.workspace:
+            try:  # clients name a repository below HYDRA_REPOSITORIES_ROOT, never a host path
+                ws = confine(runtime.settings.repositories_root, body.workspace)
+            except PathNotAllowed as exc:
+                raise HTTPException(403, str(exc)) from exc
+            if not ws.is_dir():
+                raise HTTPException(400, f"workspace not found: {body.workspace}")
         g = await runtime.goals.run(body.goal, workspace=ws, mode=body.mode, authorized=set(body.authorized),
                                     max_seconds=body.max_seconds)
         return json.loads(g.model_dump_json())
@@ -377,7 +383,10 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     async def codegraph(request: Request, path: str, name: str | None = None):
         from hydra.world.knowledge import code_graph_delta
 
-        p = Path(path)
+        try:
+            p = confine(rt(request).settings.repositories_root, path)
+        except PathNotAllowed as exc:
+            raise HTTPException(403, str(exc)) from exc
         if not p.is_dir():
             raise HTTPException(400, "not a directory")
         w = rt(request).world
@@ -502,6 +511,10 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         from hydra.ledger.ip import export_bundle
 
         runtime = rt(request)
+        try:
+            safe_id(inv, "invention id")
+        except PathNotAllowed as exc:
+            raise HTTPException(400, str(exc)) from exc
         path = export_bundle(runtime.ip, inv, runtime.settings.data_dir / "ip" / "bundles", runtime.signer)
         return {"path": str(path), "files": sorted(p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_file())}
 
