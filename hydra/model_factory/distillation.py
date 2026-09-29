@@ -49,7 +49,7 @@ def _ok(task: TaskRecord, min_confidence: float) -> bool:
     fr = task.final_response or {}
     meta = fr.get("meta") or {}
     return (task.status == "completed" and meta.get("decision", "answer") == "answer"
-            and meta.get("confidence", 0) >= min_confidence and (meta.get("verified") or min_confidence < 0.8))
+            and meta.get("confidence", 0) >= min_confidence and meta.get("verified") is True)
 
 
 class DatasetBuilder:
@@ -100,14 +100,15 @@ class DatasetBuilder:
                                                 "tools": tools})
 
     def critic(self, tasks: list[TaskRecord]) -> DatasetManifest:
-        """answer -> verdict, using verification outcomes as labels (positives and negatives)."""
+        """Export verified positives; an unverified answer is not a verified negative."""
         rows = []
         for t in tasks:
             fr = t.final_response or {}
             meta = fr.get("meta", {})
-            if not fr.get("answer") or meta.get("decision", "answer") != "answer":
+            if (not fr.get("answer") or meta.get("decision", "answer") != "answer"
+                    or t.status != "completed" or meta.get("verified") is not True):
                 continue
-            verdict = {"verdict": "pass" if meta.get("verified") else "fail",
+            verdict = {"verdict": "pass",
                        "score": round(meta.get("confidence", 0.5), 3), "issues": fr.get("uncertainties", [])[:5]}
             user = next((m["content"] for m in reversed(t.request.get("messages", [])) if m.get("role") == "user"), "")
             rows.append({"messages": [

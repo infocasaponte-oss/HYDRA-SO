@@ -136,6 +136,5 @@ def train_text_classifier(train_file: Path, valid_file: Path | None, out_dir: Pa
         if Xv:
             out["valid_accuracy"] = round(sum(clf.predict(x)[0] == t for x, t in zip(Xv, yv)) / len(Xv), 4)
             out["valid_examples"] = len(Xv)
-    if "valid_accuracy" not in out:
-        out["valid_accuracy"] = out["train_accuracy"]
+    out["validation_status"] = "measured" if "valid_accuracy" in out else "not_evaluated"
     return out
