@@ -1,5 +1,7 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """API clients can only point HYDRA at directories below HYDRA_REPOSITORIES_ROOT (CodeQL py/path-injection)."""
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -12,7 +14,10 @@ def test_confine_keeps_paths_inside_the_root(tmp_path):
     root = tmp_path / "repos"
     (root / "calc").mkdir(parents=True)
     assert confine(root, "calc") == (root / "calc").resolve()
-    for escape in ["..", "../secret", "calc/../../secret", str(tmp_path), "/etc", "C:\\Windows"]:
+    escapes = ["..", "../secret", "calc/../../secret", str(tmp_path), "/etc"]
+    if os.name == "nt":  # on POSIX "C:\\Windows" is just a file name inside the root
+        escapes.append("C:\\Windows")
+    for escape in escapes:
         with pytest.raises(PathNotAllowed):
             confine(root, escape)
 

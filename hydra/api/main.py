@@ -126,7 +126,7 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         except HydraTaskFailed as exc:
             code = 503 if exc.kind in ("unavailable", "rate_limit", "timeout") else 502
             return JSONResponse(status_code=code, content={
-                "error": str(exc), "kind": exc.kind, "task_id": str(exc.task_id)})
+                "error": exc.public_message(), "kind": exc.kind, "task_id": str(exc.task_id)})
 
     @app.post("/v1/hydra/stream", dependencies=secured)
     async def stream_hydra(body: HydraRequest, request: Request):
@@ -158,7 +158,7 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
                         yield f"event: {ev.type.value}\ndata: {ev.model_dump_json()}\n\n"
                     result = job.result()
                     if isinstance(result, HydraTaskFailed):
-                        yield f"event: error\ndata: {json.dumps({'error': str(result), 'kind': result.kind})}\n\n"
+                        yield f"event: error\ndata: {json.dumps({'error': result.public_message(), 'kind': result.kind})}\n\n"
                     else:
                         yield f"event: result\ndata: {result.model_dump_json()}\n\n"
                     break
@@ -270,7 +270,7 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         try:
             result = await rt(request).lab.serve(HydraRequest(messages=body.messages, mode=mode), task_id=uuid4())
         except HydraTaskFailed as exc:
-            raise HTTPException(502, str(exc)) from exc
+            raise HTTPException(502, exc.public_message()) from exc
         return {
             "id": f"chatcmpl-{result.meta.task_id}",
             "object": "chat.completion",

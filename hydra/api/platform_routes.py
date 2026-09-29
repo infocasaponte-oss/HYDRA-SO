@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,8 @@ from hydra.core.kernel import HydraTaskFailed
 from hydra.core.paths import PathNotAllowed, confine, safe_id
 from hydra.core.task import EventEnvelope, HydraResult, HydraTask
 from hydra.runtime.budgets import BudgetExceeded
+
+log = logging.getLogger("hydra.api")
 
 
 # ------------------------------------------------------------------------------ bodies
@@ -233,7 +236,8 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         try:
             resp = await runtime.lab.serve(task.to_request(), task_id=task.id)
         except HydraTaskFailed as exc:
-            raise HTTPException(502, {"task_id": str(exc.task_id), "kind": exc.kind, "error": str(exc)}) from exc
+            raise HTTPException(502, {"task_id": str(exc.task_id), "kind": exc.kind,
+                                      "error": exc.public_message()}) from exc
         return HydraResult.from_response(resp)
 
     @app.post("/v1/tasks", response_model=HydraResult, dependencies=secured)
@@ -296,8 +300,11 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
                 try:
                     resp = run.result()
                     await websocket.send_json({"type": "result", **HydraResult.from_response(resp).model_dump(mode="json")})
-                except Exception as exc:
-                    await websocket.send_json({"type": "error", "error": str(exc)[:500]})
+                except HydraTaskFailed as exc:
+                    await websocket.send_json({"type": "error", "kind": exc.kind, "error": exc.public_message()})
+                except Exception:
+                    log.exception("websocket task failed")
+                    await websocket.send_json({"type": "error", "error": "the task failed"})
         except WebSocketDisconnect:
             return
 
