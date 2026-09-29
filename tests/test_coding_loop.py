@@ -1,4 +1,3 @@
-import subprocess
 from uuid import uuid4
 
 import pytest
@@ -23,7 +22,8 @@ class SequenceSandbox:
 async def test_rejected_patch_restores_workspace(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    (workspace / ".git").mkdir()
+    (workspace / ".git" / "marker").write_text("preserve")
     (workspace / "a.txt").write_text("old\n")
 
     loop = CodingLoop(
@@ -58,14 +58,15 @@ async def test_rejected_patch_restores_workspace(tmp_path):
     assert not result.accepted
     assert (workspace / "a.txt").read_text() == "old\n"
     assert not (workspace / "created.txt").exists()
-    assert (workspace / ".git").is_dir()
+    assert (workspace / ".git" / "marker").read_text() == "preserve"
 
 
 @pytest.mark.asyncio
 async def test_accepted_patch_remains_in_workspace(tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
+    (workspace / ".git").mkdir()
+    (workspace / ".git" / "marker").write_text("preserve")
     (workspace / "a.txt").write_text("old\n")
 
     loop = CodingLoop(
