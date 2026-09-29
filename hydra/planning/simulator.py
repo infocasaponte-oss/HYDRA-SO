@@ -13,6 +13,7 @@ expected success, variance and tail risk; branch-and-bound prunes hopeless plans
 from __future__ import annotations
 
 import json
+import logging
 import math
 import random
 from pathlib import Path
@@ -25,6 +26,8 @@ from hydra.planning.goals import ExecutionPlan, PlanNode, PlanWeights, plan_util
 
 REALITY_LEVEL = {"llm": 0, "historical": 1, "rules": 2, "static": 2, "sandbox": 3, "experiment": 4,
                  "production": 5}
+
+log = logging.getLogger("hydra.planning")
 
 
 class PredictedOutcome(BaseModel):
@@ -173,8 +176,9 @@ class SimulatorEnsemble:
                 try:
                     if (r := fn(node)) is not None:
                         results.append(r)
-                except Exception:
-                    pass
+                except Exception:  # an optional simulator never blocks planning
+                    log.warning("simulator %s failed for %s", getattr(fn, "__name__", fn), node.action,
+                                exc_info=True)
         wsum = p = dur = cost = 0.0
         for r in results:
             w = weights.get(r.source, 0.2) * (1 + r.reality_level / 5)

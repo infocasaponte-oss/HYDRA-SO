@@ -6,8 +6,11 @@ HOST="${HYDRA_API_HOST:-127.0.0.1}"
 PORT="${HYDRA_API_PORT:-8080}"
 
 if [[ "$HOST" != "127.0.0.1" && "$HOST" != "localhost" ]]; then
-  echo "Refusing non-local bind in pre-alpha. Set up an authenticated gateway first." >&2
-  exit 2
+  if [[ -z "${HYDRA_API_KEY:-}${HYDRA_API_TOKEN:-}" ]]; then
+    echo "Refusing non-local bind without HYDRA_API_KEY (or HYDRA_API_TOKEN)." >&2
+    exit 2
+  fi
 fi
 
-exec uvicorn hydra.runtime.api:app --host "$HOST" --port "$PORT"
+# Unified gateway: platform routes + HYDRA-SO runtime line (/ready, /hydra/v1/admin/*, ...).
+exec hydra serve --host "$HOST" --port "$PORT"

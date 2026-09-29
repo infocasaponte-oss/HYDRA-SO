@@ -52,7 +52,7 @@ Comprobaciones hechas en local:
 | H8 | Media | La CI de `main` usa Python 3.11 y un solo SO. La integración exige Python ≥ 3.12: tras la fusión, esa CI fallaría | CI unificada (§4, fila 1) |
 | H9 | Baja | Los PRs de Dependabot #10–#12 editan la CI de `main`, que se sustituye | Aplicar las versiones en la CI unificada; cerrar los PRs y dejar que Dependabot los regenere |
 | H10 | Info | El pytest global de esta máquina lista vulnerabilidades en `python-jose` y `ecdsa`: son paquetes ajenos a HYDRA, no aparecen en el entorno limpio | Ninguna |
-| H11 | Pendiente (titular) | Repositorio público con código propietario; `main` sin protección de rama | Paso E |
+| H11 | Resuelto | `main` protegida en el paso E. El repositorio sigue público por decisión del titular: en privado, Actions no arranca sin plan de pago | Paso E |
 
 ## 4. Resolución de conflictos (fusión de `main` en la integración)
 
@@ -78,9 +78,10 @@ Tras resolver:
 
 **Estado:**
 - **A:** hecho. `3ec4035` publicado; CI verde en Ubuntu y Windows.
-- **B:** merge hecho en `merge/main-into-integration` (`70ea6fb`, padres `3ec4035` + `a3ea0eb`), con 407 passed, ruff limpio y pip-audit limpio. Falta el PR hacia `integration/hydra-1.0`.
-- **C:** parte técnica hecha. De #4 se adopta `PatchTool`, que restaura los ficheros tocados cuando un parche falla o crea un symlink y añade `reverse()`, junto con sus tests (`6ab71d8`). No se adopta su `python.test` dentro del sandbox OCI: se mantiene el fallo cerrado revisado en #5, y cambiarlo es decisión del titular. Cerrar #1, #2 y #4 en GitHub requiere sesión del titular.
-- **D–E:** pendientes (fusión en `main` con revisión del titular).
+- **B:** merge hecho en `merge/main-into-integration` (`70ea6fb`, padres `3ec4035` + `a3ea0eb`), con 407 passed, ruff limpio y pip-audit limpio. Integración avanzada hasta ese merge.
+- **C:** parte técnica hecha. De #4 se adopta `PatchTool`, que restaura los ficheros tocados cuando un parche falla o crea un symlink y añade `reverse()`, junto con sus tests (`6ab71d8`). No se adopta su `python.test` dentro del sandbox OCI: se mantiene el fallo cerrado revisado en #5, y cambiarlo es decisión del titular. #1, #2 y #4 cerrados con comentario; también #10–#12 de Dependabot.
+- **D:** hecho. Rama congelada `release/1.1.0` y PR #13 → `main`. Antes de fusionar se corrigieron los hallazgos reales de CodeQL: rutas de la API limitadas a `HYDRA_REPOSITORIES_ROOT` (`4230f90`) y mensajes de error públicos (`c7d054a`). Los falsos positivos se descartaron con justificación. Fusionado con merge commit por el titular: `c234b35`.
+- **E:** hecho. Etiqueta `v1.1.0`; `main` protegida (PR obligatorio, checks `test` ×2 y `Analyze Python`, sin force-push ni borrado); 11 ramas fusionadas o cerradas borradas. Siguen `integration/hydra-1.0` y `codex/finish-hydra-gguf` por el trabajo de otro agente.
 
 ### Paso A — Asegurar el trabajo local
 1. Publicar los 9 commits: `git push origin integration/hydra-1.0` y esperar la CI verde (Ubuntu + Windows).

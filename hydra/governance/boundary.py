@@ -23,7 +23,7 @@ INJECTION_PATTERNS = {
     "exfiltration": r"(?i)\b(?:reveal|print|show|muestra|revela|send|envía)\b.{0,40}\b(?:system prompt|prompt del "
                     r"sistema|api[_ ]?keys?|secrets?|credentials?|contraseñas?|tokens?)\b",
     "tool_coercion": r"(?i)\b(?:execute|run|ejecuta|call)\b.{0,30}\b(?:rm -rf|curl|wget|powershell|shell|bash)\b",
-    "hidden_markup": r"[​-‏⁠﻿]|<!--.{0,200}?(?:instruction|instrucción).{0,200}?-->",
+    "hidden_markup": r"[\u200b-\u200f\u2060\ufeff]|<!--.{0,200}?(?:instruction|instrucción).{0,200}?-->",
 }
 _RX = {k: re.compile(v) for k, v in INJECTION_PATTERNS.items()}
 
