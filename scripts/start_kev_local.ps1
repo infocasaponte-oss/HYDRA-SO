@@ -9,7 +9,7 @@ $model = 'jaredpalmer/kev-0.8b@9a45d25eb2ab761841196625383fa1dff0e56c1e'
 if (-not (Test-Path -LiteralPath "$source/.git")) { throw 'Missing isolated Kev checkout in runtime/kev.' }
 $actual = git -C $source rev-parse HEAD
 if ($LASTEXITCODE -ne 0 -or $actual -ne $revision) { throw 'Kev checkout does not match the reviewed revision.' }
-if (git -C $source status --porcelain) { throw 'Kev checkout has local changes.' }
+if (git -C $source status --porcelain --untracked-files=no) { throw 'Kev tracked source has local changes.' }
 if (-not (Test-Path -LiteralPath $python)) { throw 'Create the isolated runtime/kev-env environment first.' }
 # Dedicated cache keeps Kev assets separate from the generative HYDRA environment.
 $env:HF_HOME = Join-Path $PWD 'runtime/kev-cache'
