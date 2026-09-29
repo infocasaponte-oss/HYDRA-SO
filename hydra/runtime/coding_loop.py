@@ -87,6 +87,12 @@ class CodingLoop:
             )
         )
         accepted = after.ok
+        if not accepted:
+            rollback = self.patcher.revert(diff)
+            if not rollback.ok:
+                raise RuntimeError(
+                    "Rejected patch could not be rolled back safely: " + rollback.output
+                )
         self.events.append(
             event_type="hydra.patch.verified",
             aggregate_id=task_id,
