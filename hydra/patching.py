@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,18 @@ from hydra.tools import Workspace
 class PatchResult:
     ok: bool
     output: str
+
+
+@dataclass(frozen=True)
+class PatchFileSnapshot:
+    path: str
+    content: bytes | None
+    mode: int | None
+
+
+@dataclass(frozen=True)
+class PatchSnapshot:
+    files: tuple[PatchFileSnapshot, ...]
 
 
 class PatchTool:
@@ -44,6 +57,15 @@ class PatchTool:
         if ".git" in path.parts:
             raise ValueError("Patch may not modify Git metadata")
 
+    @staticmethod
+    def _relative_path(raw: str) -> str | None:
+        raw = raw.strip()
+        if raw == "/dev/null":
+            return None
+        if raw.startswith(("a/", "b/")):
+            raw = raw[2:]
+        return str(Path(raw))
+
     @classmethod
     def _validate_headers(cls, diff: str) -> None:
         saw_old = False
@@ -71,6 +93,55 @@ class PatchTool:
 
         if not saw_old or not saw_new:
             raise ValueError("Patch requires --- and +++ headers")
+
+    @classmethod
+    def _touched_paths(cls, diff: str) -> list[str]:
+        cls._validate_headers(diff)
+        paths: list[str] = []
+        seen: set[str] = set()
+        for line in diff.splitlines():
+            if not line.startswith(("--- ", "+++ ")):
+                continue
+            raw = line[4:].split("\t", 1)[0]
+            relative = cls._relative_path(raw)
+            if relative is not None and relative not in seen:
+                paths.append(relative)
+                seen.add(relative)
+        return paths
+
+    def snapshot(self, diff: str) -> PatchSnapshot:
+        files: list[PatchFileSnapshot] = []
+        for relative in self._touched_paths(diff):
+            path = self.workspace.resolve(relative)
+            if path.is_symlink():
+                raise ValueError("Patch target may not be a symlink")
+            if path.exists():
+                if not path.is_file():
+                    raise ValueError("Patch target must be a regular file")
+                files.append(
+                    PatchFileSnapshot(
+                        path=relative,
+                        content=path.read_bytes(),
+                        mode=stat.S_IMODE(path.stat().st_mode),
+                    )
+                )
+            else:
+                files.append(PatchFileSnapshot(path=relative, content=None, mode=None))
+        return PatchSnapshot(tuple(files))
+
+    def restore(self, snapshot: PatchSnapshot) -> None:
+        for item in snapshot.files:
+            path = self.workspace.resolve(item.path)
+            if item.content is None:
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.is_symlink():
+                path.unlink()
+            path.write_bytes(item.content)
+            if item.mode is not None:
+                path.chmod(item.mode)
 
     def _contains_symlink(self) -> bool:
         for directory, dirnames, filenames in os.walk(
