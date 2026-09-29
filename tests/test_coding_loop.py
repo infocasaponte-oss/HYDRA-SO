@@ -11,6 +11,12 @@ from hydra.sandbox import SandboxResult
 from hydra.tools import Workspace
 
 
+def _init_git_workspace(path):
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    (path / "a.txt").write_text("old\n")
+    subprocess.run(["git", "add", "a.txt"], cwd=path, check=True)
+
+
 class StubSandbox:
     def __init__(self, results):
         self._results = iter(results)
@@ -21,9 +27,7 @@ class StubSandbox:
 
 @pytest.mark.asyncio
 async def test_rejected_patch_restores_workspace(tmp_path):
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    (tmp_path / "a.txt").write_text("old\n")
-    subprocess.run(["git", "add", "a.txt"], cwd=tmp_path, check=True)
+    _init_git_workspace(tmp_path)
 
     diff = "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
     loop = CodingLoop(
@@ -50,9 +54,7 @@ async def test_rejected_patch_restores_workspace(tmp_path):
 
 @pytest.mark.asyncio
 async def test_accepted_patch_remains_applied(tmp_path):
-    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
-    (tmp_path / "a.txt").write_text("old\n")
-    subprocess.run(["git", "add", "a.txt"], cwd=tmp_path, check=True)
+    _init_git_workspace(tmp_path)
 
     diff = "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
     loop = CodingLoop(
