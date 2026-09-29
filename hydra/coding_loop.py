@@ -57,6 +57,7 @@ class CodingLoop:
             )
         )
 
+        snapshot = self.patcher.snapshot(diff)
         patch = self.patcher.apply(diff)
         records.append(
             self.artifacts.put_text(
@@ -67,6 +68,7 @@ class CodingLoop:
             )
         )
         if not patch.ok:
+            self.patcher.restore(snapshot)
             self.events.append(
                 event_type="hydra.patch.rejected",
                 aggregate_id=task_id,
@@ -86,6 +88,8 @@ class CodingLoop:
             )
         )
         accepted = after.ok
+        if not accepted:
+            self.patcher.restore(snapshot)
         self.events.append(
             event_type="hydra.patch.verified",
             aggregate_id=task_id,
@@ -95,6 +99,7 @@ class CodingLoop:
                 "before_ok": before.ok,
                 "after_ok": after.ok,
                 "accepted": accepted,
+                "workspace_restored": not accepted,
                 "artifact_ids": [str(r.artifact_id) for r in records],
             },
         )
