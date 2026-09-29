@@ -2,6 +2,8 @@
 
 Construcción local del motor y del candidato `HYDRA.gguf`: [guía, evidencia y estado actual](docs/HYDRA_GGUF_LOCAL.md).
 
+API Python asíncrona `engine.query()`: [uso e integración con el kernel](docs/ENGINE_QUERY.md).
+
 **Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.**
 Software propietario — consulte [LICENSE](LICENSE).
 
