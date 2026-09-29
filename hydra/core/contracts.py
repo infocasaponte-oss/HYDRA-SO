@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -76,6 +76,19 @@ class HydraRequest(BaseModel):
         return self.messages[-1].content if self.messages else ""
 
 
+class DecisionObservation(BaseModel):
+    """Experimental evidence, never an authorization or a training label."""
+
+    version: Literal[1] = 1
+    status: Literal["observed", "skipped", "error", "timeout"]
+    model: str
+    reason: str | None = None
+    elapsed_ms: float = Field(default=0, ge=0)
+    selected: TaskType | None = None
+    probabilities: dict[str, float] = Field(default_factory=dict)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
 class RoutingDecision(BaseModel):
     task_type: TaskType
 
@@ -91,6 +104,7 @@ class RoutingDecision(BaseModel):
     desired_parallelism: int = Field(default=1, ge=1, le=8)
 
     signals: dict[str, float] = Field(default_factory=dict)
+    observation: DecisionObservation | None = None
 
 
 class ModelRequest(BaseModel):

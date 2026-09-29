@@ -1,9 +1,8 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Hybrid cognitive router: RULES -> FAST CLASSIFIER -> POLICY ENGINE.
 
-The router never answers. It produces a structured decision. A small LLM
-(Jev-like "System One" decision model) may refine the rule-based signals, but
-the deterministic layer always has the final word.
+The router never answers. A generative classifier may refine rule-based signals.
+An optional typed decision observer collects experimental evidence only.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from hydra.core.contracts import (
     RoutingDecision,
     TaskType,
 )
+from hydra.router.observer import DecisionObserver
 
 log = logging.getLogger("hydra.router")
 
@@ -85,16 +85,25 @@ def _hits(text: str, words: tuple[str, ...]) -> int:
 
 
 class CognitiveRouter:
-    def __init__(self, classifier=None, classifier_model: str | None = None) -> None:
-        """``classifier`` is an optional ModelProvider used as fast System-One layer."""
+    def __init__(self, classifier=None, classifier_model: str | None = None,
+                 *, observer: DecisionObserver | None = None) -> None:
+        """Keep the generative classifier separate from typed shadow observations."""
         self.classifier = classifier
         self.classifier_model = classifier_model
+        self.observer = observer
 
     async def route(self, request: HydraRequest) -> RoutingDecision:
         decision = self._rules(request)
         if self.classifier is not None and request.mode != ExecutionMode.FAST:
             decision = await self._refine(request, decision)
-        return self._policy(request, decision)
+        decision = self._policy(request, decision)
+        if self.observer is not None:
+            decision.observation = await self.observer.observe(request)
+        return decision
+
+    async def close(self) -> None:
+        if self.observer is not None:
+            await self.observer.close()
 
     # ---- layer 1: deterministic rules -------------------------------------------------
     def _rules(self, request: HydraRequest) -> RoutingDecision:

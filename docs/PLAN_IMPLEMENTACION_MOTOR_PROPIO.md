@@ -81,6 +81,13 @@ Entrega: `baseline-system.json`, inventario de versiones y recursos, informe de 
 
 ### P1 — Núcleo y contratos propios
 
+Avance 29/09/2026: observador local opcional conectado al router, contrato de
+observación v1 y trazas integradas. Conserva íntegra la política y omite solicitudes
+privadas, FAST o con presupuesto de latencia. Fallos y timeout no cambian la ruta;
+cancelación y cierre del cliente probados. Véase `HYDRA_DECISION_LOCAL.md`.
+Sigue pendiente el resto de P1, incluida abstención calibrada y validación real
+del backend; este avance no acredita inferencia Kev ni mejora de HYDRA.gguf.
+
 Tareas: mapear responsabilidades de core/runtime y eliminar duplicidades mediante adaptadores internos; unificar eventos, errores, cancelación, timeout, presupuesto y estado de tareas. Conectar Decision de manera consultiva, con fallback determinista y abstención. Política de red y permisos aplicada antes de cualquier ejecución.
 
 Entrega: ADR de arquitectura, contratos versionados, pruebas de integración y trazas de tres flujos completos. Salida: una tarea puede seguirse desde entrada hasta evidencia final; reinicio y cancelación no dejan acciones ambiguas; ausencia de Kev no rompe el modo local.

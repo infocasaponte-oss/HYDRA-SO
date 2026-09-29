@@ -99,10 +99,18 @@ class TextClassifier:
 
 def _examples(path: Path) -> tuple[list[str], list[str]]:
     X, y = [], []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        r = json.loads(line)
+    if path.suffix == ".parquet":
+        import pyarrow.parquet as pq
+
+        rows = pq.read_table(path).to_pylist()
+        # CorpusStore.write_table encodes nested structures as JSON columns.
+        for row in rows:
+            for key in ("messages", "input", "output"):
+                if isinstance(row.get(key), str):
+                    row[key] = json.loads(row[key])
+    else:
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    for r in rows:
         if "messages" in r:  # sft rows: user -> assistant JSON label
             user = next((m["content"] for m in r["messages"] if m["role"] == "user"), "")
             ans = next((m["content"] for m in r["messages"] if m["role"] == "assistant"), "")

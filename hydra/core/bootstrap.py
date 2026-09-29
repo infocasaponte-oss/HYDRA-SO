@@ -34,6 +34,8 @@ from hydra.registry.runtime_monitor import RuntimeMonitor
 from hydra.research.graph import ResearchWorker
 from hydra.router.learned import LearnedRoutingPolicy
 from hydra.router.router import CognitiveRouter
+from hydra.router.observer import DecisionObserver
+from hydra.providers.decision import LocalSystemOneProvider
 from hydra.scheduler.invoker import ModelInvoker
 from hydra.scheduler.planner import Planner
 from hydra.simulation.engine import Simulator
@@ -122,6 +124,10 @@ class HydraRuntime:
         await self.lab.drain()
         if self.monitor is not None:
             await self.monitor.stop()
+        try:
+            await self.kernel.router.close()
+        except Exception:
+            log.exception("decision observer close failed")
         for p in {id(p): p for p in self.providers.values()}.values():
             try:
                 await p.close()
@@ -319,8 +325,13 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         learned.fit(await telemetry.recent_runs())
     except Exception:
         log.debug("no telemetry to fit the learned router yet")
+    observer = None
+    if settings.decision_shadow_endpoint and not settings.offline:
+        observer = DecisionObserver(LocalSystemOneProvider(
+            endpoint=settings.decision_shadow_endpoint, model=settings.decision_shadow_model,
+            timeout=settings.decision_shadow_timeout_s), settings.decision_shadow_timeout_s)
     kernel = HydraKernel(
-        router=CognitiveRouter(classifier, classifier_model),
+        router=CognitiveRouter(classifier, classifier_model, observer=observer),
         registry=registry,
         planner=Planner(),
         reasoner=ReasonerWorker(invoker),
