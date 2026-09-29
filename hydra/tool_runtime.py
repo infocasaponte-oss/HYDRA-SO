@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import asyncio
-import os
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from hydra.policy import PolicyEngine, ToolPermission
+from hydra.sandbox import OciSandbox
 from hydra.tools import ToolRegistry, Workspace
 
 
@@ -16,16 +17,21 @@ class ToolResult:
     exit_code: int | None = None
 
 
+SandboxFactory = Callable[[Path], OciSandbox]
+
+
 class ToolRuntime:
     def __init__(
         self,
         workspace: Workspace,
         registry: ToolRegistry | None = None,
         policy: PolicyEngine | None = None,
+        sandbox_factory: SandboxFactory | None = None,
     ):
         self.workspace = workspace
         self.registry = registry or ToolRegistry()
         self.policy = policy or PolicyEngine()
+        self.sandbox_factory = sandbox_factory or OciSandbox
 
     async def run(
         self,
@@ -67,23 +73,15 @@ class ToolRuntime:
             return ToolResult(name, True, "\n".join(hits))
 
         if name == "python.test":
-            # Constrained subprocess: fixed executable/arguments, no shell, no network feature.
             target = self.workspace.resolve(arguments.get("path", "."))
-            env = {"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(self.workspace.root)}
-            proc = await asyncio.create_subprocess_exec(
-                "python", "-m", "pytest", "-q", str(target),
-                cwd=str(self.workspace.root),
-                env=env,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+            relative = str(target.relative_to(self.workspace.root)) or "."
+            sandbox = self.sandbox_factory(self.workspace.root)
+            result = await sandbox.pytest(relative)
+            return ToolResult(
+                name,
+                result.ok,
+                result.output,
+                exit_code=result.exit_code,
             )
-            try:
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=spec.timeout_seconds)
-            except TimeoutError:
-                proc.kill()
-                await proc.wait()
-                return ToolResult(name, False, "pytest timed out", exit_code=124)
-            text = stdout.decode("utf-8", errors="replace")[-50_000:]
-            return ToolResult(name, proc.returncode == 0, text, exit_code=proc.returncode)
 
         raise KeyError(name)
