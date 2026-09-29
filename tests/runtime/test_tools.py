@@ -2,6 +2,7 @@
 import pytest
 
 from hydra.runtime.policy import PolicyDenied, ToolPermission
+from hydra.runtime.sandbox import SandboxResult
 from hydra.runtime.tool_runtime import ToolRuntime
 from hydra.runtime.tools import Workspace
 
@@ -29,8 +30,11 @@ async def test_process_execution_denied_by_default(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_process_execution_requires_explicit_permission(tmp_path):
-    (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert 1 + 1 == 2\n")
+async def test_process_execution_requires_explicit_permission(monkeypatch, tmp_path):
+    async def fake_pytest(self, target="."):
+        return SandboxResult(True, "1 passed", 0)
+
+    monkeypatch.setattr("hydra.runtime.tool_runtime.OciSandbox.pytest", fake_pytest)
     runtime = ToolRuntime(Workspace(tmp_path))
     result = await runtime.run(
         "python.test",
