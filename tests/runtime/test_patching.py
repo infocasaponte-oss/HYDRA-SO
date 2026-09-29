@@ -83,3 +83,17 @@ def test_failed_patch_restores_existing_file(tmp_path):
 
     assert not result.ok
     assert (tmp_path / "a.txt").read_text() == "old\n"
+
+
+def test_reverse_restores_applied_patch(tmp_path):
+    import subprocess
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / "a.txt").write_text("old\n")
+    subprocess.run(["git", "add", "a.txt"], cwd=tmp_path, check=True)
+    diff = "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new\n"
+    patcher = PatchTool(Workspace(tmp_path))
+
+    assert patcher.apply(diff).ok
+    assert (tmp_path / "a.txt").read_text() == "new\n"
+    assert patcher.reverse(diff).ok
+    assert (tmp_path / "a.txt").read_text() == "old\n"
