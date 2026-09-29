@@ -7,16 +7,37 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: hydra-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --upgrade pip "setuptools>=83" build pip-audit
       - run: pip install -e ".[dev]"
-      - run: ruff check .
-      - run: pytest -q
+      - name: Lint
+        run: ruff check .
+      - name: Compile Python sources
+        run: python -m compileall -q hydra
+      - name: Test
+        run: pytest -q
+      - name: Audit installed dependencies
+        run: python -m pip_audit --skip-editable
+      - name: Build wheel
+        run: python -m build --wheel --outdir dist
+      - name: Smoke test installed wheel
+        run: |
+          python -m venv "${RUNNER_TEMP}/hydra-wheel"
+          "${RUNNER_TEMP}/hydra-wheel/bin/python" -m pip install --upgrade pip
+          "${RUNNER_TEMP}/hydra-wheel/bin/python" -m pip install dist/*.whl
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/hydra-wheel/bin/python" -c "import hydra; print(hydra.__version__)"
+          "${RUNNER_TEMP}/hydra-wheel/bin/hydra" --help
