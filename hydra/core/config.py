@@ -9,6 +9,8 @@ import sys
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from hydra.tools.sandbox import DEFAULT_SANDBOX_IMAGE
+
 _SOURCE_ROOT = Path(__file__).resolve().parents[2]
 # Source checkout -> repository root; installed package -> current directory.
 _INSTALLED_ROOT = Path(sys.prefix) / "share" / "hydra"
@@ -42,7 +44,7 @@ class Settings(BaseSettings):
 
     # Sandbox: "docker" (isolated container) or "subprocess" (dev only).
     sandbox_backend: str = "docker"
-    sandbox_image: str = "python:3.12-slim"
+    sandbox_image: str = DEFAULT_SANDBOX_IMAGE
     workspace_dir: Path = Path.cwd() / "workspace"
     # Mount source for the sandbox as seen by the Docker daemon (e.g. a named volume
     # when HYDRA itself runs in a container). Empty -> workspace_dir.

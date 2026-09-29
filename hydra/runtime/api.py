@@ -264,8 +264,10 @@ async def models(request: Request) -> dict:
 
 
 @app.post("/hydra/v1/tasks/route")
-async def route_task(task: HydraTask) -> dict:
-    """Create and route a native HYDRA task without executing side effects."""
+async def route_task(task: HydraTask, request: Request) -> dict:
+    """Create and route a task; preparing it writes audit events."""
+    identity = require_api_access(request, security_config)
+    rate_limiter.check(f"task-route:{identity}", api_rate_limit)
     try:
         trace_id, route = kernel.prepare(task)
         return {

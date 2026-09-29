@@ -63,3 +63,28 @@ def test_one_token_protects_both_lines(settings):
             # the runtime line accepts the same token; 502 = no local llama-server in tests, not an auth error
             assert client.post("/v1/chat", json={"message": "hola"}, headers=header).status_code in (200, 502)
     assert runtime_api.security_config is previous  # restored when the app stops
+
+
+def test_task_routing_requires_gateway_auth_before_writing_events(settings, monkeypatch):
+    from unittest.mock import Mock
+
+    prepare = Mock(wraps=runtime_api.kernel.prepare)
+    monkeypatch.setattr(runtime_api.kernel, "prepare", prepare)
+    with TestClient(create_app(settings.model_copy(update={"api_key": "route-secret"}))) as client:
+        response = client.post("/hydra/v1/tasks/route", json={"goal": "Debug Python"})
+        assert response.status_code == 401
+        prepare.assert_not_called()
+        response = client.post("/hydra/v1/tasks/route", json={"goal": "Debug Python"},
+                               headers={"Authorization": "Bearer route-secret"})
+        assert response.status_code == 200
+        prepare.assert_called_once()
+
+
+def test_platform_uses_hardened_runtime_sandbox_by_default(monkeypatch):
+    from hydra.core.config import Settings
+    from hydra.runtime.sandbox import DEFAULT_SANDBOX_IMAGE
+    from hydra.tools.sandbox import DockerSandbox
+
+    monkeypatch.delenv("HYDRA_SANDBOX_IMAGE", raising=False)
+    assert Settings(_env_file=None).sandbox_image == DEFAULT_SANDBOX_IMAGE
+    assert DockerSandbox().image == DEFAULT_SANDBOX_IMAGE

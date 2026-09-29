@@ -8,7 +8,8 @@ dataset manifest, training run) and promotes it only through the runtime promoti
 ``POST /hydra/v1/admin/deployments/register``; from there the candidate follows
 CANDIDATE -> SHADOW -> CANARY -> ACTIVE with recorded evidence and rollback.
 
-    python -m hydra.model_factory.deploy_bridge models/hydra-pilot --benchmark bench.json --capability coding
+    python -m hydra.model_factory.deploy_bridge models/hydra-pilot --benchmark bench.json
+        --capability coding --endpoint http://127.0.0.1:11434/v1 --served-model hydra-local
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from hydra.runtime.benchmarking import BenchmarkResult
 from hydra.runtime.model_factory import BuildState, ModelLineage, ModelVariant
@@ -70,8 +72,15 @@ def promote_with_benchmark(variant: ModelVariant, benchmark: BenchmarkResult,
 
 def register_request(build_dir: str | Path, benchmark: BenchmarkResult, capabilities: list[str],
                      models_root: str | Path = "models", generation: int = 0,
-                     policy: PromotionPolicy | None = None) -> dict[str, Any]:
+                     policy: PromotionPolicy | None = None, *, endpoint: str, served_model: str) -> dict[str, Any]:
+    parsed = urlparse(endpoint)
+    if (parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "::1", "localhost"}
+            or parsed.username or parsed.password or parsed.query or parsed.fragment):
+        raise ValueError("deployment endpoint must be local HTTP without credentials, query or fragment")
+    if not served_model.strip():
+        raise ValueError("served_model is required to route inference to the GGUF candidate")
     variant = promote_with_benchmark(variant_from_build(build_dir, models_root), benchmark, policy)
+    variant.metadata.update(endpoint=endpoint.rstrip("/"), served_model=served_model.strip())
     return {"variant": variant.model_dump(mode="json"), "capabilities": capabilities, "generation": generation}
 
 
@@ -82,7 +91,10 @@ if __name__ == "__main__":
     parser.add_argument("--capability", action="append", required=True)
     parser.add_argument("--models-root", default="models")
     parser.add_argument("--generation", type=int, default=0)
+    parser.add_argument("--endpoint", required=True, help="Local OpenAI-compatible API, e.g. http://127.0.0.1:11434/v1")
+    parser.add_argument("--served-model", required=True, help="Exact candidate model name served by that API")
     args = parser.parse_args()
     bench = BenchmarkResult.model_validate_json(args.benchmark.read_text(encoding="utf-8"))
-    print(json.dumps(register_request(args.build_dir, bench, args.capability, args.models_root, args.generation),
+    print(json.dumps(register_request(args.build_dir, bench, args.capability, args.models_root, args.generation,
+                                      endpoint=args.endpoint, served_model=args.served_model),
                      indent=2))

@@ -20,6 +20,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 MAX_OUTPUT = 64 * 1024
+DEFAULT_SANDBOX_IMAGE = "hydra-sandbox:py312-v3"
 
 
 class SandboxResult(BaseModel):
@@ -69,7 +70,7 @@ async def _run(cmd: list[str], stdin: bytes, timeout: int, cwd: str | None = Non
 class DockerSandbox(Sandbox):
     def __init__(
         self,
-        image: str = "python:3.12-slim",
+        image: str = DEFAULT_SANDBOX_IMAGE,
         workspace: Path | None = None,
         cpus: str = "1",
         memory: str = "256m",

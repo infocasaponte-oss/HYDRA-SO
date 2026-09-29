@@ -171,10 +171,11 @@ class GoalRunner:
         if ws is not None:
             report = verification_report(self.rt.workspaces.diff(ws), ws.working,
                                          baseline_failed=state.get("baseline_tests_pass") is False,
-                                         full_suite_passed=state["metrics"].get("tests_pass") is True)
+                                         full_suite_passed=state.get("full_suite_tests_pass") is True)
             state["metrics"]["verification"] = report
-            if result.status == "achieved" and report["changed_python"] and not report["syntax_passed"]:
-                result.status = "incomplete"  # tests pass but a changed file does not even compile
+            if (result.status == "achieved" and report["changed_python"]
+                    and (not report["syntax_passed"] or not report["full_suite_passed"])):
+                result.status = "incomplete"
             fin = self.rt.workspaces.finalize(ws, keep_working=False, extra={"goal": goal.description,
                                                                              "status": result.status})
             result.patch = (ws.outputs / "patch.diff").read_text(encoding="utf-8") or None
@@ -285,8 +286,11 @@ class GoalRunner:
             fails = "\n".join(f"{f.test}: {f.message[:400]}" for f in res.failures[:5])
             state["context"].append(f"TESTS: passed={res.passed} failed={res.failed} errors={res.errors}\n{fails}")
             state["tests"] = res.model_dump()
-            if not node.arguments.get("pattern"):
-                state.setdefault("baseline_tests_pass", res.success)  # first full run = baseline
+            if node.arguments.get("pattern"):
+                return True, {"targeted_tests_pass": res.success}, f"targeted: passed={res.passed} failed={res.failed}"
+            state["full_suite_tests_pass"] = res.success
+            if not state.get("workspace_patched"):
+                state.setdefault("baseline_tests_pass", res.success)
             return True, {"tests_pass": res.success, "tests_failed": res.failed + res.errors,
                           "tests_passed": res.passed}, f"passed={res.passed} failed={res.failed}"
         if action == "world.query":
@@ -332,6 +336,10 @@ class GoalRunner:
                                metadata={"goal": goal.id, "planner_step": node.id})
             resp = await self.rt.kernel.run(req)
             changed = apply_patch_answer(wdir, resp.answer)
+            if changed:
+                state["workspace_patched"] = True
+                state["full_suite_tests_pass"] = False
+                state["metrics"]["tests_pass"] = False
             state["context"].append(f"PATCH: changed {changed}")
             return bool(changed), {"patched_files": len(changed)}, f"changed {changed}"
         if action == "verify":
