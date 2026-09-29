@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: python -m pip install --upgrade pip build pip-audit
+      - run: python -m pip install --upgrade pip "setuptools>=83" build pip-audit
       - run: pip install -e ".[dev]"
       - name: Lint
         run: ruff check .
@@ -30,7 +30,7 @@ jobs:
       - name: Test
         run: pytest -q
       - name: Audit installed dependencies
-        run: python -m pip_audit
+        run: python -m pip_audit --skip-editable
       - name: Build wheel
         run: python -m build --wheel --outdir dist
       - name: Smoke test installed wheel
