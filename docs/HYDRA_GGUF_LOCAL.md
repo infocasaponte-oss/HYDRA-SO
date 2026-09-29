@@ -50,6 +50,14 @@ El preflight rechaza esa entrada incompleta. **No existe todavía el `models/hyd
 
 ## Reanudar y construir
 
+Actualización de implementación: existe un comando único que prepara los pesos, conserva el corpus existente, comprueba entradas y ejecuta entrenamiento, fusión y GGUF:
+
+```powershell
+.\scripts\build_hydra_local.ps1
+```
+
+El progreso queda en `runtime/build-local-status.json`, la transcripción en `runtime/build-local.log` y los logs de cada etapa en `models/hydra-pilot`. Un bloqueo de archivo impide dos ejecuciones simultáneas de este comando. Si falla, el estado pasa a `FAILED`; no promociona ni sirve el candidato automáticamente. La descarga admite hasta cuatro horas por intento y conserva el parcial. Solo lo renombra tras comprobar el tamaño y SHA256 fijados. El tiempo real depende de red y hardware.
+
 Desde `D:\HYDRA`:
 
 ```powershell
@@ -77,9 +85,11 @@ Comprueba el hash, importa el GGUF como `hydra-local`, selecciona `config/models
 En otra terminal:
 
 ```powershell
-py -3.12 -m hydra.training.evaluate_corpus --model hydra-local --output data/evaluations/hydra-holdout.json
+py -3.12 -m hydra.training.evaluate_corpus --model hydra-local --build-manifest models/hydra-pilot/build-manifest.json --output data/evaluations/hydra-holdout.json
 ```
 
 Para aceptar una especialización hay que comparar **la misma base 1.5B**, el checkpoint ajustado y su GGUF; el baseline 7B existente no sustituye esa comparación. Además del holdout piloto se necesitan suites de herramientas/JSON, privacidad, memoria y rendimiento. El evaluador conserva `approved=false`: un buen resultado en estas dos familias no aprueba una release.
+
+El evaluador registra el digest del manifiesto Ollama y el hash del blob GGUF. Con `--build-manifest`, rechaza pesos locales alterados o un blob servido distinto del candidato construido. Repite la comprobación al terminar y marca `INVALID_MODEL_IDENTITY` si cambia la identidad observada. Estas comprobaciones en los extremos no detectan una sustitución transitoria que se revierta durante la ejecución; no modificar el alias mientras se evalúa. Los informes se guardan mediante sustitución atómica. La velocidad de generación procede de `eval_count/eval_duration`; no se presenta como TTFT ni como rendimiento integral del motor.
 
 No se han publicado pesos, commits ni releases en GitHub durante esta implementación.

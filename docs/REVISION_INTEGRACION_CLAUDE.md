@@ -1,5 +1,7 @@
 # Revisión de la integración de Claude — 2026-09-29
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Revisión local de `integration/hydra-1.0` en `500e9918da25e30efa3c03e318012aad1eb9889f`, contrastada con el repositorio remoto. La integración conserva ambos historiales, incorpora `hydra.runtime`, monta su API y conecta captura, verificación y despliegue. Su CI pasó. Esto acredita la integración del código; no acredita un modelo HYDRA entrenado ni un despliegue físico evaluado.
 
 ## Correcciones implementadas

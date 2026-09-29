@@ -3,6 +3,7 @@
   "base_repository": "Qwen/Qwen2.5-Coder-1.5B-Instruct",
   "base_revision": "2e1fd397ee46e1388853d2af2c993145b0f1098a",
   "base_sha256": "c1b9b30e907950516ba3c646bdf570d8084c25a6410a0cdca80cf04b11bc13a8",
+  "base_size_bytes": 3087467144,
   "corpus": "data/hydra-corpus-v1",
   "output": "models/hydra-pilot",
   "llamacpp": "runtime/llama.cpp",
