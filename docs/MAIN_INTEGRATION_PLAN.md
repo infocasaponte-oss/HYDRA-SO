@@ -79,7 +79,8 @@ Tras resolver:
 **Estado:**
 - **A:** hecho. `3ec4035` publicado; CI verde en Ubuntu y Windows.
 - **B:** merge hecho en `merge/main-into-integration` (`70ea6fb`, padres `3ec4035` + `a3ea0eb`), con 407 passed, ruff limpio y pip-audit limpio. Falta el PR hacia `integration/hydra-1.0`.
-- **C–E:** pendientes.
+- **C:** parte técnica hecha. De #4 se adopta `PatchTool`, que restaura los ficheros tocados cuando un parche falla o crea un symlink y añade `reverse()`, junto con sus tests (`6ab71d8`). No se adopta su `python.test` dentro del sandbox OCI: se mantiene el fallo cerrado revisado en #5, y cambiarlo es decisión del titular. Cerrar #1, #2 y #4 en GitHub requiere sesión del titular.
+- **D–E:** pendientes (fusión en `main` con revisión del titular).
 
 ### Paso A — Asegurar el trabajo local
 1. Publicar los 9 commits: `git push origin integration/hydra-1.0` y esperar la CI verde (Ubuntu + Windows).
