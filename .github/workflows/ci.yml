@@ -56,6 +56,9 @@ jobs:
           print("HYDRA", hydra.__version__)
           PY
 
+      - name: Audit installed dependencies
+        run: python -m pip_audit --strict
+
       - name: Compile Python sources
         run: python -m compileall -q hydra
 
