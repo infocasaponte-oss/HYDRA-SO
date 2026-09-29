@@ -84,10 +84,14 @@ class PatchTool:
                     return True
         return False
 
-    def apply(self, diff: str) -> PatchResult:
+    def _git_apply(self, diff: str, *, reverse: bool = False) -> PatchResult:
         self._validate_headers(diff)
+        command = ["git", "apply", "--whitespace=nowarn"]
+        if reverse:
+            command.append("--reverse")
+        command.append("-")
         proc = subprocess.run(
-            ["git", "apply", "--whitespace=nowarn", "-"],
+            command,
             input=diff,
             text=True,
             cwd=self.workspace.root,
@@ -102,3 +106,10 @@ class PatchTool:
         if self._contains_symlink():
             return PatchResult(False, output + "\nPatch created a forbidden symlink")
         return PatchResult(True, output)
+
+    def apply(self, diff: str) -> PatchResult:
+        return self._git_apply(diff)
+
+    def revert(self, diff: str) -> PatchResult:
+        """Reverse exactly a previously applied diff without touching unrelated workspace changes."""
+        return self._git_apply(diff, reverse=True)
