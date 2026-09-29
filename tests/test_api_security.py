@@ -59,3 +59,38 @@ def test_chat_rate_limit_is_enforced(monkeypatch):
 
     assert first.status_code == 200
     assert second.status_code == 429
+
+
+def test_route_rejects_missing_configured_api_token():
+    original = api.security_config
+    api.security_config = SecurityConfig(api_token="secret", admin_token=None)
+    try:
+        with TestClient(api.app) as client:
+            response = client.post(
+                "/hydra/v1/tasks/route",
+                json={"goal": "plan only"},
+            )
+    finally:
+        api.security_config = original
+
+    assert response.status_code == 401
+
+
+def test_route_rate_limit_is_enforced():
+    original_security = api.security_config
+    original_limiter = api.rate_limiter
+    original_limit = api.api_rate_limit
+    api.security_config = SecurityConfig(api_token=None, admin_token=None)
+    api.rate_limiter = SlidingWindowRateLimiter()
+    api.api_rate_limit = RateLimit(requests=1, window_seconds=60)
+    try:
+        with TestClient(api.app) as client:
+            first = client.post("/hydra/v1/tasks/route", json={"goal": "one"})
+            second = client.post("/hydra/v1/tasks/route", json={"goal": "two"})
+    finally:
+        api.security_config = original_security
+        api.rate_limiter = original_limiter
+        api.api_rate_limit = original_limit
+
+    assert first.status_code == 200
+    assert second.status_code == 429
