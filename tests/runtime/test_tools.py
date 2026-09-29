@@ -2,6 +2,7 @@
 import pytest
 
 from hydra.runtime.policy import PolicyDenied, ToolPermission
+from hydra.runtime.sandbox import SandboxResult
 from hydra.runtime.tool_runtime import ToolRuntime
 from hydra.runtime.tools import Workspace
 
@@ -29,13 +30,22 @@ async def test_process_execution_denied_by_default(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_process_execution_requires_explicit_permission(tmp_path):
-    (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert 1 + 1 == 2\n")
-    runtime = ToolRuntime(Workspace(tmp_path))
+async def test_process_execution_requires_explicit_permission_and_uses_sandbox(tmp_path):
+    class FakeSandbox:
+        def __init__(self):
+            self.targets = []
+
+        async def pytest(self, target):
+            self.targets.append(target)
+            return SandboxResult(True, "1 passed", 0)
+
+    sandbox = FakeSandbox()
+    runtime = ToolRuntime(Workspace(tmp_path), sandbox=sandbox)
     result = await runtime.run(
         "python.test",
         {"path": "."},
         ToolPermission(allow_execute=True),
     )
     assert result.ok
-    assert "passed" in result.output
+    assert result.output == "1 passed"
+    assert sandbox.targets == ["."]
