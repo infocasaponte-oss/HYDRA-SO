@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 set -euo pipefail
 
 HOST="${HYDRA_API_HOST:-127.0.0.1}"
@@ -9,4 +10,4 @@ if [[ "$HOST" != "127.0.0.1" && "$HOST" != "localhost" ]]; then
   exit 2
 fi
 
-exec uvicorn hydra.api:app --host "$HOST" --port "$PORT"
+exec uvicorn hydra.runtime.api:app --host "$HOST" --port "$PORT"

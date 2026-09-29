@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+# DATA PLANE: fabric workers (leases/idempotency), Model Factory worker, GPU inference (vLLM).
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: hydra-fabric-worker, namespace: hydra}
+spec:
+  replicas: 3
+  selector: {matchLabels: {app: hydra-fabric-worker}}
+  template:
+    metadata: {labels: {app: hydra-fabric-worker}}
+    spec:
+      containers:
+        - name: worker
+          image: hydra-engine:1.1.0
+          args: ["worker", "--capability", "inference", "reasoning", "coding"]
+          envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: hydra-factory, namespace: hydra}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: hydra-factory}}
+  template:
+    metadata: {labels: {app: hydra-factory}}
+    spec:
+      containers:
+        - name: factory
+          image: hydra-engine:1.1.0
+          args: ["factory", "worker"]
+          envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
+          volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
+---
+# GPU inference through the NVIDIA device plugin. Parallelism flags come from
+# hydra.cluster.scheduler.create_parallel_plan (e.g. --tensor-parallel-size 2).
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: vllm-reasoner, namespace: hydra}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: vllm-reasoner}}
+  template:
+    metadata: {labels: {app: vllm-reasoner, hydra/role: gpu}}
+    spec:
+      nodeSelector: {nvidia.com/gpu.present: "true"}
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:latest
+          args: ["--model", "Qwen/Qwen3-32B-FP8", "--tensor-parallel-size", "2", "--enable-prefix-caching"]
+          ports: [{containerPort: 8000}]
+          resources: {limits: {nvidia.com/gpu: 2}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: vllm-reasoner, namespace: hydra}
+spec: {selector: {app: vllm-reasoner}, ports: [{port: 8000}]}

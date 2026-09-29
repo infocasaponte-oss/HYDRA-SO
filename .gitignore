@@ -1,14 +1,20 @@
-.venv/
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
-.ruff_cache/
+.venv/
 .env
-runtime/
-models/
-*.gguf
-*.safetensors
-*.log
+workspace/
 dist/
 build/
+data/
+/runtime/
+/models/
+*.gguf
+*.safetensors
+
+.ruff_cache/
+*.log
 .DS_Store
+/repositories/

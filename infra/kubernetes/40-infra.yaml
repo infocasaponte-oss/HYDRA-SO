@@ -1,0 +1,59 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+# Development-grade stateful services. Production: managed/HA PostgreSQL, NATS JetStream cluster, S3.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: postgres, namespace: hydra}
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector: {matchLabels: {app: postgres}}
+  template:
+    metadata: {labels: {app: postgres}}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17
+          env:
+            - {name: POSTGRES_USER, value: hydra}
+            - {name: POSTGRES_DB, value: hydra}
+            - {name: POSTGRES_PASSWORD, value: change-me}
+          ports: [{containerPort: 5432}]
+          volumeMounts: [{name: pg, mountPath: /var/lib/postgresql/data}]
+  volumeClaimTemplates:
+    - metadata: {name: pg}
+      spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 50Gi}}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: postgres, namespace: hydra}
+spec: {selector: {app: postgres}, ports: [{port: 5432}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: nats, namespace: hydra}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: nats}}
+  template:
+    metadata: {labels: {app: nats}}
+    spec: {containers: [{name: nats, image: "nats:2.11", args: ["-js"], ports: [{containerPort: 4222}]}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: nats, namespace: hydra}
+spec: {selector: {app: nats}, ports: [{port: 4222}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: redis, namespace: hydra}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: redis}}
+  template:
+    metadata: {labels: {app: redis}}
+    spec: {containers: [{name: redis, image: "redis:8", ports: [{containerPort: 6379}]}]}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: redis, namespace: hydra}
+spec: {selector: {app: redis}, ports: [{port: 6379}]}

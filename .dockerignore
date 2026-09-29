@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.env
+.git/
+workspace/
+tests/

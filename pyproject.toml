@@ -1,33 +1,65 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+
 [build-system]
-requires = ["hatchling>=1.25"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "hydra-so"
-version = "0.4.0.dev0"
-description = "HYDRA hybrid cognitive operating system"
+name = "hydra-engine"
+version = "1.1.0"
+description = "HYDRA OS 1.0 - heterogeneous cognitive operating system: kernel, world model, planner, corpus, training lab, model factory and IP ledger"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Luis Manuel Cousido Hermida" }]
+classifiers = [
+    "License :: Other/Proprietary License",
+    "Programming Language :: Python :: 3.12",
+    "Private :: Do Not Upload",
+]
 dependencies = [
-  "fastapi>=0.115,<1",
-  "httpx>=0.27,<1",
-  "pydantic>=2.8,<3",
-  "python-dotenv>=1,<2",
-  "uvicorn[standard]>=0.30,<1",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "httpx>=0.27",
+    "PyYAML>=6.0",
+    "cryptography>=42",
+    "numpy>=1.26",
+    "sympy>=1.12",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.0.3,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.6,<1"]
+redis = ["redis>=5.0"]
+postgres = ["asyncpg>=0.29"]
+nats = ["nats-py>=2.7"]
+factory = ["huggingface_hub>=0.24"]
+training = ["torch>=2.3", "transformers>=4.44", "peft>=0.12", "datasets>=2.20", "trl>=0.12"]
+mlx = ["mlx-lm>=0.20"]
+parquet = ["pyarrow>=16"]
+federated = ["flwr>=1.20"]
+all = ["redis>=5.0", "asyncpg>=0.29", "nats-py>=2.7", "huggingface_hub>=0.24", "pyarrow>=16"]
+dev = ["pytest>=9.0.3,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.6"]
 
 [project.scripts]
 hydra = "hydra.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["hydra"]
+[tool.setuptools.packages.find]
+include = ["hydra*"]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.setuptools.package-data]
+hydra = ["py.typed", "api/studio.html"]
+
+[tool.setuptools.data-files]
+"share/hydra/config" = ["config/models.yaml", "config/models.ollama.yaml", "config/models.hydra.yaml", "config/policy.yaml", "config/policy_rules.yaml", "config/licenses.yaml"]
 
 [tool.ruff]
-line-length = 100
-target-version = "py311"
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
