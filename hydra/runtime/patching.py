@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,6 +75,43 @@ class PatchTool:
         if not saw_old or not saw_new:
             raise ValueError("Patch requires --- and +++ headers")
 
+    @classmethod
+    def _patch_paths(cls, diff: str) -> set[Path]:
+        paths: set[Path] = set()
+        for line in diff.splitlines():
+            if not line.startswith(("--- ", "+++ ")):
+                continue
+            raw = line[4:].split("\t", 1)[0].strip()
+            cls._validate_path(raw)
+            if raw == "/dev/null":
+                continue
+            if raw.startswith(("a/", "b/")):
+                raw = raw[2:]
+            paths.add(Path(raw))
+        return paths
+
+    def _snapshot_paths(self, paths: set[Path], root: Path) -> None:
+        for relative in paths:
+            source = self.workspace.root / relative
+            target = root / relative
+            if source.is_symlink():
+                raise ValueError("Workspace contains a forbidden symlink")
+            if source.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+
+    def _restore_paths(self, paths: set[Path], root: Path) -> None:
+        for relative in paths:
+            target = self.workspace.root / relative
+            backup = root / relative
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            elif target.exists():
+                shutil.rmtree(target)
+            if backup.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(backup, target)
+
     def _contains_symlink(self) -> bool:
         for directory, dirnames, filenames in os.walk(
             self.workspace.root,
@@ -86,19 +125,25 @@ class PatchTool:
 
     def apply(self, diff: str) -> PatchResult:
         self._validate_headers(diff)
-        proc = subprocess.run(
-            ["git", "apply", "--whitespace=nowarn", "-"],
-            input=diff,
-            text=True,
-            cwd=self.workspace.root,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=30,
-            check=False,
-        )
-        output = proc.stdout[-20_000:]
-        if proc.returncode != 0:
-            return PatchResult(False, output)
-        if self._contains_symlink():
-            return PatchResult(False, output + "\nPatch created a forbidden symlink")
+        paths = self._patch_paths(diff)
+        with tempfile.TemporaryDirectory(prefix="hydra-patch-backup-") as backup_dir:
+            backup = Path(backup_dir)
+            self._snapshot_paths(paths, backup)
+            proc = subprocess.run(
+                ["git", "apply", "--whitespace=nowarn", "-"],
+                input=diff,
+                text=True,
+                cwd=self.workspace.root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=30,
+                check=False,
+            )
+            output = proc.stdout[-20_000:]
+            if proc.returncode != 0:
+                self._restore_paths(paths, backup)
+                return PatchResult(False, output)
+            if self._contains_symlink():
+                self._restore_paths(paths, backup)
+                return PatchResult(False, output + "\nPatch created a forbidden symlink")
         return PatchResult(True, output)
