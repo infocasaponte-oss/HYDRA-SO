@@ -16,6 +16,8 @@ Corregidos tres problemas de preparación de datos:
 
 Esto no completa la fase de admisión: todavía falta imponer permisos de entrenamiento, procedencia por ejemplo, verificador independiente y separación de datasets en todos los exportadores.
 
+Validación de esta implementación: suite completa **403 passed, 5 skipped** en 236,61 segundos. Ruff, cabeceras de licencia, espacios y sintaxis del lanzador PowerShell comprobados. Los skips no cuentan como evidencia de funcionamiento.
+
 ## Entorno Kev
 
 - Código aislado: `runtime/kev`, commit `0c142becde423a0c68ec857f7831dac0315588a1`.

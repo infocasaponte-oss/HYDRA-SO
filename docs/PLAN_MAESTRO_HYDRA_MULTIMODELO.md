@@ -156,3 +156,7 @@ Inventario de datos propuesto:
 | Tickets/documentos propios | Especialización de dominio | Permiso de uso, eliminación de datos sensibles y partición por origen |
 
 La ejecución local debe verificarse con servidor en loopback, control de conexiones y políticas de registro; no equivale automáticamente a privacidad total. El criterio de selección será rendimiento y calibración en HYDRA, no similitud de nombre con Jev. Esta actualización no instala Kev, no descarga pesos y no incorpora datos de terceros: deja definida la integración y sus controles para la siguiente implementación.
+
+### Avance de implementación posterior
+
+El commit `9d01f91` incorpora el cliente local tipado y corrige la aceptación de respuestas no verificadas, las etiquetas negativas inferidas y la sustitución de validación por precisión de entrenamiento. Véase [estado técnico de HYDRA-Decision](HYDRA_DECISION_LOCAL.md). La política de permisos/procedencia por fila y la integración al router siguen pendientes. Se ha preparado un checkout Kev fijado y un entorno Python aislado; la preparación del entorno no acredita todavía un servidor listo ni inferencia verificada.
