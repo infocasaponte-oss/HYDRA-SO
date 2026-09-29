@@ -7,12 +7,22 @@ import asyncio
 import json
 import re
 import time
+import uuid
 from pathlib import Path
 
 import httpx
 
 from hydra.tools.sandbox import DockerSandbox
 from hydra.training.verified_corpus import sha256
+
+
+def verification_program(code: str, cases: list[dict]) -> tuple[str, str]:
+    """Require completion of all assertions; a zero exit alone is not a pass."""
+    if not cases:
+        raise ValueError("verification requires test cases")
+    marker = "HYDRA_TESTS_COMPLETED_" + uuid.uuid4().hex
+    tests = "\n".join(f"assert solve({c['input']!r}) == {c['expected']!r}" for c in cases)
+    return code + "\n" + tests + f"\nprint({marker!r})\n", marker
 
 
 def candidate_hash(manifest_path: Path) -> str:
@@ -85,10 +95,10 @@ async def evaluate(model: str, corpus: Path, output: Path, limit: int = 0,
                 answer = payload["message"]["content"]
                 match = re.search(r"```(?:python|py)?\s*\n(.*?)```",answer,re.S)
                 code = match.group(1) if match else answer
-                tests = "\n".join(f"assert solve({c['input']!r}) == {c['expected']!r}"
-                                  for c in row["verification"]["cases"])
-                execution = await sandbox.execute_python(code+"\n"+tests,timeout=15)
-                case.update(passed=execution.exit_code == 0,output=answer,
+                program, marker = verification_program(code, row["verification"]["cases"])
+                execution = await sandbox.execute_python(program,timeout=15)
+                completed = marker in execution.stdout.splitlines()
+                case.update(passed=execution.exit_code == 0 and completed, checks_completed=completed, output=answer,
                             stderr=execution.stderr[-1000:],tokens=payload.get("eval_count"))
                 duration = payload.get("eval_duration", 0)
                 case["generation_duration_ms"] = duration / 1_000_000
