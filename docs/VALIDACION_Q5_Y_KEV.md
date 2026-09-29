@@ -1,5 +1,10 @@
 # Validación real y candidato Q5 — 30/09/2026
 
+Actualización posterior: la descarga original finalizó y se validó inferencia real
+de Kev en CUDA, con tres clasificaciones correctas. Véase
+[Kev GPU validado](KEV_GPU_VALIDADO.md). La sección de bloqueo inferior conserva
+el estado del intento inicial.
+
 ## Resultado observado
 
 Se ha construido `models/hydra-q5/HYDRA.gguf` desde el F16 fusionado del piloto.
