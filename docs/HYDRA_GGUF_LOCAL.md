@@ -4,6 +4,8 @@ Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
 
 Estado de implementación: 29/09/2026, rama `codex/finish-hydra-gguf`, basada en `integration/hydra-1.0`.
 
+**Actualización:** el candidato 1.5B ya se construyó y completó la evaluación piloto. Consultar [la ficha actual del modelo](HYDRA_PILOT_MODEL_CARD.md). Las incidencias de descarga descritas más abajo son el historial inicial, ya resuelto; no representan el estado actual.
+
 ## Entregas verificadas
 
 - Motor empaquetado en `dist/hydra_engine-1.0.0-py3-none-any.whl`, incluyendo configuración. Se instaló en un entorno separado y respondió correctamente a una tarea offline fuera del árbol fuente.
