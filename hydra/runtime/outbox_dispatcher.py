@@ -47,7 +47,7 @@ class OutboxDispatcher:
             self.events.append(
                 event_type=payload["event_type"],
                 aggregate_id=message.aggregate_id,
-                producer=payload.get("producer", "hydra.runtime.outbox"),
+                producer=payload.get("producer", "hydra.outbox"),
                 trace_id=message.trace_id,
                 payload=payload.get("payload", {}),
                 source_message_id=message.id,

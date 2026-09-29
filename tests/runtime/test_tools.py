@@ -29,13 +29,12 @@ async def test_process_execution_denied_by_default(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_process_execution_requires_explicit_permission(tmp_path):
+async def test_process_execution_fails_closed_even_with_permission(tmp_path):
     (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert 1 + 1 == 2\n")
     runtime = ToolRuntime(Workspace(tmp_path))
-    result = await runtime.run(
-        "python.test",
-        {"path": "."},
-        ToolPermission(allow_execute=True),
-    )
-    assert result.ok
-    assert "passed" in result.output
+    with pytest.raises(RuntimeError, match="isolated sandbox"):
+        await runtime.run(
+            "python.test",
+            {"path": "."},
+            ToolPermission(allow_execute=True),
+        )

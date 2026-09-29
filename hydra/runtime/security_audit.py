@@ -24,7 +24,7 @@ class SecurityAudit:
         self.events.append(
             event_type=event_type,
             aggregate_id=aggregate_id or uuid4(),
-            producer="hydra.runtime.security",
+            producer="hydra.security",
             trace_id=trace_id or uuid4().hex,
             payload={
                 "endpoint": endpoint,

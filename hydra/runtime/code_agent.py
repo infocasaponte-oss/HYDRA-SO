@@ -88,7 +88,7 @@ class CodeAgent:
             self.events.append(
                 event_type="hydra.code.sandbox_unavailable",
                 aggregate_id=task_id,
-                producer="hydra.runtime.code_agent",
+                producer="hydra.code_agent",
                 trace_id=trace_id,
                 payload={
                     "exit_code": preflight.exit_code,
@@ -112,7 +112,7 @@ class CodeAgent:
             self.events.append(
                 event_type="hydra.code.baseline_passing",
                 aggregate_id=task_id,
-                producer="hydra.runtime.code_agent",
+                producer="hydra.code_agent",
                 trace_id=trace_id,
                 payload={"reason": "verification_baseline_already_passed"},
             )
@@ -160,7 +160,7 @@ class CodeAgent:
             self.events.append(
                 event_type="hydra.code.patch_rejected",
                 aggregate_id=task_id,
-                producer="hydra.runtime.code_agent",
+                producer="hydra.code_agent",
                 trace_id=trace_id,
                 payload={"reason": "patch_policy_rejected", "detail": str(exc)},
             )
@@ -176,7 +176,7 @@ class CodeAgent:
             self.events.append(
                 event_type="hydra.code.patch_rejected",
                 aggregate_id=task_id,
-                producer="hydra.runtime.code_agent",
+                producer="hydra.code_agent",
                 trace_id=trace_id,
                 payload={"reason": "git_apply_failed"},
             )
@@ -280,7 +280,7 @@ class CodeAgent:
             self.events.append(
                 event_type="hydra.code.patch_rejected",
                 aggregate_id=task_id,
-                producer="hydra.runtime.code_agent",
+                producer="hydra.code_agent",
                 trace_id=trace_id,
                 payload={
                     "reason": "verification_report_failed",
@@ -310,7 +310,7 @@ class CodeAgent:
         self.events.append(
             event_type="hydra.code.patch_verified",
             aggregate_id=task_id,
-            producer="hydra.runtime.code_agent",
+            producer="hydra.code_agent",
             trace_id=trace_id,
             payload={
                 "artifact_ids": [str(r.artifact_id) for r in records],

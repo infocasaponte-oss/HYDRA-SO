@@ -30,17 +30,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
 
       - name: Install HYDRA with development dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel
+          # setuptools>=83: older versions carry PYSEC-2025-49 / PYSEC-2026-3447 and fail the audit
+          python -m pip install --upgrade pip "setuptools>=83" wheel build pip-audit
           python -m pip install -e ".[dev]"
 
       - name: Lint (ruff)
@@ -62,13 +63,20 @@ jobs:
       - name: Run test suite
         run: pytest -q
 
+      - name: Audit installed dependencies
+        run: python -m pip_audit --skip-editable
+
+      - name: Build wheel
+        run: python -m build --wheel --outdir "$RUNNER_TEMP/dist"
+
       - name: Wheel smoke test outside the source tree
         run: |
-          python -m pip wheel . -w "$RUNNER_TEMP/dist" --no-deps -q
           python -m venv "$RUNNER_TEMP/venv"
           if [ "$RUNNER_OS" = "Windows" ]; then BIN="$RUNNER_TEMP/venv/Scripts"; else BIN="$RUNNER_TEMP/venv/bin"; fi
+          "$BIN/python" -m pip install -q --upgrade pip
           "$BIN/python" -m pip install -q "$RUNNER_TEMP"/dist/*.whl
           cd "$RUNNER_TEMP"
+          "$BIN/hydra" --help > /dev/null
           export HYDRA_OFFLINE=true HYDRA_DATA_DIR="$RUNNER_TEMP/data"
           "$BIN/hydra" run "¿Cuánto es 2+2?" | tee answer.txt
           grep -q "4" answer.txt

@@ -44,7 +44,7 @@ class HydraKernel:
         self.events.append(
             event_type="hydra.task.transitioned",
             aggregate_id=task.id,
-            producer="hydra.runtime.kernel",
+            producer="hydra.kernel",
             trace_id=trace_id,
             payload={"from": previous.value, "to": target.value},
         )
@@ -54,7 +54,7 @@ class HydraKernel:
         self.events.append(
             event_type="hydra.task.created",
             aggregate_id=task.id,
-            producer="hydra.runtime.kernel",
+            producer="hydra.kernel",
             trace_id=trace_id,
             payload={"goal": task.goal, "budget": task.budget.model_dump()},
         )
@@ -68,7 +68,7 @@ class HydraKernel:
         self.events.append(
             event_type="hydra.route.completed",
             aggregate_id=task.id,
-            producer="hydra.runtime.router",
+            producer="hydra.router",
             trace_id=trace_id,
             payload=route.model_dump(),
         )
@@ -88,7 +88,7 @@ class HydraKernel:
         self.events.append(
             event_type="hydra.plan.created",
             aggregate_id=task.id,
-            producer="hydra.runtime.planner",
+            producer="hydra.planner",
             trace_id=trace_id,
             payload=plan.model_dump(mode="json"),
         )
@@ -115,7 +115,7 @@ class HydraKernel:
                         self.events.append(
                             event_type="hydra.runtime.logical_fallback",
                             aggregate_id=task.id,
-                            producer="hydra.runtime.kernel",
+                            producer="hydra.kernel",
                             trace_id=trace_id,
                             payload={
                                 "capability": route.capability,
@@ -142,7 +142,7 @@ class HydraKernel:
             self.events.append(
                 event_type="hydra.task.failed",
                 aggregate_id=task.id,
-                producer="hydra.runtime.kernel",
+                producer="hydra.kernel",
                 trace_id=trace_id,
                 payload={"capability": route.capability},
             )
@@ -151,7 +151,7 @@ class HydraKernel:
         self.events.append(
             event_type="hydra.model.completed",
             aggregate_id=task.id,
-            producer="hydra.runtime.executor",
+            producer="hydra.executor",
             trace_id=trace_id,
             payload={"model_id": output.model_id},
         )
@@ -169,7 +169,7 @@ class HydraKernel:
             self.events.append(
                 event_type="hydra.verification.completed",
                 aggregate_id=task.id,
-                producer="hydra.runtime.verifier",
+                producer="hydra.verifier",
                 trace_id=trace_id,
                 payload=verification.model_dump(),
             )
@@ -191,7 +191,7 @@ class HydraKernel:
             self.events.append(
                 event_type="hydra.task.completed",
                 aggregate_id=task.id,
-                producer="hydra.runtime.kernel",
+                producer="hydra.kernel",
                 trace_id=trace_id,
                 payload={"confidence": confidence, "model_id": output.model_id},
             )
@@ -223,7 +223,7 @@ class HydraKernel:
                 ),
                 event_payload={
                     "event_type": "hydra.task.completed",
-                    "producer": "hydra.runtime.kernel",
+                    "producer": "hydra.kernel",
                     "payload": {
                         "confidence": confidence,
                         "model_id": output.model_id,

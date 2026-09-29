@@ -265,7 +265,9 @@ async def models(request: Request) -> dict:
 
 @app.post("/hydra/v1/tasks/route")
 async def route_task(task: HydraTask, request: Request) -> dict:
-    """Create and route a task; preparing it writes audit events."""
+    """Create and route a native HYDRA task without executing external side effects.
+
+    Preparing the task writes audit events, so the route requires API access."""
     identity = require_api_access(request, security_config)
     rate_limiter.check(f"task-route:{identity}", api_rate_limit)
     try:
@@ -302,7 +304,7 @@ async def audit_replay(task_id: UUID, request: Request) -> dict:
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-replay-audit:{identity}", admin_rate_limit)
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/replay/audit",
         outcome="allowed",
         identity_hash=identity,
@@ -339,7 +341,7 @@ async def admin_metrics(request: Request) -> dict:
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-metrics:{identity}", admin_rate_limit)
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/metrics",
         outcome="allowed",
         identity_hash=identity,
@@ -368,7 +370,7 @@ async def admin_metrics_history(request: Request, limit: int = 100) -> dict:
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-metrics-history:{identity}", admin_rate_limit)
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/metrics/history",
         outcome="allowed",
         identity_hash=identity,
@@ -434,7 +436,7 @@ async def register_deployment(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/deployments/register",
         outcome="registered",
         identity_hash=identity,
@@ -463,7 +465,7 @@ async def begin_deployment_shadow(variant_id: UUID, request: Request) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/deployments/shadow",
         outcome="shadow",
         identity_hash=identity,
@@ -494,7 +496,7 @@ async def approve_deployment_canary(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/deployments/canary",
         outcome="canary",
         identity_hash=identity,
@@ -525,7 +527,7 @@ async def activate_deployment(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/deployments/activate",
         outcome="active",
         identity_hash=identity,
@@ -544,7 +546,7 @@ async def rollback_deployment(capability: str, request: Request) -> dict:
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/deployments/rollback",
         outcome="rolled_back",
         identity_hash=identity,
@@ -562,7 +564,7 @@ async def list_dead_letters(request: Request) -> dict:
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-dlq-list:{identity}", admin_rate_limit)
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/outbox/dead-letters",
         outcome="allowed",
         identity_hash=identity,
@@ -591,7 +593,7 @@ async def retry_dead_letter(message_id: UUID, request: Request) -> dict:
     rate_limiter.check(f"admin-dlq-retry:{identity}", admin_rate_limit)
     requeued = capture_uow.outbox.requeue_dead_letter(message_id)
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/admin/outbox/dead-letters/retry",
         outcome="requeued" if requeued else "not_found",
         identity_hash=identity,
@@ -609,7 +611,7 @@ async def verify_code_fix(req: CodingRequest, request: Request) -> dict:
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"coding:{identity}", admin_rate_limit)
     security_audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/hydra/v1/coding/verify-fix",
         outcome="allowed",
         identity_hash=identity,

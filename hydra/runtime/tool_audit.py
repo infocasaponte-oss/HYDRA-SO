@@ -26,7 +26,7 @@ class AuditedToolRuntime:
         self.events.append(
             event_type="hydra.tool.requested",
             aggregate_id=task_id,
-            producer="hydra.runtime.tool_runtime",
+            producer="hydra.tool_runtime",
             trace_id=trace_id,
             payload={"tool": name},
         )
@@ -36,7 +36,7 @@ class AuditedToolRuntime:
             self.events.append(
                 event_type="hydra.tool.failed",
                 aggregate_id=task_id,
-                producer="hydra.runtime.tool_runtime",
+                producer="hydra.tool_runtime",
                 trace_id=trace_id,
                 payload={"tool": name, "error_type": type(exc).__name__},
             )
@@ -44,7 +44,7 @@ class AuditedToolRuntime:
         self.events.append(
             event_type="hydra.tool.completed",
             aggregate_id=task_id,
-            producer="hydra.runtime.tool_runtime",
+            producer="hydra.tool_runtime",
             trace_id=trace_id,
             payload={"tool": name, "ok": result.ok, "exit_code": result.exit_code},
         )

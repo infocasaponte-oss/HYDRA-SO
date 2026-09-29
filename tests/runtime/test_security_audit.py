@@ -7,7 +7,7 @@ def test_security_audit_never_requires_raw_token(tmp_path):
     events = JsonlEventStore(tmp_path / "events.jsonl")
     audit = SecurityAudit(events)
     audit.record(
-        event_type="hydra.runtime.security.admin_access",
+        event_type="hydra.security.admin_access",
         endpoint="/admin",
         outcome="allowed",
         identity_hash="a" * 64,
