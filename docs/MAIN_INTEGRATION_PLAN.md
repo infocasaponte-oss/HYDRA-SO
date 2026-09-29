@@ -46,7 +46,7 @@ Comprobaciones hechas en local:
 | H2 | **Alta** | 9 commits de la integración solo existen en `D:\HYDRA`: sin copia remota y sin CI | Paso A, lo primero |
 | H3 | Media | 6 conflictos al fusionar `main`: `ci.yml`, `pyproject.toml`, `hydra/runtime/{api,coding_loop,tool_runtime}.py`, `tests/test_tools.py` | §4 |
 | H4 | Media | Git aplica el cambio de `main` en `tests/test_tools.py` sobre el **test de la plataforma**, porque esa ruta existe en ambas líneas. Su destino real es `tests/runtime/test_tools.py` | §4, fila 6 |
-| H5 | Baja | La reubicación cambió el `producer` de los eventos (`hydra.coding_loop` → `hydra.runtime.coding_loop`). Es un dato de evidencia, no un import | Restaurarlo al resolver `coding_loop.py` |
+| H5 | Media | La reubicación reescribió **33 cadenas de datos**, no solo el `producer` de `coding_loop`: tipos de evento de auditoría (`hydra.security.admin_access`), productores de eventos (`hydra.code_agent`, `hydra.kernel`, `hydra.outbox`…) y nombres de span (`hydra.router`, `hydra.planner`…). Los eventos registrados tras la integración habrían llevado nombres distintos de los de HYDRA-SO | Restauradas todas en el merge del paso B (`70ea6fb`); un script compara cada literal con la base `48d0f3a` |
 | H6 | Media | PRs #1, #2 y #4 solapan con lo ya fusionado (#5–#7). Solo #4 aporta algo nuevo para la línea integrada: rollback atómico en `patching.py` y sus tests | Paso C |
 | H7 | Media | `pip-audit` falla si setuptools < 83 (PYSEC-2025-49, PYSEC-2026-3447): es la causa de la CI roja de #4 | La CI unificada instala `setuptools>=83` antes de auditar |
 | H8 | Media | La CI de `main` usa Python 3.11 y un solo SO. La integración exige Python ≥ 3.12: tras la fusión, esa CI fallaría | CI unificada (§4, fila 1) |
@@ -75,6 +75,11 @@ Tras resolver:
 - `git grep -n "from hydra\.\(api\|coding_loop\|tool_runtime\|patching\) import"` no debe devolver nada: ningún import plano residual.
 
 ## 5. Pasos
+
+**Estado:**
+- **A:** hecho. `3ec4035` publicado; CI verde en Ubuntu y Windows.
+- **B:** merge hecho en `merge/main-into-integration` (`70ea6fb`, padres `3ec4035` + `a3ea0eb`), con 407 passed, ruff limpio y pip-audit limpio. Falta el PR hacia `integration/hydra-1.0`.
+- **C–E:** pendientes.
 
 ### Paso A — Asegurar el trabajo local
 1. Publicar los 9 commits: `git push origin integration/hydra-1.0` y esperar la CI verde (Ubuntu + Windows).
