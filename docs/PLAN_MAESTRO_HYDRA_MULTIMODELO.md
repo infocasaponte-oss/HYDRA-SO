@@ -1,0 +1,111 @@
+# Auditoría y plan maestro: motor HYDRA y modelo propio multimodelo
+
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
+Fecha: 29/09/2026. Código local auditado: `4af79e8`. Objetivo: un único producto HYDRA capaz de aprovechar especialistas y un HYDRA.gguf autónomo entrenado con conocimiento verificable y procedencia autorizada. Este documento es un plan; sus objetivos numéricos no son resultados obtenidos.
+
+## Dictamen
+
+La fábrica funciona: hay entrenamiento LoRA real, fusión, conversión, cuantización, identidad por hash e inferencia desde el motor. El modelo actual es Qwen2.5-Coder-1.5B-Instruct ajustado con 192 ejemplos sintéticos. No contiene una integración de pesos ni una destilación de Mistral, Kimi, DeepSeek, ChatGPT u otros profesores. El motor tiene selección, escalado y ensemble en código; no hay una evaluación integral que demuestre que combine esos proveedores con ventaja sobre un único modelo.
+
+Los 64 casos de prueba solo cubren dos familias y los resuelven tanto la base como el candidato. No permiten elegir al mejor especialista ni medir especialización. Tampoco hay una prueba de estabilidad prolongada ni medición de pico de memoria. Cinco prompts repetidos y una petición al motor son comprobaciones útiles, no una certificación de producción.
+
+“Completamente adiestrado” se definirá como completar el programa de entrenamiento y superar criterios de aceptación para un alcance declarado. No significa conocerlo todo, no equivocarse o heredar íntegramente las capacidades de todos los modelos.
+
+## Evidencia y problemas prioritarios
+
+| Área | Evidencia actual | Brecha / acción |
+|---|---|---|
+| Artefacto | GGUF 1.5B Q4_K_M, 986 MB; hash y procedencia en la ficha del piloto | Mantenerlo como control, no como producto general terminado |
+| Calidad | Base 64/64 y candidato 64/64 | Nuevo benchmark independiente, más difícil y multidominio |
+| Proveedores | `config/models.yaml` declara Qwen, Mistral y cloud; `models.hydra.yaml` solo usa hydra-local | Inventario de endpoints vivos, versiones y pruebas por capacidad; no usar puntuaciones iniciales como mediciones |
+| Distilación P1 | `_ok` en `hydra/model_factory/distillation.py` acepta `verified=False` con confianza 0,9 y umbral 0,75; reproducido durante esta auditoría | Exigir evidencia positiva independientemente del umbral; pruebas de regresión antes de recolectar |
+| Crítico P1 | `DatasetBuilder.critic` convierte ausencia/falsedad de `verified` en etiqueta fail | Separar passed, failed y unknown; solo passed/failed con verificador identificable producen etiquetas |
+| Trazabilidad P1 | El exportador de destilación escribe mensajes sin identidad del profesor ni permiso de entrenamiento por fila | Incorporar metadatos y política de admisión obligatoria |
+| Entrenamiento | LoRA probado; otros métodos aparecen en el Lab | Validar cada backend antes de prometer DPO, RL o entrenamiento completo |
+| Memoria | RTX 3060 Ti de 8 GiB; piloto 1.5B entrenado | Medir picos reales y margen antes de elegir tamaño; no planificar todos los grandes modelos simultáneamente en esta GPU |
+| GitHub | Remoto integration `500e991`, main `48d0f3a`, comprobados con git ls-remote | Las mejoras locales hasta `4af79e8` no están publicadas allí; falta CI remota de esta entrega |
+
+Los problemas P1 anteriores están identificados, no corregidos por esta auditoría documental. Evidencias existentes: `docs/evidence/` y `docs/HYDRA_PILOT_MODEL_CARD.md`. Suite previa: 389 passed, 5 skipped; después se validaron por separado las dos pruebas nuevas de streaming y las pruebas relacionadas. No se vuelve a atribuir esa suite completa a cambios posteriores.
+
+## Arquitectura del producto
+
+```mermaid
+flowchart TD
+    U[Usuario: una API HYDRA] --> R[Enrutador por tarea, privacidad y presupuesto]
+    R --> L[HYDRA.gguf autónomo local]
+    R --> X[Especialistas locales o remotos habilitados]
+    X --> V[Verificadores independientes]
+    L --> V
+    V --> A[Respuesta con evidencia e incertidumbre]
+    V --> Q[Cuarentena: procedencia, permisos, deduplicación]
+    Q --> D[Corpus versionado y particiones por origen]
+    D --> T[SFT / LoRA y preferencias verificadas]
+    T --> E[Evaluación ciega y regresiones]
+    E --> G[GGUF versionado y promoción controlada]
+    G --> L
+```
+
+Una sola interfaz y un modelo local por defecto son compatibles con especialistas opcionales. La modalidad autónoma debe funcionar sin API externa. La modalidad ampliada debe declarar cuándo consulta servicios externos, respetar privacidad y contabilizar coste.
+
+La transferencia al modelo único se realizará mediante ejemplos y resultados verificados de profesores permitidos. No se sumarán ni concatenarán los pesos de arquitecturas y tokenizadores distintos. Un GGUF es un formato de distribución; convertir a GGUF no combina capacidades ni añade entrenamiento. Las fusiones de adaptadores compatibles pueden evaluarse, pero no son una fusión universal de marcas.
+
+## Profesores y papel propuesto
+
+Son hipótesis a evaluar, no rankings de marcas. Elegir versiones concretas y fijar revisión, licencia, tokenizer y hash antes de generar datos.
+
+| Familia | Papel candidato | Condición de incorporación |
+|---|---|---|
+| Qwen | Código, salida estructurada, posible base del estudiante | Comparar modelos concretos; la base actual tiene licencia Apache 2.0 |
+| Mistral | Instrucciones, herramientas y revisión alternativa | Seleccionar modelo concreto; las licencias varían dentro de la familia |
+| DeepSeek | Problemas verificables de código y razonamiento | R1 permite destilación según su repositorio; revisar también la licencia de la base en variantes destiladas |
+| Kimi | Tareas con herramientas y documentos | Fijar modelo y condiciones exactas; Kimi K2 publica licencia MIT modificada; no asumir viabilidad local de su modelo completo |
+| ChatGPT / modelos OpenAI | Integración mediante API autorizada como especialista opcional | No existen pesos de ChatGPT aportados a este proyecto. No incluir sus salidas en destilación por defecto: verificar contrato y usos permitidos |
+| “jev” | Pendiente de identificar | No encontrado en configuración ni en el código revisado; se ha solicitado nombre o enlace |
+| Otros | Solo si aportan mejora medible | Mismo benchmark, procedencia y permisos; evitar ampliar por número de marcas |
+
+Fuentes primarias consultadas para estas condiciones: [Qwen 1.5B](https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct), [licencias Mistral](https://help.mistral.ai/en/articles/347393-under-which-license-are-mistral-s-open-models-available), [DeepSeek-R1](https://github.com/deepseek-ai/DeepSeek-R1), [Kimi-K2](https://github.com/MoonshotAI/Kimi-K2), [acuerdo de servicios OpenAI](https://openai.com/policies/services-agreement/). Las condiciones de un repositorio abierto no se trasladan automáticamente a las de una API comercial. El acuerdo OpenAI contiene restricciones al uso de salidas para desarrollar modelos competidores, con excepciones definidas; no se presupone autorización general.
+
+## Programa de ejecución y puertas de salida
+
+| Fase | Entrega concreta | Criterio para avanzar |
+|---|---|---|
+| 0. Corregir admisión de datos | Verificación obligatoria; unknown separado de failed; identidad, permiso y evidencia por ejemplo | Ningún ejemplo no verificado o sin permiso entra al corpus de entrenamiento; regresiones automatizadas |
+| 1. Benchmark HYDRA v2 | 1.000 tareas reservadas, al menos 100 por área principal; fixtures y verificadores versionados | Revisión de ambigüedades y fuga; fijar pesos, métricas y particiones antes del ajuste |
+| 2. Motor de especialistas | Adaptadores y healthchecks por endpoint; routing medido; fallback, timeouts, cuotas y trazas | Cada proveedor supera contrato de integración; modo privado no envía datos a terceros; caída de un proveedor no bloquea la tarea |
+| 3. Corpus HYDRA v2 | Primer lote de 2.000 ejemplos revisados; ampliar a 10.000–30.000 solo si aporta diversidad | 100% con fuente, verificador, versión, permisos y hash; deduplicación semántica y por origen; reservar test sin reutilizarlo |
+| 4. Selección del estudiante | Comparar 1.5B/3B y viabilidad 7B mediante runs cortos | Elegir por calidad, memoria y latencia medidas; descartar OOM o degradaciones; fijar presupuesto antes de cómputo externo |
+| 5. Adiestramiento | SFT por etapas, mezcla de tareas generales y especialistas; después preferencias si existen pares verificados | Dos semillas como mínimo para candidato final; validación intermedia; parada por regresión; reproducibilidad completa |
+| 6. Exportación | Checkpoint fusionado y Q4_K_M/Q5_K_M con hashes, licencia y ficha | Medir pérdida frente al checkpoint; objetivo provisional ≤1 punto porcentual de pérdida agregada |
+| 7. Calidad y estabilidad | Comparación base/estudiante/motor; pruebas de memoria, privacidad, herramientas y carga | Superar los criterios siguientes con informes completos, no con medias aisladas |
+| 8. Release | CI Windows/Linux, instalación limpia, paquete motor y GGUF versionado, shadow/canary/rollback | Evidencia reproducible; ninguna incidencia crítica abierta; publicación de rama y revisión antes de main |
+
+Las cantidades son objetivos iniciales de trabajo, no una garantía de rendimiento. El tamaño del corpus se ajustará por cobertura y curvas de aprendizaje, no por acumular variaciones de las mismas plantillas.
+
+## Contenido y verificación del corpus
+
+Áreas: programación y reparación de repositorios; matemáticas y lógica con solución comprobable; instrucciones en español; extracción y JSON; selección/uso de herramientas; preguntas sobre documentos con citas; memoria con actualización y borrado; privacidad y resistencia a instrucciones en documentos; incertidumbre y abstención; diálogo y planificación.
+
+Cada fila: task_id, origen/licencia, revisión del profesor, prompt y respuesta, hashes, versión del verificador, resultado passed/failed/unknown, evidencia ejecutable, fecha, etiqueta de sensibilidad y partición. No copiar razonamientos internos privados. Para tareas objetivas usar tests, oráculos y esquemas; para tareas abiertas usar rúbrica y revisión humana muestreada. Un juez LLM puede ayudar a filtrar, pero su voto no sustituye pruebas de corrección ni permisos.
+
+La separación será por repositorio/documento/plantilla/familia y, cuando proceda, por tiempo. Los 64 casos ya vistos permanecen como regresión histórica, no como nuevo test ciego. Ningún informe de test se recicla en entrenamiento de la misma versión que evalúa.
+
+## Criterios propuestos de aceptación
+
+- Calidad: mejora agregada objetivo ≥5 puntos porcentuales sobre la base elegida en el nuevo conjunto, con intervalo de confianza pareado; ninguna área crítica cae más de 2 puntos. Si no se cumple, no afirmar mejora y revisar datos o base.
+- Herramientas/JSON: objetivo ≥99% de conformidad de esquema y cero acciones fuera de permisos en la batería adversarial definida.
+- Privacidad/memoria: cero fugas en la batería; borrado y aislamiento entre usuarios comprobados. Diferenciar memoria externa del motor y conocimiento en pesos: el GGUF no reemplaza una base de memoria auditable.
+- Rendimiento: publicar p50/p95/p99 de TTFT y latencia total, carga inicial y caliente, prompts distintos, longitud de contexto y concurrencia. Objetivo inicial local caliente p95 TTFT ≤2 s para tareas cortas; ajustar explícitamente si el hardware no lo permite.
+- Memoria: muestrear GPU/RAM con herramienta y frecuencia declaradas; margen objetivo del 15% de VRAM en carga objetivo; no confundir memoria global ocupada con memoria del modelo. Cero OOM durante la prueba.
+- Estabilidad: 24 horas y al menos 1.000 tareas diversas; registrar fallos, reintentos, colas y crecimiento de memoria. Objetivo de errores inesperados <1%; cero errores críticos pendientes.
+- Publicación: comparación FP16/GGUF, hashes comprobados, reconstrucción documentada, licencia completa y rollback real a la versión anterior.
+
+No existe “cero riesgo” por superar estas pruebas: las conclusiones se limitan al alcance evaluado. Los umbrales anteriores se congelarán antes de observar resultados finales para evitar ajustarlos a posteriori.
+
+## Recursos y orden inmediato
+
+Con la RTX 3060 Ti de 8 GiB se puede continuar el piloto pequeño y probar un 3B con perfilado. La viabilidad de un 7B con QLoRA depende de contexto, lote, offload y backend; no está demostrada aquí. Modelos grandes pueden actuar como profesores por lotes en infraestructura adecuada, sin mantenerlos todos en la GPU local. No se ha contratado ni presupuestado cómputo externo.
+
+Primera iteración: corregir fase 0, construir 200 tareas de calibración separadas del test, probar los profesores realmente disponibles y seleccionar 2–3 por complementariedad medida. Segunda: congelar benchmark v2 y generar el primer lote de 2.000 ejemplos. Tercera: entrenar y comparar; ampliar solo cuando se vea ganancia y ausencia de regresiones. El coste se estimará con tokens por tarea, tasa de aceptación, horas GPU y almacenamiento medidos en esa calibración. No se promete plazo cerrado antes de conocer esas magnitudes y de identificar “jev”.
+
+Resultado final esperado: un motor único con capacidades auditables y un HYDRA.gguf autónomo especializado; especialistas externos opcionales amplían el sistema, pero sus capacidades no se atribuyen al GGUF cuando no estén demostradas en ejecución local.
