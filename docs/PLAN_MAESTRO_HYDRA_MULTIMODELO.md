@@ -62,6 +62,7 @@ Son hipótesis a evaluar, no rankings de marcas. Elegir versiones concretas y fi
 | Kimi | Tareas con herramientas y documentos | Fijar modelo y condiciones exactas; Kimi K2 publica licencia MIT modificada; no asumir viabilidad local de su modelo completo |
 | ChatGPT / modelos OpenAI | Integración mediante API autorizada como especialista opcional | No existen pesos de ChatGPT aportados a este proyecto. No incluir sus salidas en destilación por defecto: verificar contrato y usos permitidos |
 | Jev, TypeSafe AI | Decisiones tipadas, clasificación y enrutamiento probabilístico | Adaptador específico de decisión; acceso y condiciones por verificar. No asumir pesos disponibles ni exportación a GGUF |
+| Kev, Jared Palmer | Backend local candidato para HYDRA-Decision | Evaluación por checkpoint y tarea; el 0.8B actual desaconseja tool-call routing. No sustituir reglas de autorización |
 | Otros | Solo si aportan mejora medible | Mismo benchmark, procedencia y permisos; evitar ampliar por número de marcas |
 
 Fuentes primarias consultadas para estas condiciones: [Qwen 1.5B](https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct), [licencias Mistral](https://help.mistral.ai/en/articles/347393-under-which-license-are-mistral-s-open-models-available), [DeepSeek-R1](https://github.com/deepseek-ai/DeepSeek-R1), [Kimi-K2](https://github.com/MoonshotAI/Kimi-K2), [acuerdo de servicios OpenAI](https://openai.com/policies/services-agreement/). Las condiciones de un repositorio abierto no se trasladan automáticamente a las de una API comercial. El acuerdo OpenAI contiene restricciones al uso de salidas para desarrollar modelos competidores, con excepciones definidas; no se presupone autorización general.
@@ -128,3 +129,30 @@ Orden de implementación de HYDRA-Decision:
 6. Entrenar HYDRA-Decision con etiquetas propias verificadas y, solo si se permite, resultados de profesores. Una implementación propia de clasificación calibrada no debe presentarse como réplica de RLCD ni como los pesos de Jev.
 
 El producto seguirá siendo un motor único, pero su paquete podrá incluir `HYDRA.gguf`, un artefacto de decisión/calibración y la memoria externa. No se prometerá que un único archivo GGUF contenga servicios propietarios, memoria persistente y decisiones no generativas. El modo completamente local debe funcionar con los componentes propios; Jev y otros servicios amplían opcionalmente ese modo.
+
+## Actualización: Kev y datos de decisión
+
+Repositorio revisado: [jaredpalmer/kev](https://github.com/jaredpalmer/kev), HEAD observado `0c142becde423a0c68ec857f7831dac0315588a1`. El proyecto publica código Apache-2.0, modelos 0.8B/4B/9B/27B y compatibilidad con `/v1/systemone`. Sus checkpoints combinan adaptador LoRA y una cabeza de decisión; el servicio requiere también la base. Eso no acredita que sea una copia de los pesos o del entrenamiento interno de Jev. El coste cercano a un dólar corresponde a una ejecución de ajuste descrita por el autor, no al coste total de crear HYDRA. La compatibilidad de API debe probarse con nuestras preguntas y errores. [Repositorio y licencia](https://github.com/jaredpalmer/kev/blob/main/LICENSE).
+
+La [ficha de Kev-0.8B](https://huggingface.co/jaredpalmer/kev-0.8b) documenta regresiones en When2Call y desaconseja el checkpoint actual para enrutamiento de herramientas. Describe datos de documentos, decisiones de desarrollo y ejemplos sintéticos con etiquetas calculadas; también advierte de límites de generalización. Es evidencia para seleccionar tareas, no para declarar que supera a Jev en general. El enlace histórico a 0.5B no debe usarse como identificador del modelo 0.8B actual.
+
+Plan concreto para evaluarlo en la RTX 3060 Ti:
+
+1. Mantener el entorno de Kev separado de `.venv` de HYDRA; fijar commit del código y revisiones completas de base/adaptador/calibración. No actualizar dependencias del modelo generativo para instalar un experimento de decisión.
+2. Ensayar 0.8B únicamente en clasificación documental y categorías no críticas como prueba de instalación; contrastar 4B si el perfilado demuestra memoria suficiente. No afirmar que 4B cabe junto al generador en 8 GiB. Alternar cargas o usar CPU/otro equipo cuando las mediciones lo exijan.
+3. Implementar el contrato DecisionProvider ya definido, con backend Kev localhost y fallback de reglas. Comprobar Choice/Noul/Score, abstención, timeouts, identidades y confidencias. Conservar políticas deterministas para herramientas y privacidad.
+4. Evaluar primero sin ajustar: español, categorías HYDRA, ambigüedad, documentos largos, distribución desconocida y ataques de prompt. Congelar el test antes del ajuste. Comparar contra el clasificador propio y las reglas; Jev entra en la comparación solo si hay acceso autorizado.
+5. Ajustar desde un checkpoint publicado compatible, usando train y calibración propios. Volver a medir la base y todas las tareas críticas para detectar olvido. Guardar el artefacto de decisión separado del GGUF generativo.
+
+Inventario de datos propuesto:
+
+| Fuente | Uso inicial | Condición de admisión |
+|---|---|---|
+| Tareas HYDRA con tests/oráculos | Entrenamiento y calibración, con particiones independientes | Solución reproducible y permiso documentado |
+| Datasets y generadores referenciados por Kev | Candidatos a enriquecer el corpus de decisiones | Revisar licencia de cada dataset, versión, disponibilidad y procedencia de etiquetas; Apache del código no basta |
+| Benchmarks públicos de Jev/Kev | Evaluación externa | Marcar eval-only; no entrenar con ellos y después anunciar generalización sobre esos mismos casos |
+| Respuestas nuevas de Jev | Comparación; entrenamiento solo si está permitido | Registrar acceso, contrato, versión, consulta y uso autorizado; no presuponer acceso al corpus interno |
+| Predicciones de Kev | Pseudoetiquetas en cuarentena | Contrastar con verdad de referencia; no convertir confianza alta en verificación |
+| Tickets/documentos propios | Especialización de dominio | Permiso de uso, eliminación de datos sensibles y partición por origen |
+
+La ejecución local debe verificarse con servidor en loopback, control de conexiones y políticas de registro; no equivale automáticamente a privacidad total. El criterio de selección será rendimiento y calibración en HYDRA, no similitud de nombre con Jev. Esta actualización no instala Kev, no descarga pesos y no incorpora datos de terceros: deja definida la integración y sus controles para la siguiente implementación.
