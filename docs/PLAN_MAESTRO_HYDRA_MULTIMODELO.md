@@ -61,7 +61,7 @@ Son hipótesis a evaluar, no rankings de marcas. Elegir versiones concretas y fi
 | DeepSeek | Problemas verificables de código y razonamiento | R1 permite destilación según su repositorio; revisar también la licencia de la base en variantes destiladas |
 | Kimi | Tareas con herramientas y documentos | Fijar modelo y condiciones exactas; Kimi K2 publica licencia MIT modificada; no asumir viabilidad local de su modelo completo |
 | ChatGPT / modelos OpenAI | Integración mediante API autorizada como especialista opcional | No existen pesos de ChatGPT aportados a este proyecto. No incluir sus salidas en destilación por defecto: verificar contrato y usos permitidos |
-| “jev” | Pendiente de identificar | No encontrado en configuración ni en el código revisado; se ha solicitado nombre o enlace |
+| Jev, TypeSafe AI | Decisiones tipadas, clasificación y enrutamiento probabilístico | Adaptador específico de decisión; acceso y condiciones por verificar. No asumir pesos disponibles ni exportación a GGUF |
 | Otros | Solo si aportan mejora medible | Mismo benchmark, procedencia y permisos; evitar ampliar por número de marcas |
 
 Fuentes primarias consultadas para estas condiciones: [Qwen 1.5B](https://huggingface.co/Qwen/Qwen2.5-Coder-1.5B-Instruct), [licencias Mistral](https://help.mistral.ai/en/articles/347393-under-which-license-are-mistral-s-open-models-available), [DeepSeek-R1](https://github.com/deepseek-ai/DeepSeek-R1), [Kimi-K2](https://github.com/MoonshotAI/Kimi-K2), [acuerdo de servicios OpenAI](https://openai.com/policies/services-agreement/). Las condiciones de un repositorio abierto no se trasladan automáticamente a las de una API comercial. El acuerdo OpenAI contiene restricciones al uso de salidas para desarrollar modelos competidores, con excepciones definidas; no se presupone autorización general.
@@ -106,6 +106,25 @@ No existe “cero riesgo” por superar estas pruebas: las conclusiones se limit
 
 Con la RTX 3060 Ti de 8 GiB se puede continuar el piloto pequeño y probar un 3B con perfilado. La viabilidad de un 7B con QLoRA depende de contexto, lote, offload y backend; no está demostrada aquí. Modelos grandes pueden actuar como profesores por lotes en infraestructura adecuada, sin mantenerlos todos en la GPU local. No se ha contratado ni presupuestado cómputo externo.
 
-Primera iteración: corregir fase 0, construir 200 tareas de calibración separadas del test, probar los profesores realmente disponibles y seleccionar 2–3 por complementariedad medida. Segunda: congelar benchmark v2 y generar el primer lote de 2.000 ejemplos. Tercera: entrenar y comparar; ampliar solo cuando se vea ganancia y ausencia de regresiones. El coste se estimará con tokens por tarea, tasa de aceptación, horas GPU y almacenamiento medidos en esa calibración. No se promete plazo cerrado antes de conocer esas magnitudes y de identificar “jev”.
+Primera iteración: corregir fase 0, construir 200 tareas de calibración separadas del test, probar los profesores realmente disponibles y seleccionar 2–3 por complementariedad medida. Segunda: congelar benchmark v2 y generar el primer lote de 2.000 ejemplos. Tercera: entrenar y comparar; ampliar solo cuando se vea ganancia y ausencia de regresiones. El coste se estimará con tokens por tarea, tasa de aceptación, horas GPU y almacenamiento medidos en esa calibración. No se promete plazo cerrado antes de conocer esas magnitudes.
 
 Resultado final esperado: un motor único con capacidades auditables y un HYDRA.gguf autónomo especializado; especialistas externos opcionales amplían el sistema, pero sus capacidades no se atribuyen al GGUF cuando no estén demostradas en ejecución local.
+
+## Actualización: integración de Jev / System One
+
+Jev queda identificado como el modelo de decisión de TypeSafe AI. Su [documentación oficial](https://docs.typesafe.ai/introduction) describe preguntas tipadas sobre un estado y resultados con probabilidades: Choice, Score y Noul. No es un generador de conversación ni exclusivamente un clasificador binario. El [anuncio oficial](https://typesafe.ai/blog/introducing-system-one-models-and-jev) atribuye su entrenamiento a RLCD y publica comparaciones de velocidad y coste para determinadas tareas. Son resultados del proveedor, no medidas de HYDRA. La garantía de formato no implica que toda decisión sea semánticamente correcta.
+
+La arquitectura objetivo incorpora una capa **HYDRA-Decision** anterior a la generación: clasifica tarea, propone especialista y decide abstenerse/escalar según probabilidades y coste del error. Jev será un backend opcional de esa capa. Las reglas de autorización, privacidad y acciones peligrosas seguirán siendo deterministas y no podrán ser anuladas por una puntuación del modelo.
+
+Auditoría adicional del código: `CognitiveRouter._refine` llama hoy a `generate()` y analiza una respuesta JSON; no implementa una interfaz nativa de decisión. `hydra/training/specialists.py` sí contiene un clasificador local de regresión logística, pero no es Jev ni implementa RLCD. Además, si falta validación independiente, ese entrenador copia la precisión de entrenamiento a `valid_accuracy`: debe eliminarse esa sustitución antes de usar sus métricas como puerta de aprobación.
+
+Orden de implementación de HYDRA-Decision:
+
+1. Definir `DecisionProvider` separado de `ModelProvider.generate`: entrada de estado y preguntas tipadas; salida validada de opciones, probabilidades, identidad y latencia. Definir explícitamente preguntas independientes y exclusión mutua cuando corresponda.
+2. Adaptar las reglas actuales y el clasificador local al contrato. Conservar un fallback offline determinista y abstención explícita. No llamar a una API externa en modo privado.
+3. Crear particiones independientes de entrenamiento, calibración y test. Registrar Brier, log-loss, ECE, diagramas de fiabilidad, cobertura frente a error y matriz de confusión por dominio. Ajustar umbrales en calibración, nunca en test. Recalibrar ante cambio de distribución.
+4. Integrar Jev solo tras verificar contrato de API, acceso y condiciones. Probar errores, timeout, opciones desconocidas, valores no finitos y normalización. No hay credenciales ni acceso a Jev comprobados en esta auditoría; no se han realizado llamadas de inferencia a ese servicio.
+5. Comparar reglas, clasificador propio, Jev y router generativo sobre las mismas tareas y desde esta máquina: p50/p95, coste por decisión correcta, calibración, abstención y fallos de enrutamiento. Adoptar el backend por evidencia, no por cifras promocionales.
+6. Entrenar HYDRA-Decision con etiquetas propias verificadas y, solo si se permite, resultados de profesores. Una implementación propia de clasificación calibrada no debe presentarse como réplica de RLCD ni como los pesos de Jev.
+
+El producto seguirá siendo un motor único, pero su paquete podrá incluir `HYDRA.gguf`, un artefacto de decisión/calibración y la memoria externa. No se prometerá que un único archivo GGUF contenga servicios propietarios, memoria persistente y decisiones no generativas. El modo completamente local debe funcionar con los componentes propios; Jev y otros servicios amplían opcionalmente ese modo.
