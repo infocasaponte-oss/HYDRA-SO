@@ -42,7 +42,14 @@ def test_unified_gateway_serves_both_lines(settings):
         assert ready.status_code in (200, 503) and "worker_running" in ready.json()
         assert ready.json()["worker_running"] is True  # outbox worker runs inside the gateway lifespan
         assert client.get("/hydra/v1/models/artifacts").json()["count"] >= 0
-        assert client.get("/v1/models").status_code == 200  # platform list is unchanged
+        models = client.get("/v1/models")
+        assert models.status_code == 200
+        model_ids = {item["id"] for item in models.json()}
+        assert model_ids == {"hydra", "hydra-fast", "hydra-deep", "hydra-max", "hydra-private"}
+        assert "qwen2.5-coder-7b" not in model_ids  # physical backend stays internal
+        assert all(isinstance(item["available"], bool) for item in models.json())
+        catalog = client.get("/hydra/v1/models/catalog").json()  # Studio's internal backend table
+        assert catalog and all({"provider", "tier", "capabilities", "provider_healthy"} <= set(m) for m in catalog)
         # admin routes fail closed without HYDRA_ADMIN_TOKEN
         assert client.get("/hydra/v1/admin/metrics").status_code == 503
         metrics = client.get("/metrics").text

@@ -126,7 +126,7 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         except HydraTaskFailed as exc:
             code = 503 if exc.kind in ("unavailable", "rate_limit", "timeout") else 502
             return JSONResponse(status_code=code, content={
-                "error": str(exc), "kind": exc.kind, "task_id": str(exc.task_id)})
+                "error": exc.public_message(), "kind": exc.kind, "task_id": str(exc.task_id)})
 
     @app.post("/v1/hydra/stream", dependencies=secured)
     async def stream_hydra(body: HydraRequest, request: Request):
@@ -158,7 +158,7 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
                         yield f"event: {ev.type.value}\ndata: {ev.model_dump_json()}\n\n"
                     result = job.result()
                     if isinstance(result, HydraTaskFailed):
-                        yield f"event: error\ndata: {json.dumps({'error': str(result), 'kind': result.kind})}\n\n"
+                        yield f"event: error\ndata: {json.dumps({'error': result.public_message(), 'kind': result.kind})}\n\n"
                     else:
                         yield f"event: result\ndata: {result.model_dump_json()}\n\n"
                     break
@@ -212,9 +212,26 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
     # ---------------------------------------------------------------- models & tools
     @app.get("/v1/models", dependencies=secured)
     async def models(request: Request):
-        runtime = rt(request)
-        return [{**m.model_dump(), "available": runtime.registry.breaker.available(m.id)}
-                for m in runtime.registry.all()]
+        # The public OpenAI-compatible surface exposes HYDRA modes, not physical
+        # backends. Physical models (including qwen2.5-coder:7b) remain internal.
+        usable = rt(request).registry.available()
+        return [
+            {
+                "id": "hydra" if mode is ExecutionMode.BALANCED else f"hydra-{mode.value}",
+                "object": "model",
+                "owned_by": "hydra",
+                # PRIVATE never leaves the machine, so it needs a usable local backend.
+                "available": any(m.local for m in usable) if mode is ExecutionMode.PRIVATE else bool(usable),
+            }
+            for mode in ExecutionMode
+        ]
+
+    @app.get("/hydra/v1/models/catalog", dependencies=secured)
+    async def model_catalog(request: Request):
+        """Internal backend catalogue (Studio): physical models behind the HYDRA modes."""
+        registry = rt(request).registry
+        return [{**m.model_dump(), "available": registry.breaker.available(m.id),
+                 "provider_healthy": registry.provider_healthy(m.provider)} for m in registry.all()]
 
     @app.get("/v1/metrics/models", dependencies=secured)
     async def model_metrics(request: Request):
@@ -270,7 +287,7 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         try:
             result = await rt(request).lab.serve(HydraRequest(messages=body.messages, mode=mode), task_id=uuid4())
         except HydraTaskFailed as exc:
-            raise HTTPException(502, str(exc)) from exc
+            raise HTTPException(502, exc.public_message()) from exc
         return {
             "id": f"chatcmpl-{result.meta.task_id}",
             "object": "chat.completion",

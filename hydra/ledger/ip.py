@@ -27,6 +27,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from hydra.core.hashing import hash_obj, now_iso, sha256_file
+from hydra.core.paths import confine, safe_id
 from hydra.ledger.chain import Ledger, LedgerEventType
 
 
@@ -494,8 +495,9 @@ class TradeSecretVault:
 # ------------------------------------------------------------------------------ evidence bundle
 def export_bundle(reg: IPRegistry, invention_id: str, out_dir: Path, signer=None, extra: dict | None = None) -> Path:
     """``hydra ip bundle INV-0042``: engineering disclosure package for patent counsel."""
+    # the id becomes a directory that is deleted and rewritten: one safe path component only
+    root = confine(out_dir, safe_id(invention_id, "invention id"))
     inv = reg.get(invention_id)
-    root = out_dir / invention_id
     if root.exists():
         shutil.rmtree(root)
     root.mkdir(parents=True)

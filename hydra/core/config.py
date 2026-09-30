@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # Domains research workers may fetch from (comma separated). Empty -> built-in list.
     network_domains: str = ""
 
+    repositories_root: Path = Path.cwd() / "repositories"
+    """API clients may only point goals and code graphs at directories below this root
+    (HYDRA_REPOSITORIES_ROOT, shared with the runtime coding route)."""
+
     # Gateway protection. Empty -> no auth (development).
     api_key: str = Field(default="", validation_alias=AliasChoices("api_key", "HYDRA_API_KEY", "HYDRA_API_TOKEN"))
     """Gateway token (HYDRA_API_KEY, or HYDRA_API_TOKEN as used by the runtime line)."""

@@ -29,6 +29,17 @@ models:
     capabilities: {chat: 0.80, reasoning: 0.66, coding: 0.68, vision: 0.0, tools: 0.80, research: 0.60, routing: 0.85}
     estimated_latency_ms: 600
 
+  # Internal coding backend selected by HYDRA; HYDRA remains the public primary.
+  - id: qwen2.5-coder-7b
+    provider: ollama
+    runtime_model: qwen2.5-coder:7b
+    local: true
+    tier: 2
+    context_window: 32768
+    capabilities: {chat: 0.72, reasoning: 0.68, coding: 0.86, vision: 0.0, tools: 0.80, research: 0.60}
+    estimated_latency_ms: 1200
+    quirks: {native_json_schema: true, native_tools: true}
+
   - id: coder-local
     provider: vllm
     runtime_model: Qwen/Qwen2.5-Coder-32B-Instruct

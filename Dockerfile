@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-FROM docker:27-cli AS dockercli
+FROM docker:29-cli AS dockercli
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="HYDRA Cognitive Engine" \
       org.opencontainers.image.authors="Luis Manuel Cousido Hermida" \
@@ -17,11 +17,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /
 WORKDIR /app
 COPY pyproject.toml README.md LICENSE NOTICE ./
 COPY hydra ./hydra
-RUN pip install --no-cache-dir ".[all]"
+# config/ goes in before the install: pyproject data-files ships config/*.yaml in the wheel.
 COPY config ./config
+RUN pip install --no-cache-dir ".[all]"
 COPY sql ./sql
 
-RUN useradd --create-home --uid 10001 hydra && mkdir -p /workspace /data && chown hydra /workspace /data
+# uvicorn imports hydra from /app (its app-dir), so the runtime subsystem keeps its state in /app/runtime.
+RUN useradd --create-home --uid 10001 hydra && mkdir -p /workspace /data /app/runtime \
+    && chown hydra /workspace /data /app/runtime
 USER hydra
 
 EXPOSE 8080

@@ -1,4 +1,6 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+# Third-party images are pinned by digest (resolved 2026-09-29) for reproducible, tamper-evident
+# deployments; the tag is kept for readability. Dependabot (docker ecosystem) proposes updates.
 #
 # HYDRA OS stack.
 #   docker compose up -d                   -> gateway + model factory worker + postgres + redis + ollama + sandbox
@@ -35,6 +37,7 @@ services:
     volumes:
       - workspace:/workspace
       - hydra_data:/data
+      - hydra_runtime:/app/runtime
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,7 +89,7 @@ services:
 
   nats:
     profiles: [nats]
-    image: nats:latest
+    image: nats:latest@sha256:cd3fcd4ecdda44e3a66728a5334af0a959bc3979b32810e033d1c547241cd0f4
     command: ["-js", "-sd", "/data"]
     volumes:
       - nats_data:/data
@@ -95,7 +98,7 @@ services:
 
   # Restricted Docker API: HYDRA may only create/run/remove sandbox containers.
   sandbox-controller:
-    image: tecnativa/docker-socket-proxy:latest
+    image: tecnativa/docker-socket-proxy:latest@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     environment:
       CONTAINERS: 1
       POST: 1
@@ -113,7 +116,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:17
+    image: postgres:17@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
     environment:
       POSTGRES_USER: hydra
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hydra}
@@ -128,12 +131,12 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:8
+    image: redis:8@sha256:6f81e8915c60b065a524e6967e0ad1c639ba6efa84d669f823683ea04d9150ee
     networks: [internal]
     restart: unless-stopped
 
   ollama:
-    image: ollama/ollama
+    image: ollama/ollama:latest@sha256:8262851b2846b87c649eddf3e76beb270c52f4d1bc94559f47efde16b0841551
     volumes:
       - ollama_data:/root/.ollama
     networks: [internal, public]
@@ -141,7 +144,7 @@ services:
 
   vllm-reasoner:
     profiles: [gpu]
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai:latest@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90
     ipc: host
     command: ["--model", "Qwen/Qwen3-32B", "--host", "0.0.0.0", "--port", "8000",
               "--enable-prefix-caching", "--enable-auto-tool-choice", "--tool-call-parser", "hermes"]
@@ -160,7 +163,7 @@ services:
 
   vllm-coder:
     profiles: [gpu]
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai:latest@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90
     ipc: host
     command: ["--model", "Qwen/Qwen2.5-Coder-32B-Instruct", "--host", "0.0.0.0", "--port", "8000",
               "--enable-prefix-caching", "--enable-auto-tool-choice", "--tool-call-parser", "hermes"]
@@ -179,7 +182,7 @@ services:
 
   vllm-vision:
     profiles: [gpu]
-    image: vllm/vllm-openai:latest
+    image: vllm/vllm-openai:latest@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90
     ipc: host
     command: ["--model", "Qwen/Qwen2.5-VL-7B-Instruct", "--host", "0.0.0.0", "--port", "8000",
               "--enable-prefix-caching"]
@@ -199,7 +202,7 @@ services:
   # ---- observability profile: docker compose --profile observability up -d
   prometheus:
     profiles: [observability]
-    image: prom/prometheus:latest
+    image: prom/prometheus:latest@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
     volumes:
       - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports: ["9090:9090"]
@@ -207,7 +210,7 @@ services:
 
   grafana:
     profiles: [observability]
-    image: grafana/grafana:latest
+    image: grafana/grafana:latest@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
     ports: ["3000:3000"]
     volumes:
       - ./infra/observability/grafana:/var/lib/grafana/dashboards:ro
@@ -225,5 +228,6 @@ volumes:
   workspace:
     name: hydra_workspace
   hydra_data:
+  hydra_runtime:
   models:
   nats_data:

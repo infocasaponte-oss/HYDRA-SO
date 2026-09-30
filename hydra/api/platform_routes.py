@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -18,8 +19,11 @@ from pydantic import AliasChoices, BaseModel, Field
 
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message
 from hydra.core.kernel import HydraTaskFailed
+from hydra.core.paths import PathNotAllowed, confine, safe_id
 from hydra.core.task import EventEnvelope, HydraResult, HydraTask
 from hydra.runtime.budgets import BudgetExceeded
+
+log = logging.getLogger("hydra.api")
 
 
 # ------------------------------------------------------------------------------ bodies
@@ -232,7 +236,8 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         try:
             resp = await runtime.lab.serve(task.to_request(), task_id=task.id)
         except HydraTaskFailed as exc:
-            raise HTTPException(502, {"task_id": str(exc.task_id), "kind": exc.kind, "error": str(exc)}) from exc
+            raise HTTPException(502, {"task_id": str(exc.task_id), "kind": exc.kind,
+                                      "error": exc.public_message()}) from exc
         return HydraResult.from_response(resp)
 
     @app.post("/v1/tasks", response_model=HydraResult, dependencies=secured)
@@ -246,9 +251,14 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     @app.post("/hydra/v1/goals", dependencies=secured)
     async def run_goal(body: GoalBody, request: Request):
         runtime = rt(request)
-        ws = Path(body.workspace) if body.workspace else None
-        if ws is not None and not ws.is_dir():
-            raise HTTPException(400, f"workspace not found: {body.workspace}")
+        ws = None
+        if body.workspace:
+            try:  # clients name a repository below HYDRA_REPOSITORIES_ROOT, never a host path
+                ws = confine(runtime.settings.repositories_root, body.workspace)
+            except PathNotAllowed as exc:
+                raise HTTPException(403, str(exc)) from exc
+            if not ws.is_dir():
+                raise HTTPException(400, f"workspace not found: {body.workspace}")
         g = await runtime.goals.run(body.goal, workspace=ws, mode=body.mode, authorized=set(body.authorized),
                                     max_seconds=body.max_seconds)
         return json.loads(g.model_dump_json())
@@ -290,8 +300,11 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
                 try:
                     resp = run.result()
                     await websocket.send_json({"type": "result", **HydraResult.from_response(resp).model_dump(mode="json")})
-                except Exception as exc:
-                    await websocket.send_json({"type": "error", "error": str(exc)[:500]})
+                except HydraTaskFailed as exc:
+                    await websocket.send_json({"type": "error", "kind": exc.kind, "error": exc.public_message()})
+                except Exception:
+                    log.exception("websocket task failed")
+                    await websocket.send_json({"type": "error", "error": "the task failed"})
         except WebSocketDisconnect:
             return
 
@@ -305,7 +318,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         if body.instructions:
             msgs.insert(0, Message(role="system", content=body.instructions))
         mode = {"hydra-fast": ExecutionMode.FAST, "hydra-deep": ExecutionMode.DEEP,
-                "hydra-private": ExecutionMode.PRIVATE}.get(body.model, ExecutionMode.BALANCED)
+                "hydra-max": ExecutionMode.MAX, "hydra-private": ExecutionMode.PRIVATE}.get(body.model, ExecutionMode.BALANCED)
         resp = await rt(request).lab.serve(HydraRequest(messages=msgs, mode=mode))
         return {"id": f"resp_{resp.meta.task_id.replace('-', '')}", "object": "response", "created_at": int(time.time()),
                 "model": body.model, "status": "completed",
@@ -377,7 +390,10 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     async def codegraph(request: Request, path: str, name: str | None = None):
         from hydra.world.knowledge import code_graph_delta
 
-        p = Path(path)
+        try:
+            p = confine(rt(request).settings.repositories_root, path)
+        except PathNotAllowed as exc:
+            raise HTTPException(403, str(exc)) from exc
         if not p.is_dir():
             raise HTTPException(400, "not a directory")
         w = rt(request).world
@@ -502,6 +518,10 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         from hydra.ledger.ip import export_bundle
 
         runtime = rt(request)
+        try:
+            safe_id(inv, "invention id")
+        except PathNotAllowed as exc:
+            raise HTTPException(400, str(exc)) from exc
         path = export_bundle(runtime.ip, inv, runtime.settings.data_dir / "ip" / "bundles", runtime.signer)
         return {"path": str(path), "files": sorted(p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_file())}
 

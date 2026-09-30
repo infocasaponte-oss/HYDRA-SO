@@ -8,8 +8,21 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+    ignore:
+      # transformers 5.x (scripts/requirements-training.txt) requires huggingface-hub<2.0;
+      # revisit this rule when transformers allows hub 2.x.
+      - dependency-name: "huggingface-hub"
+        versions: [">=2.0"]
 
   - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "docker"
     directory: "/"
     schedule:
       interval: "weekly"

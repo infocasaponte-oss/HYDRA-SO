@@ -4,6 +4,7 @@ everything runs in memory; with ``offline`` no model runtime is needed."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -311,6 +312,19 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         policy_version=policy_dsl.version, config_ref=config_ref, registry=registry,
         outbox=CaptureOutbox(data / "capture_outbox.db", ledger=ledger, corpus=corpus))
 
+    # ---- backend health ------------------------------------------------------------
+    # Probe providers before the first routing decision. Registry configuration remains
+    # intact; only the runtime availability view is updated.
+    if not settings.offline and "registry" not in overrides:
+        health = await asyncio.gather(
+            *(provider.health() for provider in providers.values()),
+            return_exceptions=True,
+        )
+        for (name, _), healthy in zip(providers.items(), health):
+            registry.set_provider_health(name, healthy is True)
+            if healthy is not True:
+                log.info("provider %s unavailable; models will be excluded from routing", name)
+
     # ---- cognition ------------------------------------------------------------------
     model_compiler = ModelCompiler()
     invoker = ModelInvoker(providers, registry, hedge_after_ms=settings.hedge_after_ms, compiler=model_compiler)
@@ -371,7 +385,9 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
 
     monitor = None
     if settings.runtime_monitor and not settings.offline and "registry" not in overrides:
-        monitor = RuntimeMonitor(registry, settings.monitor_interval_s, settings.ollama_base_url)
+        monitor = RuntimeMonitor(
+            registry, settings.monitor_interval_s, settings.ollama_base_url, providers=providers
+        )
         monitor.start()
 
     runtime = HydraRuntime(

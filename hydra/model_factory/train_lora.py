@@ -58,7 +58,7 @@ def train(cfg_path: str) -> None:
         tok.pad_token = tok.eos_token
 
     bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    kwargs: dict = {"torch_dtype": torch.bfloat16 if bf16 else torch.float32}
+    kwargs: dict = {"dtype": torch.bfloat16 if bf16 else torch.float32}
     if job["method"] == "qlora":
         from transformers import BitsAndBytesConfig  # type: ignore
 
@@ -80,8 +80,8 @@ def train(cfg_path: str) -> None:
         messages = example["messages"]
         if messages[-1]["role"] != "assistant":
             raise ValueError("SFT examples must end with an assistant answer")
-        prompt = tok.apply_chat_template(messages[:-1], tokenize=True, add_generation_prompt=True)
-        ids = tok.apply_chat_template(messages, tokenize=True)[:job["max_seq_length"]]
+        prompt = tok.apply_chat_template(messages[:-1], tokenize=True, add_generation_prompt=True, return_dict=False)
+        ids = tok.apply_chat_template(messages, tokenize=True, return_dict=False)[:job["max_seq_length"]]
         if len(prompt) >= len(ids):
             raise ValueError("sequence length truncates the entire assistant answer")
         return {"input_ids": ids, "attention_mask": [1] * len(ids),
@@ -120,7 +120,7 @@ def merge(base: str, adapter: str, output: str) -> None:
     from peft import PeftModel  # type: ignore
     from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 
-    model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.bfloat16)
+    model = AutoModelForCausalLM.from_pretrained(base, dtype=torch.bfloat16)
     model = PeftModel.from_pretrained(model, adapter).merge_and_unload()
     model.save_pretrained(output, safe_serialization=True)
     AutoTokenizer.from_pretrained(base).save_pretrained(output)

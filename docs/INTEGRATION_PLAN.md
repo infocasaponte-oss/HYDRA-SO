@@ -124,7 +124,7 @@ borrarla cuando el equivalente local cubra sus tests.
 | `outbox`, `outbox_dispatcher`, `outbox_worker`, `outbox_metrics`, `startup_recovery`, `capture_uow` | `core/capture`, `cluster/fabric` | **Adoptar**: outbox transaccional con cola de mensajes fallidos (dead-letter); `CapturePipeline` escribe a través de él |
 | `deployment*` (8), `traffic_router`, `promotion`, `promotion_gate` | ciclo de vida de modelos (`/models/{id}/lifecycle`), `training` Promotion Gate | **Adoptar** como plano de despliegue (shadow/canary/rollback con evidencias persistentes); el Training Lab promueve a través de él |
 | `gpu_telemetry`, `health_gate`, `readiness`, `runtime_health*`, `process_supervisor`, `build_supervisor`, `physical_*`, `runtime_bridge`, `runtime_executor`, `runtime_events`, `runtime_evidence` | `edge/autobuild`, `cluster/nodes` | **Adoptar**: telemetría que falla cerrada, health 2xx y supervisión de procesos pasan a ser el backend de medición de `edge` |
-| `gguf`, `llama_factory`, `quant_profiles`, `autoquant`, `model_scout`, `hardware`, `variant_runner`, `http_benchmark`, `benchmark_*`, `benchmarking`, `pareto`, `optimization_report` | `model_factory/*`, `training/autoquant`, `edge/scout`, `edge/profiles` | **Fusionar**: el parser GGUF y el benchmark en streaming de `main` (TTFT medido) sustituyen a las estimaciones locales; se conserva la API local |
+| `gguf`, `llama_factory`, `quant_profiles`, `autoquant`, `model_scout`, `hardware`, `variant_runner`, `http_benchmark` (retirado: nunca se usó ni tenía test propio), `benchmark_*`, `benchmarking`, `pareto`, `optimization_report` | `model_factory/*`, `training/autoquant`, `edge/scout`, `edge/profiles` | **Fusionar**: el parser GGUF y el benchmark en streaming de `main` (TTFT medido) sustituyen a las estimaciones locales; se conserva la API local |
 | `code_agent`, `coding_loop`, `code_context`, `code_verification`, `code_replay`, `patching`, `static_analysis` | `planning/runner` (GoalRunner), `tools/workspace` | **Adoptar** la verificación por capas (baseline que falla, test dirigido, suite completa, sintaxis) dentro de GoalRunner |
 | `workspaces`, `workspace_hash`, `sandbox` (OCI + preflight), `tool_runtime`, `tool_audit`, `tools`, `policy`, `security`, `security_audit` | `tools/*`, `sandbox`, `governance/*`, `policy/kernel` | **Fusionar**: los límites de ficheros, bytes y symlinks y la imagen sandbox endurecida entran en `tools.workspace`; las políticas pasan a `governance` |
 | `privacy`, `corpus`, `corpus_quality`, `learning_capture`, `dataset_factory` | `corpus/*` | **Fusionar**: `PrivacyScanner` como gate adicional; los niveles de calidad se mapean a `corpus.gates` |
@@ -191,7 +191,7 @@ borrarla cuando el equivalente local cubra sus tests.
 
 | Fase | Estado | Evidencia |
 |---|---|---|
-| 0 | Hecho en parte | `codex/finish-hydra-gguf` avanzado en `integration/hydra-1.0`. **Pendiente del titular:** visibilidad del repositorio y protección de `main` (requieren permisos de administración en GitHub) |
+| 0 | Hecho | `codex/finish-hydra-gguf` avanzado en `integration/hydra-1.0`. El repositorio sigue público por decisión del titular: en privado, la CI de Actions no arranca sin plan de pago. `main` protegida (PR obligatorio, checks requeridos, sin force-push ni borrado) |
 | 1 | Hecho | `f8bd276` outbox FIFO (con test que reproduce el empate), `cc953dc` entorno de Windows, `add1047` symlinks |
 | 2 | Hecho | `bf9bbd1` movimiento (198 renombrados, sin cambios de lógica), `cc28a8f` cabeceras |
 | 3 | Hecho | `c9efbd8`: merge sin conflictos; suite 327 passed; CI de Linux en verde |
@@ -199,7 +199,7 @@ borrarla cuando el equivalente local cubra sus tests.
 | 5 | Hecho | `57533d2`: un solo gateway con 17 rutas runtime montadas; `/v1/models` del runtime pasa a `/hydra/v1/models/artifacts` |
 | 6 | Hecho | Un único token (`HYDRA_API_KEY`/`HYDRA_API_TOKEN`; cabeceras Bearer, X-API-Key y X-Hydra-Token); `.env.example` unificado; imagen `hydra-sandbox:py312-v3` construida y con preflight OK |
 | 7 | Hecho | 1.1.0; ruff limpio; CI en Ubuntu y Windows en cada push y PR; smoke test del wheel fuera del árbol; test de cabeceras de copyright (482/482 ficheros) |
-| 8 | Pendiente | PR `integration/hydra-1.0` → `main` (un avance rápido: `main` ya es ancestro), etiqueta `v1.1.0`, borrado de ramas fusionadas |
+| 8 | Hecho | Continuó en [MAIN_INTEGRATION_PLAN.md](MAIN_INTEGRATION_PLAN.md): `main` avanzó con #5–#9 y se fusionó primero en la integración. PR #13 fusionado con merge commit (`c234b35`), etiqueta `v1.1.0` y ramas fusionadas borradas |
 
 Fallos reales que la integración sacó a la luz y quedaron corregidos:
 - Outbox con orden aleatorio.

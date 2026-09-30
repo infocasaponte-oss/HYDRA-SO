@@ -2,7 +2,7 @@
 
 Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
 
-Estado de implementación: 29/09/2026, rama `codex/finish-hydra-gguf`, basada en `integration/hydra-1.0`.
+Estado de implementación: 29/09/2026, en `main` desde HYDRA 1.1 (PR #13). Se desarrolló en la rama `codex/finish-hydra-gguf`.
 
 **Actualización:** el candidato 1.5B ya se construyó y completó la evaluación piloto. Consultar [la ficha actual del modelo](HYDRA_PILOT_MODEL_CARD.md). Las incidencias de descarga descritas más abajo son el historial inicial, ya resuelto; no representan el estado actual.
 
@@ -49,6 +49,23 @@ Es un corpus piloto reproducible y limitado, creado para comprobar la especializ
 Falta completar `models/base/model.safetensors` del candidato Qwen2.5-Coder-1.5B-Instruct, revisión `2e1fd397ee46e1388853d2af2c993145b0f1098a`. Tamaño esperado: **3.087.467.144 bytes**. La descarga inicial acabó con curl error 18 (respuesta incompleta); un intento reanudado limitado a 90 segundos terminó con error 28. Quedaron 22.544.410 bytes en `model.safetensors.partial`.
 
 El preflight rechaza esa entrada incompleta. **No existe todavía el `models/hydra-pilot/HYDRA.gguf` especializado ni se ha entrenado el candidato 1.5B.** El baseline exportado conserva su nombre y procedencia propios.
+
+## Exportar la base desde Ollama
+
+Para comparar el candidato con su modelo base sin volver a descargarlo, se pueden exportar los pesos GGUF que Ollama ya tiene en local:
+
+```powershell
+python -m hydra.model_factory.export_ollama --model qwen2.5-coder:7b --output models/HYDRA-baseline.gguf
+```
+
+El script funciona así:
+
+1. Pide a Ollama (`/api/show`) la ruta real de los pesos.
+2. Valida que el fichero sea un GGUF con tensores.
+3. Lo copia sin sobrescribir nada y comprueba el SHA-256 de la copia.
+4. Junto al `.gguf` escribe:
+   - `.manifest.json`, con el modelo de origen, la ruta, el hash, la arquitectura y la cuantización, y con `status: BASELINE_NOT_HYDRA_TRAINED` y `approved: false`: es una línea base, no un modelo entrenado por HYDRA;
+   - `.LICENSE.txt`, con la licencia que declara Ollama.
 
 ## Reanudar y construir
 

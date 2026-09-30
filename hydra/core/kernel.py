@@ -90,11 +90,30 @@ class GenerationFailed(RuntimeError):
         self.last_error = last_error
 
 
+_PUBLIC_FAILURE = {
+    "timeout": "the task exceeded its time budget",
+    "oom": "the model runtime ran out of memory",
+    "invalid_json": "the model did not return valid structured output",
+    "tool_unavailable": "a required tool is unavailable",
+    "rate_limit": "the model runtime is rate limited",
+    "model_refusal": "the model refused the request",
+    "hallucinated_tool": "the model requested a tool that does not exist",
+    "permission": "the action is not permitted by policy",
+    "unavailable": "no model runtime is available",
+}
+
+
 class HydraTaskFailed(RuntimeError):
+    """The message may carry internal detail (paths, provider URLs): it is logged and stored in
+    the task events, while API clients receive :meth:`public_message` plus the task id."""
+
     def __init__(self, task_id: UUID, message: str, kind: str = "unknown") -> None:
         super().__init__(message)
         self.task_id = task_id
         self.kind = kind
+
+    def public_message(self) -> str:
+        return _PUBLIC_FAILURE.get(self.kind, "the task failed") + f" (task {self.task_id})"
 
 
 class KernelConfig(BaseModel):
