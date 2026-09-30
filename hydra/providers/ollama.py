@@ -33,6 +33,11 @@ class OllamaProvider(ModelProvider):
         opts = dict(request.metadata.get("runtime_options") or {})
         if "keep_alive" in opts:
             body["keep_alive"] = opts.pop("keep_alive")
+        if "think" in opts:
+            value = opts.pop("think")
+            if not isinstance(value, bool):
+                raise ValueError("runtime_options.think must be boolean")
+            body["think"] = value
         body["options"].update(opts)
         if reasoning := request.metadata.get("reasoning"):
             body["think"] = reasoning["level"] != "off"

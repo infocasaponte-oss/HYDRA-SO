@@ -14,12 +14,16 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import math
+import re
+import shutil
+import tempfile
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from hydra.core.hashing import hash_obj, now_iso, sha256_file
 from hydra.corpus.records import Classification, CorpusRecord, RecordType
@@ -27,9 +31,9 @@ from hydra.corpus.store import CorpusStore, write_table
 
 
 class SyntheticPolicy(BaseModel):
-    max_fraction: float = 0.35
-    max_generation: int = 1
-    require_verification: float = 0.90
+    max_fraction: float = Field(default=0.35, ge=0, lt=1, allow_inf_nan=False)
+    max_generation: int = Field(default=1, ge=0)
+    require_verification: float = Field(default=0.90, ge=0, le=1, allow_inf_nan=False)
     require_real_anchor: bool = True
 
 
@@ -49,13 +53,13 @@ class DatasetSpec(BaseModel):
     record_types: list[str] = Field(default_factory=list)
     domains: list[str] = Field(default_factory=list)
     capability: str | None = None
-    min_quality: float = 0.0
-    min_verification: float = 0.0
+    min_quality: float = Field(default=0.0, ge=0, le=1, allow_inf_nan=False)
+    min_verification: float = Field(default=0.0, ge=0, le=1, allow_inf_nan=False)
     languages: dict[str, float] = Field(default_factory=dict)
     """Target language mix, e.g. {es: 0.3, en: 0.45, other: 0.25}."""
     difficulty: dict[str, float] = Field(default_factory=dict)
     """easy/medium/hard mix (curriculum)."""
-    max_examples: int | None = None
+    max_examples: int | None = Field(default=None, gt=0)
     format: str = "sft"
     """sft | dpo | kto | reward | tool | process | embedding | reranker | planner | value | raw"""
     splits: dict[str, float] = Field(default_factory=lambda: {"train": 0.9, "validation": 0.05, "test": 0.05})
@@ -65,6 +69,28 @@ class DatasetSpec(BaseModel):
     rights: DatasetRightsPolicy = Field(default_factory=DatasetRightsPolicy)
     include_statuses: list[str] = Field(default_factory=lambda: ["CURATED", "GOLD"])
     seed: int = 17
+
+    @field_validator("name", "version")
+    @classmethod
+    def safe_identifier(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", value):
+            raise ValueError("dataset name/version must be a safe identifier")
+        return value
+
+    @field_validator("splits", "languages", "difficulty")
+    @classmethod
+    def valid_mix(cls, value: dict[str, float], info) -> dict[str, float]:
+        if info.field_name == "splits" and not value:
+            raise ValueError("at least one split is required")
+        for name, weight in value.items():
+            cls.safe_identifier(name)
+            if info.field_name == "splits" and name in {"holdout", "temporal_holdout", "adversarial_holdout"}:
+                raise ValueError("reserved holdout name")
+            if not math.isfinite(weight) or weight < 0:
+                raise ValueError("weights must be finite and nonnegative")
+        if value and sum(value.values()) <= 0:
+            raise ValueError("weights must have a positive total")
+        return value
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> DatasetSpec:
@@ -275,7 +301,12 @@ class DatasetFactory:
             k = key(r)
             groups[k if k in mix else "other"].append(r)
         # largest total N such that every bucket can fill its share
-        feasible = [len(groups.get(k, [])) / w for k, w in mix.items() if w > 0 and groups.get(k)]
+        missing = [k for k, w in mix.items() if w > 0 and not groups.get(k)]
+        if missing:
+            raise ValueError(f"required dataset coverage missing: {', '.join(missing)}")
+        total_weight = sum(mix.values())
+        mix = {k: w / total_weight for k, w in mix.items() if w > 0}
+        feasible = [len(groups[k]) / w for k, w in mix.items()]
         if not feasible:
             return pool
         n = int(min(feasible))
@@ -292,38 +323,92 @@ class DatasetFactory:
 
     # ------------------------------------------------------------------ splits
     def split(self, recs: list[CorpusRecord], spec: DatasetSpec) -> dict[str, list[CorpusRecord]]:
-        out: dict[str, list[CorpusRecord]] = {k: [] for k in spec.splits}
+        # Connected provenance components keep anchors and their variants together.
+        parent: dict[str, str] = {}
+        def find(key: str) -> str:
+            parent.setdefault(key, key)
+            if parent[key] != key:
+                parent[key] = find(parent[key])
+            return parent[key]
+        def union(a: str, b: str) -> None:
+            a, b = find(a), find(b)
+            parent[max(a, b)] = min(a, b)
+        for r in recs:
+            key = f"record:{r.id}"
+            find(key)
+            for field in ("family_id", "source_family_id"):
+                value = r.provenance.get(field) or r.metadata.get(field)
+                if value:
+                    union(key, f"family:{value}")
+            if r.source_task_id:
+                union(key, f"task:{r.source_task_id}")
+            if r.source_id:
+                union(key, f"source:{r.source_type}:{r.source_id}")
+            anchors = r.provenance.get("source_records", [])
+            if isinstance(anchors, str):
+                anchors = [anchors]
+            for anchor in anchors:
+                union(key, f"record:{anchor}")
+        groups: dict[str, list[CorpusRecord]] = defaultdict(list)
+        for r in recs:
+            groups[find(f"record:{r.id}")].append(r)
+        out = {k: [] for k in spec.splits}
         out["holdout"] = []
         if spec.temporal_holdout_after:
-            out["temporal_holdout"] = [r for r in recs if r.created_at >= spec.temporal_holdout_after]
-            recs = [r for r in recs if r.created_at < spec.temporal_holdout_after]
+            out["temporal_holdout"] = []
         if spec.adversarial_holdout:
-            out["adversarial_holdout"] = [r for r in recs if "adversarial" in r.flags]
-            recs = [r for r in recs if "adversarial" not in r.flags]
-        names = list(spec.splits)
-        bounds, acc = [], 0.0
-        for n in names:
-            acc += spec.splits[n]
-            bounds.append(acc)
-        for r in recs:  # deterministic assignment by id hash: stable across rebuilds
-            h = int(hashlib.sha256(f"{spec.seed}:{r.id}".encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
-            if h > 0.98 and r.synthetic is False:
-                out["holdout"].append(r)  # private holdout, never trained on
-                continue
-            h = h / 0.98
-            for n, b in zip(names, bounds):
-                if h <= b / bounds[-1]:
-                    out[n].append(r)
-                    break
+            out["adversarial_holdout"] = []
+        total = sum(spec.splits.values())
+        for family, items in sorted(groups.items()):
+            h = int(hashlib.sha256(f"{spec.seed}:{family}".encode()).hexdigest()[:8], 16) / 2**32
+            if spec.temporal_holdout_after and any(r.created_at >= spec.temporal_holdout_after for r in items):
+                target = "temporal_holdout"
+            elif spec.adversarial_holdout and any("adversarial" in r.flags for r in items):
+                target = "adversarial_holdout"
+            elif h >= 0.98 and any(not r.synthetic for r in items):
+                target = "holdout"
+            else:
+                # Synthetic-only families also occupy the full split interval.
+                if any(not r.synthetic for r in items):
+                    h /= 0.98
+                acc = 0.0
+                for target, weight in spec.splits.items():
+                    acc += weight / total
+                    if h < acc:
+                        break
+            out[target].extend(items)
         return {k: v for k, v in out.items() if v or k in spec.splits}
 
     # ------------------------------------------------------------------ build
     def build(self, spec: DatasetSpec, snapshot: bool = True) -> DatasetRelease:
+        release_id = f"{spec.name}-v{spec.version}"
+        destination = (self.releases_dir / release_id).resolve()
+        if destination.parent != self.releases_dir.resolve():
+            raise ValueError("release path escapes dataset root")
+        if destination.exists():
+            raise FileExistsError(f"dataset release is immutable: {release_id}")
+        stage = Path(tempfile.mkdtemp(prefix=".building-", dir=self.releases_dir))
+        try:
+            release, selected_ids = self._build_staged(spec, snapshot, stage, destination)
+            # The nonempty directory rename refuses a competing published release.
+            stage.rename(destination)
+        finally:
+            if stage.exists():
+                shutil.rmtree(stage)
+        for record_id in selected_ids:
+            self.store.add_lineage(record_id, f"dataset:{release_id}", "dataset_release")
+        if self.ledger is not None:
+            self.ledger.append("DATASET_RELEASED", {
+                "release": release_id, "examples": release.examples, "files": release.files,
+                "snapshot": release.corpus_snapshot, "record_ids_hash": release.record_ids_hash,
+                "target_use": spec.rights.target_use}, object_type="dataset", object_id=release_id)
+        return release
+
+    def _build_staged(self, spec: DatasetSpec, snapshot: bool, out_dir: Path,
+                      destination: Path) -> tuple[DatasetRelease, list[str]]:
         recs, rejected = self.select(spec)
         splits = self.split(recs, spec)
         release_id = f"{spec.name}-v{spec.version}"
-        out_dir = self.releases_dir / release_id
-        out_dir.mkdir(parents=True, exist_ok=True)
         files: dict[str, str] = {}
         counts: dict[str, int] = {}
         compiled_total = 0
@@ -336,7 +421,7 @@ class DatasetFactory:
         total = len(recs) or 1
         snap = self.store.snapshot().id if snapshot else None
         release = DatasetRelease(
-            id=release_id, name=spec.name, version=spec.version, path=str(out_dir), format=spec.format,
+            id=release_id, name=spec.name, version=spec.version, path=str(destination), format=spec.format,
             examples=compiled_total, splits=counts, record_ids_hash=hash_obj(sorted(r.id for r in recs)),
             corpus_snapshot=snap,
             language_distribution={k: round(v / total, 3) for k, v in Counter(r.language or "unknown" for r in recs).items()},
@@ -364,14 +449,7 @@ class DatasetFactory:
             "created_at": release.created_at}, indent=2, ensure_ascii=False), encoding="utf-8")
         (out_dir / "checksums.txt").write_text("\n".join(f"{h}  {n}" for n, h in sorted(files.items())) + "\n",
                                                encoding="utf-8")
-        for r in recs:
-            self.store.add_lineage(r.id, f"dataset:{release_id}", "dataset_release")
-        if self.ledger is not None:
-            self.ledger.append("DATASET_RELEASED", {
-                "release": release_id, "examples": compiled_total, "files": files, "snapshot": snap,
-                "record_ids_hash": release.record_ids_hash, "target_use": spec.rights.target_use},
-                object_type="dataset", object_id=release_id)
-        return release
+        return release, [r.id for r in recs]
 
     def releases(self) -> list[DatasetRelease]:
         out = []

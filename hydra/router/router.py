@@ -19,6 +19,7 @@ from hydra.core.contracts import (
     TaskType,
 )
 from hydra.router.observer import DecisionObserver
+from hydra.router.decision_authority import DecisionAuthority
 
 log = logging.getLogger("hydra.router")
 
@@ -86,11 +87,13 @@ def _hits(text: str, words: tuple[str, ...]) -> int:
 
 class CognitiveRouter:
     def __init__(self, classifier=None, classifier_model: str | None = None,
-                 *, observer: DecisionObserver | None = None) -> None:
+                 *, observer: DecisionObserver | None = None,
+                 authority: DecisionAuthority | None = None) -> None:
         """Keep the generative classifier separate from typed shadow observations."""
         self.classifier = classifier
         self.classifier_model = classifier_model
         self.observer = observer
+        self.authority = authority
 
     async def route(self, request: HydraRequest) -> RoutingDecision:
         decision = self._rules(request)
@@ -99,6 +102,14 @@ class CognitiveRouter:
         decision = self._policy(request, decision)
         if self.observer is not None:
             decision.observation = await self.observer.observe(request)
+            hint = self.authority.task_hint(decision.observation) if self.authority else None
+            if (hint is not None and decision.risk < .5 and not request.images
+                    and hint != TaskType.VISION and not (decision.observation.reason or "").startswith("policy_gate")):
+                decision.task_type = hint
+                decision.requires_reasoning = hint == TaskType.REASONING
+                decision.requires_tools = hint == TaskType.CODING
+                decision.signals["decision.controlled_hint"] = 1
+                decision = self._policy(request, decision)
         return decision
 
     async def close(self) -> None:

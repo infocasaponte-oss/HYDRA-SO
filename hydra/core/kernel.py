@@ -164,6 +164,7 @@ class HydraKernel:
         termination: TerminationPolicy | None = None,
         workspace: Path = Path("workspace"),
         network_domains: list[str] | None = None,
+        public_web_enabled: bool = False,
         policy: PolicyKernel | None = None,
         cache: SemanticCache | None = None,
         failures: FailureMemory | None = None,
@@ -192,6 +193,7 @@ class HydraKernel:
         self.telemetry = telemetry
         self.workspace = workspace
         self.network_domains = network_domains
+        self.public_web_enabled = public_web_enabled
         self.policy = policy or PolicyKernel()
         self.cache = cache
         self.failures = failures
@@ -298,10 +300,28 @@ class HydraKernel:
                 approved=set(request.approved_actions),
                 shadow=shadow,
             )
+            if not self.public_web_enabled:
+                ctx.tool_ctx.capabilities.tools -= {"web.search", "web.read"}
+                ctx.tool_ctx.capabilities.public_web = False
+            from hydra.tools.web_context import requested_web
+            explicit_web = self.public_web_enabled and requested_web(request.last_user_text)
+            if explicit_web and not request.private and not shadow:
+                # An explicit user request to consult the web does not depend
+                # on a classifier confusing a technical question with coding.
+                ctx.tool_ctx.capabilities.tools |= {"web.search", "web.read"}
+                ctx.tool_ctx.capabilities.public_web = True
             ctx.world.from_text(request.text)
             await ctx.status(TaskStatus.RETRIEVING)
             await self._retrieve_memory(ctx)
             await self._world_context(ctx)
+            if self.public_web_enabled and (route.task_type == TaskType.RESEARCH or explicit_web) and not request.private and not shadow:
+                from hydra.tools.web_context import collect_web_context, render_web_context, fetched_sources
+                evidence, _ = await collect_web_context(ctx, self.coder.executor, request.last_user_text)
+                if evidence:
+                    ctx.web_context = [render_web_context(evidence)]
+                    ctx.web_sources = fetched_sources(evidence)
+                    if not ctx.web_sources:
+                        ctx.degradations.append("No se leyó ninguna fuente web; los enlaces de búsqueda no verifican la respuesta.")
 
             await ctx.status(TaskStatus.PLANNING)
             ctx.ranked = self._rank(ctx, route)
@@ -423,6 +443,9 @@ class HydraKernel:
                 uncertainties.insert(0, "La respuesta no superó la verificación: trátala con cautela.")
             uncertainties += [f"Afirmación dudosa: {c.text[:200]}" + (f" → {c.correction}" if c.correction else "")
                               for c in claims if c.status == "refuted"]
+            if ctx.web_sources:
+                from hydra.tools.web_context import attach_sources
+                answer = attach_sources(answer, ctx.web_sources)
             response = HydraResponse(
                 answer=answer,
                 meta=HydraMeta(

@@ -131,4 +131,6 @@ if __name__ == "__main__":
     p.add_argument("--limit",type=int,default=0)
     p.add_argument("--build-manifest",type=Path,help="Verify the served GGUF against this completed build")
     args = p.parse_args()
-    print(json.dumps(asyncio.run(evaluate(args.model,args.corpus,args.output,args.limit,args.build_manifest)),indent=2))
+    result = asyncio.run(evaluate(args.model,args.corpus,args.output,args.limit,args.build_manifest))
+    print(json.dumps({"model": result["model"], "status": result["status"], "score": result.get("score"),
+                      "cases": len(result["cases"]), "approved": False, "report": str(args.output)}, indent=2))

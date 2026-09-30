@@ -34,6 +34,7 @@ class Worker:
             messages=messages if messages is not None else ctx.messages_for_workers(),
             memories=ctx.memory_lines,
             tool_results=tool_results,
+            documents=ctx.web_context,
             working_state=None if ctx.world.empty else "WORLD STATE:\n" + ctx.world.render(),
         )
 

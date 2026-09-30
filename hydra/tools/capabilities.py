@@ -20,7 +20,8 @@ ANALYST = WorkerCapabilities(
 )
 
 RESEARCHER = WorkerCapabilities(
-    tools={"http.fetch", "search.query", "filesystem.read"},
+    tools={"http.fetch", "web.search", "web.read", "search.query", "filesystem.read"},
+    public_web=True,
     filesystem_paths=["."],
     network_domains=["wikipedia.org", "arxiv.org", "github.com", "python.org", "docs.python.org"],
     max_runtime_seconds=60,

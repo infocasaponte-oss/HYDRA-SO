@@ -79,6 +79,10 @@ class ToolPolicyEngine:
                 return PolicyDecision(allowed=False, reason=f"path outside allowed scope: {path}")
 
         if d.requires_network and (url := call.arguments.get("url")) is not None:
+            if d.name == "web.read" and ctx.capabilities.public_web:
+                # web.read pins a public IP and checks every redirect. This
+                # grant never broadens the older unrestricted http.fetch tool.
+                return PolicyDecision(allowed=True)
             if not allowed_domain(ctx, str(url)):
                 return PolicyDecision(allowed=False, reason=f"domain not allowed: {url}")
 

@@ -12,12 +12,16 @@ from hydra.training.calibrator import TemperatureCalibrator
 
 class DecisionObserver:
     def __init__(self, provider: LocalSystemOneProvider, timeout_s: float = 0.5,
-                 calibrator: TemperatureCalibrator | None = None):
+                 calibrator: TemperatureCalibrator | None = None, criteria: dict[str, str] | None = None):
         if not 0 < timeout_s <= 5:
             raise ValueError("observation timeout must be in (0, 5]")
         self.provider = provider
+        self.model = provider.model
         self.timeout_s = timeout_s
         self.calibrator = calibrator
+        self.criteria = dict(criteria) if criteria is not None else {
+            task.value: f"The user requests a {task.value} task" for task in TaskType}
+        self.expected_run: str | None = calibrator.model_run if calibrator else None
 
     async def observe(self, request: HydraRequest) -> DecisionObservation:
         base = {"model": self.provider.model}
@@ -30,10 +34,11 @@ class DecisionObserver:
                   else "latency_budget" if request.max_latency_ms is not None else None)
         if reason:
             return DecisionObservation(status="skipped", reason=reason, **base)
-        questions = {"task": {"type": "choice", "criteria": {
-            task.value: f"The user requests a {task.value} task" for task in TaskType}}}
+        questions = {"task": {"type": "choice", "criteria": self.criteria}}
         start = time.perf_counter()
         try:
+            if self.expected_run:
+                await self._verify_run()
             payload = await asyncio.wait_for(
                 self.provider.decide(request.last_user_text, questions), self.timeout_s)
             if payload.get("model") != self.provider.model:
@@ -41,6 +46,8 @@ class DecisionObserver:
             answer = validate_answers(questions, payload)["answers"]["task"]
             if self.calibrator is not None:
                 answer = self.calibrator.apply(answer)
+            if self.expected_run:
+                await self._verify_run()
             return DecisionObservation(
                 status="observed", selected=answer["choice"],
                 probabilities=answer["probabilities"], confidence=answer["confidence"],
@@ -53,6 +60,13 @@ class DecisionObserver:
 
     async def close(self) -> None:
         await self.provider.close()
+
+    async def _verify_run(self) -> None:
+        response = await self.provider.client.get("/v1/models", timeout=self.timeout_s)
+        response.raise_for_status()
+        card = next(c for c in response.json()["models"] if c["name"] == self.model)
+        if card.get("run") != self.expected_run:
+            raise ValueError("decision checkpoint changed")
 
 
 def policy_gate(text: str) -> tuple[str, str] | None:
