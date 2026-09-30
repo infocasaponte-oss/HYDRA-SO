@@ -30,6 +30,7 @@ class WorkerCapabilities(BaseModel):
     tools: set[str] = Field(default_factory=set)
     filesystem_paths: list[str] = Field(default_factory=list)
     network_domains: list[str] = Field(default_factory=list)
+    public_web: bool = False
     max_runtime_seconds: int = 60
 
 
