@@ -41,6 +41,8 @@ class ModelRegistry:
         # Runtime health is kept separate from configuration: a configured model
         # may be temporarily unavailable without being removed from the catalogue.
         self._provider_health: dict[str, tuple[bool, float]] = {}
+        # Models the runtime reported as not installed (model id -> when), e.g. an Ollama tag never pulled.
+        self._model_missing: dict[str, float] = {}
 
     @classmethod
     def from_yaml(cls, path: Path | str, breaker: CircuitBreaker | None = None) -> ModelRegistry:
@@ -65,12 +67,31 @@ class ModelRegistry:
         healthy, at = self._provider_health.get(provider, (True, 0.0))
         return healthy or time.monotonic() - at > self.PROVIDER_HEALTH_TTL_S
 
+    def set_installed_models(self, provider: str, installed: set[str], key=lambda name: name) -> list[str]:
+        """Record which of this provider's models the runtime actually has; returns the missing ids."""
+        now, missing = time.monotonic(), []
+        for m in self.models.values():
+            if m.provider != provider:
+                continue
+            if key(m.physical_name) in installed:
+                self._model_missing.pop(m.id, None)
+            else:
+                self._model_missing[m.id] = now
+                missing.append(m.id)
+        return missing
+
+    def model_installed(self, model_id: str) -> bool:
+        """Unknown or stale is optimistic, like provider health: a model pulled later is picked up again."""
+        at = self._model_missing.get(model_id)
+        return at is None or time.monotonic() - at > self.PROVIDER_HEALTH_TTL_S
+
     def available(self) -> list[ModelProfile]:
         return [
             m for m in self.models.values()
             if m.enabled
             and self.breaker.available(m.id)
             and self.provider_healthy(m.provider)
+            and self.model_installed(m.id)
         ]
 
     def select(
@@ -106,3 +127,18 @@ class ModelRegistry:
         model.learned_quality[key] = update_quality(old, quality)
         model.runs[key] = model.runs.get(key, 0) + 1
         model.estimated_latency_ms = update_quality(model.estimated_latency_ms, latency_ms, alpha=0.1)
+
+
+async def refresh_installed_models(registry: ModelRegistry, providers: dict) -> dict[str, list[str]]:
+    """Ask every provider that can list its models which ones are installed; returns missing ids per provider."""
+    from hydra.providers.ollama import ollama_model_key
+
+    missing: dict[str, list[str]] = {}
+    for name, provider in providers.items():
+        lister = getattr(provider, "installed_models", None)
+        if lister is None:
+            continue
+        installed = await lister()
+        if installed is not None:
+            missing[name] = registry.set_installed_models(name, installed, key=ollama_model_key)
+    return missing

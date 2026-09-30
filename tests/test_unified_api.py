@@ -49,7 +49,7 @@ def test_unified_gateway_serves_both_lines(settings):
         assert "qwen2.5-coder-7b" not in model_ids  # physical backend stays internal
         assert all(isinstance(item["available"], bool) for item in models.json())
         catalog = client.get("/hydra/v1/models/catalog").json()  # Studio's internal backend table
-        assert catalog and all({"provider", "tier", "capabilities", "provider_healthy"} <= set(m) for m in catalog)
+        assert catalog and all({"provider", "tier", "capabilities", "provider_healthy", "installed"} <= set(m) for m in catalog)
         # admin routes fail closed without HYDRA_ADMIN_TOKEN
         assert client.get("/hydra/v1/admin/metrics").status_code == 503
         metrics = client.get("/metrics").text

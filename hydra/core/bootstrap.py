@@ -30,7 +30,7 @@ from hydra.providers.mock import MockProvider
 from hydra.providers.ollama import OllamaProvider
 from hydra.providers.openai_compatible import OpenAICompatibleProvider
 from hydra.registry.circuit_breaker import CircuitBreaker
-from hydra.registry.registry import ModelRegistry
+from hydra.registry.registry import ModelRegistry, refresh_installed_models
 from hydra.registry.runtime_monitor import RuntimeMonitor
 from hydra.research.graph import ResearchWorker
 from hydra.router.learned import LearnedRoutingPolicy
@@ -324,6 +324,9 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
             registry.set_provider_health(name, healthy is True)
             if healthy is not True:
                 log.info("provider %s unavailable; models will be excluded from routing", name)
+        for name, ids in (await refresh_installed_models(registry, providers)).items():
+            if ids:
+                log.warning("provider %s does not have %s installed; excluded from routing", name, ", ".join(ids))
 
     # ---- cognition ------------------------------------------------------------------
     model_compiler = ModelCompiler()

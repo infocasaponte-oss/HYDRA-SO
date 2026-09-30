@@ -231,7 +231,8 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         """Internal backend catalogue (Studio): physical models behind the HYDRA modes."""
         registry = rt(request).registry
         return [{**m.model_dump(), "available": registry.breaker.available(m.id),
-                 "provider_healthy": registry.provider_healthy(m.provider)} for m in registry.all()]
+                 "provider_healthy": registry.provider_healthy(m.provider),
+                 "installed": registry.model_installed(m.id)} for m in registry.all()]
 
     @app.get("/v1/metrics/models", dependencies=secured)
     async def model_metrics(request: Request):

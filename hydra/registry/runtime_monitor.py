@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel
 
-from hydra.registry.registry import ModelRegistry
+from hydra.registry.registry import ModelRegistry, refresh_installed_models
 
 log = logging.getLogger("hydra.monitor")
 
@@ -134,6 +134,8 @@ class RuntimeMonitor:
             for name, healthy in zip(self.providers, results):
                 if isinstance(healthy, bool):
                     self.registry.set_provider_health(name, healthy)
+            with contextlib.suppress(Exception):  # a model pulled or removed at runtime changes routing
+                await refresh_installed_models(self.registry, self.providers)
 
         self.gpus = await query_gpus()
         local_gpu_util = max((g.utilization for g in self.gpus), default=0.0)
