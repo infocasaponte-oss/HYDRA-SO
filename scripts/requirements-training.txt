@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 # Use with the CUDA-enabled torch 2.5.1 installation; tested imports recorded in docs.
 # huggingface-hub stays <1.0: transformers 4.46.3 requires it (hub 2.0 is unresolvable here).
-transformers==4.46.3
+transformers==5.17.0
 peft==0.21.0
 datasets==5.0.1
 accelerate==1.15.0
