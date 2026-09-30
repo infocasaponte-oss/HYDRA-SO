@@ -92,3 +92,17 @@ def test_qwen_coder_is_registered_as_internal_ollama_backend():
     assert qwen.physical_name == "qwen2.5-coder:7b"
     assert qwen.local
     assert qwen.capabilities.coding >= 0.8
+
+
+def test_unhealthy_provider_is_excluded_before_scoring():
+    registry = ModelRegistry(default_models())
+    registry.set_provider_health("ollama", False)
+    request = req("python bug")
+    route = __import__("asyncio").run(CognitiveRouter().route(request))
+    assert all(m.provider != "ollama" for m in registry.select(request, route))
+
+
+def test_unknown_provider_health_remains_optimistic():
+    registry = ModelRegistry(default_models())
+    assert registry.provider_healthy("new-provider")
+    assert len(registry.available()) == len(default_models())
