@@ -1,4 +1,6 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+import asyncio
+
 import pytest
 
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message, TaskType
@@ -80,3 +82,40 @@ def test_circuit_breaker_opens_and_half_opens():
     b2 = CircuitBreaker(max_failures=5, cooldown_s=999)
     b2.register_failure("x", fatal=True)
     assert not b2.available("x")
+
+
+def test_qwen_coder_is_registered_as_internal_ollama_backend():
+    from hydra.registry.registry import ModelRegistry
+    from hydra.core.config import ROOT
+
+    registry = ModelRegistry.from_yaml(ROOT / "config" / "models.yaml")
+    qwen = registry.get("qwen2.5-coder-7b")
+    assert qwen.provider == "ollama"
+    assert qwen.physical_name == "qwen2.5-coder:7b"
+    assert qwen.local
+    assert qwen.capabilities.coding >= 0.8
+
+
+def test_unhealthy_provider_is_excluded_before_scoring():
+    registry = ModelRegistry(default_models())
+    registry.set_provider_health("ollama", False)
+    request = req("python bug")
+    route = asyncio.run(CognitiveRouter().route(request))
+    assert all(m.provider != "ollama" for m in registry.select(request, route))
+
+
+def test_unknown_provider_health_remains_optimistic():
+    registry = ModelRegistry(default_models())
+    assert registry.provider_healthy("new-provider")
+    assert len(registry.available()) == len(default_models())
+
+
+def test_failed_health_probe_expires_so_the_provider_is_retried(monkeypatch):
+    # workers run without RuntimeMonitor: a provider down at startup must not stay excluded forever
+    registry = ModelRegistry(default_models())
+    now = [1000.0]
+    monkeypatch.setattr("hydra.registry.registry.time.monotonic", lambda: now[0])
+    registry.set_provider_health("ollama", False)
+    assert not registry.provider_healthy("ollama")
+    now[0] += ModelRegistry.PROVIDER_HEALTH_TTL_S + 1
+    assert registry.provider_healthy("ollama")

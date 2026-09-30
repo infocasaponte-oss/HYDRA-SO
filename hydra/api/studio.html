@@ -124,7 +124,7 @@ function go(v){store.set("hydra_view",v);document.querySelectorAll(".view").forE
 const safe=f=>async()=>{try{await f()}catch(e){console.warn(e)}};
 const loaders={
  world:safe(async()=>{show("wstats",await api("/hydra/v1/world"));drawGraph(await api("/hydra/v1/world/graph"))}),
- models:safe(async()=>{const m=await api("/v1/models");$("models").innerHTML="<table><tr><th>id</th><th>proveedor</th><th>local</th><th>tier</th><th>activo</th><th>coding</th><th>reasoning</th><th>vision</th></tr>"+
+ models:safe(async()=>{const m=await api("/hydra/v1/models/catalog");$("models").innerHTML="<table><tr><th>id</th><th>proveedor</th><th>local</th><th>tier</th><th>activo</th><th>coding</th><th>reasoning</th><th>vision</th></tr>"+
    m.map(x=>`<tr><td>${esc(x.id)}</td><td>${esc(x.provider)}</td><td>${x.local}</td><td>${x.tier}</td><td class="${x.enabled?"ok":"bad"}">${x.enabled}</td><td>${x.capabilities.coding}</td><td>${x.capabilities.reasoning}</td><td>${x.capabilities.vision}</td></tr>`).join("")+"</table>";
    show("factory",await api("/v1/factory/status"))}),
  corpus:safe(async()=>{show("cstats",await api("/hydra/v1/corpus/stats"));show("dsl",(await api("/hydra/v1/datasets")).map(r=>({id:r.id,examples:r.examples,splits:r.splits,synthetic:r.synthetic_fraction})))}),

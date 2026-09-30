@@ -23,7 +23,7 @@ class CognitiveBudget(BaseModel):
 
 PRESETS: dict[ExecutionMode, CognitiveBudget] = {
     ExecutionMode.FAST: CognitiveBudget(
-        max_tokens=8_000, max_model_calls=1, max_tool_calls=2, max_seconds=5,
+        max_tokens=8_000, max_model_calls=1, max_tool_calls=2, max_seconds=30,
         max_cost=0.01, max_parallel_workers=1, max_steps=2, max_escalations=0,
     ),
     ExecutionMode.BALANCED: CognitiveBudget(
