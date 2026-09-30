@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-FROM docker:27-cli AS dockercli
+FROM docker:29-cli AS dockercli
 
 FROM python:3.14-slim
 
