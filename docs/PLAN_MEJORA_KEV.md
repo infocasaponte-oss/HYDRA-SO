@@ -20,6 +20,11 @@ mejora el test congelado y no empeora las regresiones, la latencia o la abstenci
 
 ## Fase 0 — Protocolo y baselines (1 día)
 
+Implementación inicial: `decision-corpus-v3` ya contiene 1.600 filas de
+entrenamiento, 200 de calibración y 1.000 de test repartidas en diez familias.
+Cada fila lleva hash, procedencia, permiso y familia. Su contenido sigue siendo
+sintético y requiere revisión humana antes de usarlo para ajustar pesos.
+
 1. Congelar `decision-benchmark-v3`: 200 casos de calibración, 1.000 de prueba
    y 200 OOD. Mantener al menos 100 casos por `chat`, `coding`, `reasoning`,
    `research`, `vision`, `tool_use`, seguridad, privacidad y abstención.
