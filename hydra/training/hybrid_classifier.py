@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Safety-first hybrid decision classifier for HYDRA."""
 from __future__ import annotations
 

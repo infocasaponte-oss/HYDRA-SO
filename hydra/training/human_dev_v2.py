@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Build the 1,000-row HYDRA development paraphrase set.
 
 This is training/development data only. The frozen human test is never read or
@@ -5,7 +6,8 @@ copied here. Templates are deliberately concentrated on known boundary pairs.
 """
 from __future__ import annotations
 
-import hashlib, json
+import hashlib
+import json
 from pathlib import Path
 
 GROUPS = {

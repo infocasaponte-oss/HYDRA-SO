@@ -1,5 +1,7 @@
 # Kev v2: prueba independiente con paráfrasis humanas
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Se creó un conjunto de 100 solicitudes redactadas manualmente, 10 por cada una
 de las diez familias del contrato. No comparte las plantillas del corpus v3 y
 todas las filas llevan `training_allowed=false`. El conjunto es una revisión

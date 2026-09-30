@@ -1,5 +1,7 @@
 # Validación real y candidato Q5 — 30/09/2026
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Actualización posterior: la descarga original finalizó y se validó inferencia real
 de Kev en CUDA, con tres clasificaciones correctas. Véase
 [Kev GPU validado](KEV_GPU_VALIDADO.md). La sección de bloqueo inferior conserva

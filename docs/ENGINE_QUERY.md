@@ -1,5 +1,7 @@
 # Entrada asíncrona unificada de HYDRA
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 La API pública `hydra.engine.HydraEngine` es una fachada pequeña sobre el kernel
 existente. No crea otro orquestador, instala LiteLLM ni duplica memoria, caché,
 proveedores, permisos o verificadores. Reducir las líneas de la fachada no reduce

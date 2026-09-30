@@ -1,5 +1,7 @@
 # Kev v2 — cabeza de decisión HYDRA
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Se ha entrenado un candidato local ligero en
 `models/hydra-decision-v2/classifier.json` con la implementación nativa de
 HYDRA (`TextClassifier`), usando solo `train.jsonl` del corpus v3. Incluye las

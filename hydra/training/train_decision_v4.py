@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Train the HYDRA v4 routing specialist from admitted training data only."""
 from __future__ import annotations
 
@@ -33,7 +34,8 @@ def train(train_files: list[Path], out: Path, epochs: int = 18) -> dict:
     y: list[str] = []
     for path in train_files:
         a, b = load(path)
-        X.extend(a); y.extend(b)
+        X.extend(a)
+        y.extend(b)
     labels = sorted(set(y))
     clf = TextClassifier(labels)
     clf.fit(X, y, epochs=epochs, seed=42)

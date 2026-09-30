@@ -1,5 +1,7 @@
 # HYDRA Decision v2: compuerta de cobertura
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 La cabeza Kev validada solo cubre parte de las etiquetas del corpus v3. HYDRA
 ahora incorpora una compuerta determinista previa al observador:
 

@@ -1,5 +1,7 @@
 # Plan de mejora de Kev para HYDRA
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Fecha: 30/09/2026. Este plan parte de la evaluación real en CUDA y conserva el
 modo `KEEP_SHADOW` hasta cumplir los controles. No convierte una confianza del
 modelo en permiso de herramienta.

@@ -1,5 +1,7 @@
 # Kev v2 después de incorporar desarrollo humano
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Se creó `human-dev-v1.jsonl` con 100 ejemplos humanos, diez por familia. Tiene
 frases distintas del test congelado `human-paraphrase-v1.jsonl`, permiso explícito
 de entrenamiento y hashes por fila.

@@ -1,5 +1,7 @@
 # Kev: inferencia real en GPU validada
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Fecha: 30/09/2026. El arranque original terminó su descarga y cargó el checkpoint;
 no fue necesario reemplazar la caché con la copia alternativa. Ambas copias de la
 base tienen el SHA256 esperado. Se conserva la alternativa sin borrar archivos.

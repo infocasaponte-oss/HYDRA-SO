@@ -1,5 +1,7 @@
 # Resultado del corpus v3 contra Kev
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Fecha: 30/09/2026. Se ejecutaron 1.200 inferencias reales en CUDA: 200 de
 calibración y 1.000 de test, con dos solicitudes concurrentes. No hubo errores
 HTTP ni respuestas malformadas.

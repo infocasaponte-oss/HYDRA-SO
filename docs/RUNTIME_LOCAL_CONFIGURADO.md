@@ -1,5 +1,7 @@
 # Runtime local HYDRA configurado
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 La configuración operativa local está en `config/models.hydra-local.yaml` y usa
 `hydra-q5-candidate:latest`, cuyo GGUF es Q5_K_M. El calibrador externo se crea
 desde las 120 filas compatibles de la partición de calibración v3 y queda en

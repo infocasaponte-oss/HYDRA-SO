@@ -1,5 +1,7 @@
 # Kev: calibración y estabilidad
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Fecha: 30/09/2026. Evaluación contra el servidor real Kev en CUDA, checkpoint
 fijado. El conjunto contiene 24 casos de calibración, 24 de prueba y 8 casos
 ambiguos/fuera de alcance. Ninguno se admite como dato de entrenamiento.

@@ -1,5 +1,7 @@
 # Mejoras implementadas del plan Kev
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 Commit de esta iteración: opciones canónicas y calibración externa.
 
 `LocalSystemOneProvider` conserva el orden que solicita el llamador para validar

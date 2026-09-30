@@ -1,5 +1,7 @@
 # Corpus de decisiones HYDRA v3
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. Todos los derechos reservados.
+
 El corpus generado en `data/decision-corpus-v3` contiene 2.800 filas:
 
 - `train.jsonl`: 1.600 filas, único split con `training_allowed=true`.
