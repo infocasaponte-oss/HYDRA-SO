@@ -11,7 +11,7 @@ from hydra.training.evaluate_corpus import candidate_hash
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", choices=["2", "3", "4", "5"], required=True)
+    parser.add_argument("--version", choices=["2", "3", "4", "5", "6"], required=True)
     args = parser.parse_args()
     name = f"hydra-instruction-v{args.version}"
     root = Path("models") / name

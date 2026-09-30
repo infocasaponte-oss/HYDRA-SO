@@ -32,6 +32,8 @@ class ModelQuirks(BaseModel):
     """Backend peculiarities the Model Compiler adapts to."""
 
     native_json_schema: bool = True
+    typed_state_json: bool = False
+    """Opt-in application contract: id integer and activo boolean in state-record JSON."""
     native_tools: bool = True
     system_role: bool = True
     native_images: bool = False

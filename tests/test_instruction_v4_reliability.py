@@ -32,7 +32,8 @@ async def test_reasoner_passes_json_schema_only_to_capable_profiles(native):
     assert bool(request.response_schema) is native
 
 
-@pytest.mark.parametrize("prompt", ["Devuelve solo JSON válido", "Return only JSON", "Responde únicamente JSON", "JSON only please"])
+@pytest.mark.parametrize("prompt", ["Devuelve solo JSON válido", "Return only JSON", "Responde únicamente JSON", "JSON only please",
+    "Devuélveme un JSON con tres claves", "Genera un JSON", "JSON con 'task'='eval'"])
 def test_explicit_json_contract(prompt):
     assert requested_json_schema([{"role":"user","content":prompt}])["anyOf"][0] == {"type":"object"}
 
@@ -40,6 +41,18 @@ def test_explicit_json_contract(prompt):
 @pytest.mark.parametrize("prompt", ["Explica qué es JSON", "No quiero solo JSON", "No uses JSON", "Habla de Python"])
 def test_json_discussion_does_not_force_format(prompt):
     assert requested_json_schema([{"role":"user","content":prompt}]) is None
+
+
+def test_state_contract_is_opt_in_and_contains_no_expected_values():
+    messages=[{"role":"user","content":"Convierte este registro a un objeto JSON con las mismas claves: id: 98765; activo: no. No uses Markdown."}]
+    assert requested_json_schema(messages) is None
+    schema=requested_json_schema(messages,typed_state_json=True)
+    assert schema["properties"]["activo"]=={"type":"boolean"}
+    assert "98765" not in json.dumps(schema) and "const" not in json.dumps(schema)
+    assert requested_json_schema([{"role":"user","content":"Explica qué significa activo: no"}],True) is None
+    assert requested_json_schema([{"role":"user","content":messages[0]["content"]+" Conserva activo como texto."}],True) is None
+    extra=messages[0]["content"].replace("activo: no.","activo: no; nombre: Ana.")
+    assert requested_json_schema([{"role":"user","content":extra}],True) is None
 
 
 @needs_local_data

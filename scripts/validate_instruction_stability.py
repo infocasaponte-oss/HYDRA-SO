@@ -32,7 +32,7 @@ async def validate(model, manifest, corpus, output, seconds=900, studio=None):
         tmp.replace(output)
     started=time.monotonic()
     previous,seen=0,{}
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(base_url="http://127.0.0.1:11434",timeout=60) as client:
         identity=await model_identity(client,model,digest)
         result["identity"]=identity
         save()
@@ -74,6 +74,8 @@ async def validate(model, manifest, corpus, output, seconds=900, studio=None):
                         r.raise_for_status()
                         body=r.json()
                         meta=body["meta"]
+                        if model.split(":")[0]+"-candidate" not in meta.get("models_used",[]):
+                            raise ValueError("engine used a different model or a deterministic solver")
                         parsed=json.loads(body["answer"])
                         engine.update(passed=parsed==dict(id=85000+i,activo=False) and type(parsed.get("activo")) is bool,
                                       cached=meta.get("cached"),models_used=meta.get("models_used"),latency_ms=meta.get("latency_ms"))

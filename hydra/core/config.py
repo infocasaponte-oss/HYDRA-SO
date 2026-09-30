@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="HYDRA_", env_file=".env", extra="ignore")
 
     models_config: Path = ROOT / "config" / "models.yaml"
+    evaluation_candidate_version: int = Field(default=5, ge=5, le=6)
     policy_config: Path = ROOT / "config" / "policy.yaml"
     evals_dir: Path = ROOT / "config" / "evals"
     data_dir: Path = Path.cwd() / "data"

@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 from hydra.training.evaluate_corpus import candidate_hash, model_identity
 from hydra.training.verified_corpus import sha256
+from hydra.training.evidence_io import write_json
 
 
 def wilson(successes, total):
@@ -55,15 +56,22 @@ async def evaluate(model, corpus, output, manifest, split="calibration"):
     report = dict(model=model, artifact_sha256=artifact, dataset_sha256=sha256(data), split=split,
                   sampling=options, cases=[], approved=False, independent_test=False,
                   scope="synthetic exact-task empirical success, not probability that arbitrary responses are true")
+    if output.exists():
+        previous=json.loads(output.read_text(encoding="utf-8"))
+        if any(previous.get(k)!=report[k] for k in ("model","artifact_sha256","dataset_sha256","split","sampling")):
+            raise ValueError("existing evidence belongs to a different evaluation")
+        cases=previous.get("cases",[])
+        if len(cases)>len(rows) or any(case.get("id")!=row["id"] or case.get("family")!=row["family"] for case,row in zip(cases,rows)):
+            raise ValueError("evidence case order changed")
+        report=previous
     def save():
-        output.parent.mkdir(parents=True, exist_ok=True)
-        tmp = output.with_suffix(".tmp")
-        tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(output)
+        write_json(output,report)
     async with httpx.AsyncClient(base_url="http://127.0.0.1:11434", timeout=120) as client:
         identity = await model_identity(client, model, artifact)
+        if report.get("identity") and report["identity"]!=identity:
+            raise ValueError("cannot resume a changed model")
         report["identity"] = identity
-        for row in rows:
+        for row in rows[len(report["cases"]):]:
             case = dict(id=row["id"], family=row["family"], passed=False)
             try:
                 r = await client.post("/api/chat", json=dict(model=model, stream=False,
