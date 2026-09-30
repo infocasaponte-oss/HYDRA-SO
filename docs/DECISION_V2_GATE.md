@@ -18,6 +18,11 @@ falla, las reglas deterministas del router siguen siendo la decisión efectiva.
 Para sustituir la compuerta por una cabeza Kev v2 se necesitan datos verificados,
 test independiente y los umbrales de [PLAN_MEJORA_KEV.md](PLAN_MEJORA_KEV.md).
 
+Ya existe un candidato de cabeza ligera HYDRA v2 entrenado con el split train y
+las diez etiquetas. Sus resultados sintéticos no se consideran evidencia de
+generalización; está documentado en `KEV_V2_CANDIDATO.md` y permanece fuera del
+router por defecto.
+
 Validación: 19 pruebas del gate, observador y canonicalización; Ruff correcto.
 
 El calibrador separado ya puede cargarse desde `HYDRA_DECISION_CALIBRATOR_PATH`
