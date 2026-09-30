@@ -21,6 +21,10 @@ TOKEN = re.compile(r"\w+|[^\w\s]", re.U)
 def _features(text: str, dims: int) -> dict[int, float]:
     toks = [t.lower() for t in TOKEN.findall(text)]
     grams = toks + [f"{a} {b}" for a, b in zip(toks, toks[1:])]
+    # Character n-grams make the specialist robust to human paraphrases,
+    # inflections and spelling variants that do not share exact word tokens.
+    normalized = "  " + " ".join(toks) + "  "
+    grams.extend(normalized[i:i+n] for n in (3, 4, 5) for i in range(len(normalized) - n + 1))
     f: dict[int, float] = {}
     for g in grams:
         idx = _stable(g) % dims
@@ -36,7 +40,7 @@ def _stable(s: str) -> int:
 
 
 class TextClassifier:
-    def __init__(self, labels: list[str], dims: int = 4096) -> None:
+    def __init__(self, labels: list[str], dims: int = 16384) -> None:
         self.labels = labels
         self.dims = dims
         self.W = [[0.0] * dims for _ in labels]
