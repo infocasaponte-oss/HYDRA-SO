@@ -32,6 +32,9 @@ class ModelRegistry:
     def __init__(self, models: list[ModelProfile], breaker: CircuitBreaker | None = None) -> None:
         self.models: dict[str, ModelProfile] = {m.id: m for m in models}
         self.breaker = breaker or CircuitBreaker()
+        # Runtime health is kept separate from configuration: a configured model
+        # may be temporarily unavailable without being removed from the catalogue.
+        self._provider_health: dict[str, bool] = {}
 
     @classmethod
     def from_yaml(cls, path: Path | str, breaker: CircuitBreaker | None = None) -> ModelRegistry:
@@ -47,8 +50,21 @@ class ModelRegistry:
     def all(self) -> list[ModelProfile]:
         return list(self.models.values())
 
+    def set_provider_health(self, provider: str, healthy: bool) -> None:
+        """Record backend reachability used by selection."""
+        self._provider_health[provider] = healthy
+
+    def provider_healthy(self, provider: str) -> bool:
+        """Unknown health is optimistic until the runtime performs its first probe."""
+        return self._provider_health.get(provider, True)
+
     def available(self) -> list[ModelProfile]:
-        return [m for m in self.models.values() if m.enabled and self.breaker.available(m.id)]
+        return [
+            m for m in self.models.values()
+            if m.enabled
+            and self.breaker.available(m.id)
+            and self.provider_healthy(m.provider)
+        ]
 
     def select(
         self,
