@@ -12,6 +12,10 @@ test comparten plantillas y vocabulario con train. El candidato sirve para
 validar el contrato y el flujo de entrenamiento; no se presenta como mejora
 frente a Kev ni se promociona automáticamente.
 
+La prueba independiente posterior con 100 paráfrasis humanas obtuvo 59 % y
+demostró sobreajuste. El candidato queda rechazado para promoción; el resultado
+completo está en `RESULTADO_KEV_V2_HUMANO.md`.
+
 El manifiesto identifica la semilla, etiquetas, corpus y limitaciones. Antes de
 usarlo en producción hay que sustituir o complementar las variaciones sintéticas
 por paráfrasis humanas, mantener el test oculto y evaluar contra el protocolo
