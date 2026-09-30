@@ -31,8 +31,11 @@ class OllamaProvider(ModelProvider):
             "options": {"temperature": request.temperature, "num_predict": request.max_tokens},
         }
         opts = dict(request.metadata.get("runtime_options") or {})
+        # top-level request fields, not sampling options
         if "keep_alive" in opts:
             body["keep_alive"] = opts.pop("keep_alive")
+        if "think" in opts:
+            body["think"] = bool(opts.pop("think"))
         body["options"].update(opts)
         if reasoning := request.metadata.get("reasoning"):
             body["think"] = reasoning["level"] != "off"

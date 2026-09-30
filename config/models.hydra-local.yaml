@@ -43,14 +43,18 @@ models:
     estimated_latency_ms: 2500
     quirks: {native_json_schema: true, native_tools: true}
 
+  # Vision role sized for an 8 GB GPU (RTX 3060 Ti): qwen3-vl:8b runs ~90% on GPU, ~4.5 s warm.
+  # Text priors stay below the text roles so text-only tasks do not escalate here.
   - id: hydra-vision
     provider: ollama
-    runtime_model: gemma4:26b
+    runtime_model: qwen3-vl:8b
     local: true
-    tier: 4
+    tier: 3
     context_window: 32768
-    capabilities: {chat: 0.86, reasoning: 0.82, coding: 0.68, vision: 0.95, tools: 0.88, research: 0.70}
-    estimated_latency_ms: 7000
+    capabilities: {chat: 0.78, reasoning: 0.74, coding: 0.62, vision: 0.90, tools: 0.75, research: 0.62}
+    estimated_latency_ms: 4500
+    # qwen3-vl thinks by default: a long hidden reasoning pass that blows the perception budget
+    runtime_options: {think: false}
     quirks: {native_json_schema: true, native_tools: true, native_images: true}
 
   - id: hydra-judge

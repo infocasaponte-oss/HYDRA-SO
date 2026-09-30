@@ -122,13 +122,13 @@ def test_failed_health_probe_expires_so_the_provider_is_retried(monkeypatch):
 
 
 def test_models_not_installed_in_the_runtime_are_excluded(monkeypatch):
-    # live failure: hydra-vision pointed at gemma4:26b, never pulled, and escalations timed out on it
+    # a configured model the runtime does not have must not be routed to (it could only time out)
     from hydra.providers.ollama import ollama_model_key
     from hydra.registry.registry import refresh_installed_models
 
     registry = ModelRegistry([model("coder", provider="ollama", runtime_model="qwen2.5-coder:7b"),
                               model("hydra", provider="ollama", runtime_model="hydra-q5"),
-                              model("vision", provider="ollama", runtime_model="gemma4:26b"),
+                              model("vision", provider="ollama", runtime_model="llava:34b"),
                               model("other", provider="mock")])
 
     class FakeOllama:
@@ -157,3 +157,27 @@ def test_ollama_provider_lists_installed_models():
     provider.client = httpx.AsyncClient(base_url="http://ollama", transport=httpx.MockTransport(
         lambda request: httpx.Response(500)))
     assert asyncio.run(provider.installed_models()) is None  # unknown, never "nothing installed"
+
+
+def test_ollama_think_runtime_option_is_a_top_level_field():
+    # qwen3-vl thinks by default; `think: false` must reach Ollama as a request field, not a sampling option
+    import json
+
+    import httpx
+
+    from hydra.core.contracts import ModelRequest
+    from hydra.providers.ollama import OllamaProvider
+
+    sent = {}
+
+    def handler(request):
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"role": "assistant", "content": "ok"}, "done": True})
+
+    provider = OllamaProvider("http://ollama")
+    provider.client = httpx.AsyncClient(base_url="http://ollama", transport=httpx.MockTransport(handler))
+    request = ModelRequest(messages=[{"role": "user", "content": "hola"}],
+                           metadata={"runtime_options": {"think": False, "num_ctx": 8192}})
+    asyncio.run(provider.generate("qwen3-vl:8b", request))
+    assert sent["think"] is False
+    assert "think" not in sent["options"] and sent["options"]["num_ctx"] == 8192
