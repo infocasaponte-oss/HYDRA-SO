@@ -390,8 +390,6 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     runtime.tracer = CognitiveTracer(settings.otel_endpoint or None, registry=registry)
     runtime.capture_outbox = capture.outbox
     if settings.capture:
-        import asyncio
-
         async def capture_outbox_loop() -> None:  # retries deferred ledger/corpus writes
             while True:
                 try:
@@ -402,8 +400,6 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         runtime._bg.append(asyncio.create_task(capture_outbox_loop()))
     await bus.subscribe(None, runtime.tracer.observe)
     if not settings.offline and "registry" not in overrides:
-        import asyncio
-
         from hydra.cluster.nodes import detect_local_node
 
         async def heartbeat_loop() -> None:
