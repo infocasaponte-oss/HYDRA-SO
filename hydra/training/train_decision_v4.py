@@ -48,6 +48,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, default=Path("models/hydra-decision-v4/classifier.json"))
     args = parser.parse_args()
-    report = train([Path("data/decision-corpus-v3/train.jsonl"), Path("data/human-dev-v1.jsonl")], args.out)
+    from hydra.training.human_dev_v2 import build
+    build()
+    report = train([Path("data/decision-corpus-v3/train.jsonl"), Path("data/human-dev-v1.jsonl"), Path("data/human-dev-v2.jsonl")], args.out)
     args.out.with_suffix(".report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))

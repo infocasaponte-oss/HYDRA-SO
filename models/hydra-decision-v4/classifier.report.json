@@ -1,6 +1,6 @@
 {
   "format": "hydra-decision-v4-training",
-  "examples": 1700,
+  "examples": 2700,
   "labels": [
     "abstain",
     "chat",
@@ -13,10 +13,11 @@
     "tool_use",
     "vision"
   ],
-  "train_accuracy": 0.9988,
+  "train_accuracy": 0.9993,
   "sources": [
     "data\\decision-corpus-v3\\train.jsonl",
-    "data\\human-dev-v1.jsonl"
+    "data\\human-dev-v1.jsonl",
+    "data\\human-dev-v2.jsonl"
   ],
   "epochs": 18
 }
