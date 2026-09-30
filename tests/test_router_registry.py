@@ -108,3 +108,14 @@ def test_unknown_provider_health_remains_optimistic():
     registry = ModelRegistry(default_models())
     assert registry.provider_healthy("new-provider")
     assert len(registry.available()) == len(default_models())
+
+
+def test_failed_health_probe_expires_so_the_provider_is_retried(monkeypatch):
+    # workers run without RuntimeMonitor: a provider down at startup must not stay excluded forever
+    registry = ModelRegistry(default_models())
+    now = [1000.0]
+    monkeypatch.setattr("hydra.registry.registry.time.monotonic", lambda: now[0])
+    registry.set_provider_health("ollama", False)
+    assert not registry.provider_healthy("ollama")
+    now[0] += ModelRegistry.PROVIDER_HEALTH_TTL_S + 1
+    assert registry.provider_healthy("ollama")

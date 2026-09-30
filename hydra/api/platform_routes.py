@@ -318,7 +318,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         if body.instructions:
             msgs.insert(0, Message(role="system", content=body.instructions))
         mode = {"hydra-fast": ExecutionMode.FAST, "hydra-deep": ExecutionMode.DEEP,
-                "hydra-private": ExecutionMode.PRIVATE}.get(body.model, ExecutionMode.BALANCED)
+                "hydra-max": ExecutionMode.MAX, "hydra-private": ExecutionMode.PRIVATE}.get(body.model, ExecutionMode.BALANCED)
         resp = await rt(request).lab.serve(HydraRequest(messages=msgs, mode=mode))
         return {"id": f"resp_{resp.meta.task_id.replace('-', '')}", "object": "response", "created_at": int(time.time()),
                 "model": body.model, "status": "completed",

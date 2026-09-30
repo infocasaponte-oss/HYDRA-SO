@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 
 import yaml
@@ -29,12 +30,17 @@ def update_quality(old_score: float, new_result: float, alpha: float = 0.05) -> 
 
 
 class ModelRegistry:
+    # An "unhealthy" probe result expires after this long, so a backend that was down at
+    # startup is retried even when no RuntimeMonitor refreshes it (e.g. workers with
+    # HYDRA_RUNTIME_MONITOR=false); the circuit breaker still guards real failures.
+    PROVIDER_HEALTH_TTL_S = 30.0
+
     def __init__(self, models: list[ModelProfile], breaker: CircuitBreaker | None = None) -> None:
         self.models: dict[str, ModelProfile] = {m.id: m for m in models}
         self.breaker = breaker or CircuitBreaker()
         # Runtime health is kept separate from configuration: a configured model
         # may be temporarily unavailable without being removed from the catalogue.
-        self._provider_health: dict[str, bool] = {}
+        self._provider_health: dict[str, tuple[bool, float]] = {}
 
     @classmethod
     def from_yaml(cls, path: Path | str, breaker: CircuitBreaker | None = None) -> ModelRegistry:
@@ -52,11 +58,12 @@ class ModelRegistry:
 
     def set_provider_health(self, provider: str, healthy: bool) -> None:
         """Record backend reachability used by selection."""
-        self._provider_health[provider] = healthy
+        self._provider_health[provider] = (healthy, time.monotonic())
 
     def provider_healthy(self, provider: str) -> bool:
-        """Unknown health is optimistic until the runtime performs its first probe."""
-        return self._provider_health.get(provider, True)
+        """Unknown or stale health is optimistic: only a recent failed probe excludes a provider."""
+        healthy, at = self._provider_health.get(provider, (True, 0.0))
+        return healthy or time.monotonic() - at > self.PROVIDER_HEALTH_TTL_S
 
     def available(self) -> list[ModelProfile]:
         return [
