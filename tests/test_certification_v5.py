@@ -7,7 +7,12 @@ from hydra.market import DeterministicSolvers
 from hydra.training.instruction_corpus_v5 import build
 from hydra.training.verified_corpus import sha256
 
+# data/ is gitignored: corpus builds need the local data/hydra-instruction-v4/test.jsonl
+LOCAL_DATA = __import__("pathlib").Path("data/hydra-instruction-v4/test.jsonl")
+needs_local_data = pytest.mark.skipif(not LOCAL_DATA.exists(), reason=f"{LOCAL_DATA} is not in this checkout")
 
+
+@needs_local_data
 def test_curriculum_preserves_frozen_partitions_and_no_test_answers_replayed(tmp_path):
     root = tmp_path/"v5"
     manifest = build(root)

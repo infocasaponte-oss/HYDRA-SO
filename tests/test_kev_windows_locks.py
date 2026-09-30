@@ -8,6 +8,7 @@ import pytest
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows-only compatibility")
 def test_kev_adapter_keeps_real_interprocess_exclusion(tmp_path):
+    pytest.importorskip("psutil")  # the Windows adapter measures memory with psutil
     path = tmp_path / "training.lock"
     parent = path.open("a")
     import msvcrt

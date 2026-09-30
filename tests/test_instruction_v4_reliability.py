@@ -9,6 +9,10 @@ from hydra.training.generation_reliability import check, same_json, wilson
 from hydra.training.vllm_calibration import fit, metrics, probabilities
 from hydra.workers.reasoner import requested_json_schema
 
+# data/ is gitignored: corpus builds need the local data/hydra-corpus-v1/train.jsonl
+LOCAL_DATA = __import__("pathlib").Path("data/hydra-corpus-v1/train.jsonl")
+needs_local_data = pytest.mark.skipif(not LOCAL_DATA.exists(), reason=f"{LOCAL_DATA} is not in this checkout")
+
 
 @pytest.mark.parametrize("native", [True, False])
 async def test_reasoner_passes_json_schema_only_to_capable_profiles(native):
@@ -38,6 +42,7 @@ def test_json_discussion_does_not_force_format(prompt):
     assert requested_json_schema([{"role":"user","content":prompt}]) is None
 
 
+@needs_local_data
 def test_500_unique_and_partitioned_with_frozen_test(tmp_path):
     root = tmp_path / "corpus"
     manifest = build(root)

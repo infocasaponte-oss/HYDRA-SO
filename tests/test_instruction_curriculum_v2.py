@@ -7,7 +7,12 @@ from hydra.training.instruction_corpus_v2 import build
 from hydra.router.decision_authority import DecisionAuthority
 from hydra.core.contracts import DecisionObservation
 
+# data/ is gitignored: corpus builds need the local data/hydra-corpus-v1/train.jsonl
+LOCAL_DATA = __import__("pathlib").Path("data/hydra-corpus-v1/train.jsonl")
+needs_local_data = pytest.mark.skipif(not LOCAL_DATA.exists(), reason=f"{LOCAL_DATA} is not in this checkout")
 
+
+@needs_local_data
 def test_curriculum_does_not_reuse_holdout_or_overwrite(tmp_path):
     output = tmp_path / "v2"
     manifest = build(output)
