@@ -92,10 +92,12 @@ async def query_gpus() -> list[GPUStatus]:
 
 
 class RuntimeMonitor:
-    def __init__(self, registry: ModelRegistry, interval_s: float = 5.0, ollama_url: str | None = None) -> None:
+    def __init__(self, registry: ModelRegistry, interval_s: float = 5.0,
+                 ollama_url: str | None = None, providers: dict | None = None) -> None:
         self.registry = registry
         self.interval_s = interval_s
         self.ollama_url = ollama_url
+        self.providers = providers or {}
         self.client = httpx.AsyncClient(timeout=3)
         self.gpus: list[GPUStatus] = []
         self.loads: dict[str, RuntimeLoad] = {}
@@ -121,6 +123,18 @@ class RuntimeMonitor:
             await asyncio.sleep(self.interval_s)
 
     async def poll(self) -> None:
+        # Probe the exact provider instances used by the invoker before scoring.
+        # This prevents a dead vLLM endpoint from winning selection and only then
+        # failing over to the internal Ollama coder backend.
+        if self.providers:
+            results = await asyncio.gather(
+                *(self._probe_provider(name, provider) for name, provider in self.providers.items()),
+                return_exceptions=True,
+            )
+            for name, healthy in zip(self.providers, results):
+                if isinstance(healthy, bool):
+                    self.registry.set_provider_health(name, healthy)
+
         self.gpus = await query_gpus()
         local_gpu_util = max((g.utilization for g in self.gpus), default=0.0)
         loaded_in_ollama = await self._ollama_loaded()
@@ -136,6 +150,15 @@ class RuntimeMonitor:
                 # Local runtime: GPU utilisation + cold-start penalty when the model is not resident.
                 cold = loaded_in_ollama is not None and m.physical_name not in loaded_in_ollama
                 m.current_load = round(min(1.0, local_gpu_util * 0.7 + (0.3 if cold else 0.0)), 4)
+
+    async def _probe_provider(self, name: str, provider) -> bool:
+        try:
+            healthy = await provider.health()
+            log.debug("provider health %s=%s", name, healthy)
+            return healthy
+        except Exception:
+            log.debug("provider health probe failed: %s", name, exc_info=True)
+            return False
 
     async def _runtime_load(self, endpoint: str) -> RuntimeLoad | None:
         u = urlparse(endpoint)
