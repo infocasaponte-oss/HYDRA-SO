@@ -58,7 +58,7 @@ def train(cfg_path: str) -> None:
         tok.pad_token = tok.eos_token
 
     bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    kwargs: dict = {"torch_dtype": torch.bfloat16 if bf16 else torch.float32}
+    kwargs: dict = {"dtype": torch.bfloat16 if bf16 else torch.float32}
     if job["method"] == "qlora":
         from transformers import BitsAndBytesConfig  # type: ignore
 
@@ -120,7 +120,7 @@ def merge(base: str, adapter: str, output: str) -> None:
     from peft import PeftModel  # type: ignore
     from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 
-    model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.bfloat16)
+    model = AutoModelForCausalLM.from_pretrained(base, dtype=torch.bfloat16)
     model = PeftModel.from_pretrained(model, adapter).merge_and_unload()
     model.save_pretrained(output, safe_serialization=True)
     AutoTokenizer.from_pretrained(base).save_pretrained(output)

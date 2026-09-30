@@ -107,7 +107,7 @@ def inspect_hf_dir(path: Path, fmt: ModelFormat) -> ModelInspection:
     text_cfg = cfg.get("text_config") or cfg
     arch = (cfg.get("architectures") or ["unknown"])[0]
     files = sorted(path.glob("*.safetensors"))
-    summary = st.summarize(files) if files else {"parameters": 0, "dtype": cfg.get("torch_dtype", "unknown")}
+    summary = st.summarize(files) if files else {"parameters": 0, "dtype": cfg.get("dtype") or cfg.get("torch_dtype") or "unknown"}
     experts = (text_cfg.get("num_local_experts") or text_cfg.get("num_experts")
                or text_cfg.get("n_routed_experts"))
     tok_cfg = path / "tokenizer_config.json"
@@ -116,7 +116,7 @@ def inspect_hf_dir(path: Path, fmt: ModelFormat) -> ModelInspection:
     qc = cfg.get("quantization_config") or {}
     return ModelInspection(
         format=fmt, architecture=arch,
-        dtype=str(cfg.get("torch_dtype") or summary["dtype"]).upper().replace("BFLOAT16", "BF16").replace(
+        dtype=str(cfg.get("dtype") or cfg.get("torch_dtype") or summary["dtype"]).upper().replace("BFLOAT16", "BF16").replace(
             "FLOAT16", "F16").replace("FLOAT32", "F32"),
         parameters=summary["parameters"],
         context_length=text_cfg.get("max_position_embeddings"),
