@@ -37,6 +37,7 @@ services:
     volumes:
       - workspace:/workspace
       - hydra_data:/data
+      - hydra_runtime:/app/runtime
     depends_on:
       postgres:
         condition: service_healthy
@@ -227,5 +228,6 @@ volumes:
   workspace:
     name: hydra_workspace
   hydra_data:
+  hydra_runtime:
   models:
   nats_data:
