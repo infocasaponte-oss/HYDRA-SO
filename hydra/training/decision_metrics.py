@@ -12,7 +12,7 @@ def wilson_lower(correct: int, total: int) -> float:
 
 
 def metrics(rows: list[dict], threshold: float = 0) -> dict:
-    usable = [r for r in rows if r.get("probabilities") and r.get("expected") is not None]
+    usable = [r for r in rows if r.get("probabilities") and r.get("expected") in r["probabilities"]]
     accepted = [r for r in usable if max(r["probabilities"].values()) >= threshold]
     correct = sum(r["selected"] == r["expected"] for r in accepted)
     bins = []
