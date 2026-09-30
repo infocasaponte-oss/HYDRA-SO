@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 
 @dataclass(frozen=True)
@@ -178,14 +179,17 @@ class OciSandbox:
             ["mypy", "--follow-imports=skip", "--ignore-missing-imports", *targets]
         )
 
-    async def pytest(self, target: str = ".") -> SandboxResult:
+    async def pytest(self, target: str = ".", *, read_only: bool = False) -> SandboxResult:
         target_path = (self.workspace / target).resolve()
         if target_path != self.workspace and self.workspace not in target_path.parents:
             raise ValueError("Sandbox target escape rejected")
-        relative = str(target_path.relative_to(self.workspace)) or "."
+        relative = target_path.relative_to(self.workspace).as_posix() or "."
+        # Prefix prevents a filename beginning with '-' from becoming a pytest option.
+        relative = "./" + relative
+        container = "hydra-test-" + uuid4().hex
 
         cmd = [
-            self.runtime, "run", "--rm",
+            self.runtime, "run", "--rm", "--name", container,
             "--network", "none",
             "--read-only",
             "--cap-drop", "ALL",
@@ -195,10 +199,10 @@ class OciSandbox:
             "--pids-limit", str(self.limits.pids),
             "--user", "65532:65532",
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=128m",
-            "--mount", f"type=bind,src={self.workspace},dst=/workspace,rw",
+            "--mount", f"type=bind,src={self.workspace},dst=/workspace,{'readonly' if read_only else 'rw'}",
             "--workdir", "/workspace",
             self.image,
-            "python", "-m", "pytest", "-q", relative,
+            "python", "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", relative,
         ]
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -212,9 +216,24 @@ class OciSandbox:
             stdout, _ = await asyncio.wait_for(
                 proc.communicate(), timeout=self.limits.timeout_seconds
             )
-        except TimeoutError:
+        except (TimeoutError, asyncio.CancelledError) as exc:
             proc.kill()
             await proc.wait()
+            # Killing the CLI alone does not stop its container. Remove this exact
+            # task container, never another job, before returning or cancelling.
+            try:
+                cleanup = await asyncio.create_subprocess_exec(
+                    self.runtime, "rm", "-f", container,
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                try:
+                    await asyncio.wait_for(cleanup.wait(), timeout=10)
+                except TimeoutError:
+                    cleanup.kill()
+                    await cleanup.wait()
+            except OSError:
+                pass
+            if isinstance(exc, asyncio.CancelledError):
+                raise
             return SandboxResult(False, "sandbox timeout", 124)
 
         output = stdout.decode("utf-8", errors="replace")[-50_000:]

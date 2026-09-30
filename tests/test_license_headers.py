@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-"""Every tracked text file carries the proprietary copyright notice (JSON cannot hold comments)."""
+"""Every tracked text file carries the proprietary copyright notice (JSON and JSON Lines cannot hold comments)."""
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,7 +8,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = "Luis Manuel Cousido Hermida"
-BINARY_OR_COMMENTLESS = {".json", ".lock", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".gguf", ".safetensors", ".pyc"}
+BINARY_OR_COMMENTLESS = {".json", ".jsonl", ".lock", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".gguf", ".safetensors", ".pyc"}
 
 
 def _tracked() -> list[Path]:

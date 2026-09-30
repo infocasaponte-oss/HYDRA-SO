@@ -62,7 +62,7 @@ async def test_model_change_invalidates_saved_report(tmp_path, monkeypatch):
         **kwargs, transport=httpx.MockTransport(respond)))
 
     async def execute(*args, **kwargs):
-        return SimpleNamespace(exit_code=0, stderr="")
+        return SimpleNamespace(exit_code=0, stdout="", stderr="")
 
     monkeypatch.setattr(module.DockerSandbox, "execute_python", execute)
     output = tmp_path / "report.json"

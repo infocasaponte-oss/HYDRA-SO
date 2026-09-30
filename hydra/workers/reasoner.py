@@ -13,7 +13,11 @@ class ReasonerWorker(Worker):
     system_prompt = (
         "You are HYDRA's reasoning worker. Solve the user's task precisely and completely. "
         "State assumptions explicitly, separate facts from hypotheses, and say what you are "
-        "unsure about instead of guessing. Answer in the user's language."
+        "unsure about instead of guessing. Answer in the user's language. "
+        "Honor the requested output format: when only code or JSON is requested, omit "
+        "commentary and headings. For code, preserve the exact function signature, include "
+        "required imports, and handle the edge cases stated in the request. Do not claim "
+        "tests passed unless an execution result confirms it."
     )
 
     async def execute(self, ctx: TaskContext, model: ModelProfile, index: int = 0,

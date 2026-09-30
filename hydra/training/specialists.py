@@ -21,6 +21,10 @@ TOKEN = re.compile(r"\w+|[^\w\s]", re.U)
 def _features(text: str, dims: int) -> dict[int, float]:
     toks = [t.lower() for t in TOKEN.findall(text)]
     grams = toks + [f"{a} {b}" for a, b in zip(toks, toks[1:])]
+    # Character n-grams make the specialist robust to human paraphrases,
+    # inflections and spelling variants that do not share exact word tokens.
+    normalized = "  " + " ".join(toks) + "  "
+    grams.extend(normalized[i:i+n] for n in (3, 4, 5) for i in range(len(normalized) - n + 1))
     f: dict[int, float] = {}
     for g in grams:
         idx = _stable(g) % dims
@@ -36,7 +40,7 @@ def _stable(s: str) -> int:
 
 
 class TextClassifier:
-    def __init__(self, labels: list[str], dims: int = 4096) -> None:
+    def __init__(self, labels: list[str], dims: int = 16384) -> None:
         self.labels = labels
         self.dims = dims
         self.W = [[0.0] * dims for _ in labels]
@@ -99,10 +103,18 @@ class TextClassifier:
 
 def _examples(path: Path) -> tuple[list[str], list[str]]:
     X, y = [], []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        r = json.loads(line)
+    if path.suffix == ".parquet":
+        import pyarrow.parquet as pq
+
+        rows = pq.read_table(path).to_pylist()
+        # CorpusStore.write_table encodes nested structures as JSON columns.
+        for row in rows:
+            for key in ("messages", "input", "output"):
+                if isinstance(row.get(key), str):
+                    row[key] = json.loads(row[key])
+    else:
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    for r in rows:
         if "messages" in r:  # sft rows: user -> assistant JSON label
             user = next((m["content"] for m in r["messages"] if m["role"] == "user"), "")
             ans = next((m["content"] for m in r["messages"] if m["role"] == "assistant"), "")

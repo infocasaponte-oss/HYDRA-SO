@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from hydra.runtime.policy import PolicyEngine, ToolPermission
 from hydra.runtime.tools import ToolRegistry, Workspace
+from hydra.runtime.sandbox import OciSandbox
 
 
 @dataclass(frozen=True)
@@ -21,10 +22,14 @@ class ToolRuntime:
         workspace: Workspace,
         registry: ToolRegistry | None = None,
         policy: PolicyEngine | None = None,
+        sandbox: OciSandbox | None = None,
     ):
         self.workspace = workspace
         self.registry = registry or ToolRegistry()
         self.policy = policy or PolicyEngine()
+        self.sandbox = sandbox
+        if sandbox is not None and sandbox.workspace != workspace.root:
+            raise ValueError("sandbox workspace must match tool workspace")
 
     async def run(
         self,
@@ -66,12 +71,11 @@ class ToolRuntime:
             return ToolResult(name, True, "\n".join(hits))
 
         if name == "python.test":
-            # Workspace code must never execute in the HYDRA host process.
-            # CodeAgent owns the OCI-backed execution path; this legacy runtime
-            # fails closed until an isolated executor is wired explicitly.
-            self.workspace.resolve(arguments.get("path", "."))
-            raise RuntimeError(
-                "python.test requires an isolated sandbox; host execution is disabled"
-            )
+            target = self.workspace.resolve(arguments.get("path", "."))
+            if self.sandbox is None:
+                raise RuntimeError("python.test requires an isolated sandbox; host execution is disabled")
+            relative = target.relative_to(self.workspace.root).as_posix()
+            result = await self.sandbox.pytest(relative, read_only=True)
+            return ToolResult(name, result.ok, result.output, result.exit_code)
 
         raise KeyError(name)

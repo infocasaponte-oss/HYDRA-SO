@@ -133,7 +133,8 @@ async def test_training_orchestrator_real_classifier(runtime):
         TrainingRecipe(name="hydra-router-test", base_model="none", method="classifier", dataset_id="rt-ds"),
         DatasetSpec(name="rt-ds", record_types=["routing_decision"], format="raw",
                     splits={"train": 0.8, "validation": 0.2}))
-    assert run.status.value == "READY" and run.metrics["valid_accuracy"] >= 0.9 and run.output_artifacts
+    assert run.status.value == "READY", {"error": run.error, "metrics": run.metrics}
+    assert run.metrics["valid_accuracy"] >= 0.9 and run.output_artifacts
     assert any(e.event_type == "MODEL_TRAINED" for e in runtime.ledger.events())
 
 

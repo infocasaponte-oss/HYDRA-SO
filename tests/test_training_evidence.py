@@ -68,3 +68,18 @@ def test_training_reader_excludes_heterogeneous_verification_metadata(tmp_path):
     rows = list(message_rows(str(tmp_path / "train.jsonl")))
     assert len(rows) == 12
     assert all(set(row) == {"messages"} for row in rows)
+def test_classifier_reads_corpus_parquet_like_jsonl(tmp_path):
+    import json
+    import pytest
+
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    from hydra.training.specialists import _examples
+
+    rows = [{"input": {"query": "clasifica código español"}, "output": {"task_type": "coding"}}]
+    jsonl = tmp_path / "train.jsonl"
+    jsonl.write_text(json.dumps(rows[0], ensure_ascii=False) + "\n", encoding="utf-8")
+    parquet = tmp_path / "train.parquet"
+    pq.write_table(pa.Table.from_pylist([
+        {k: json.dumps(v, ensure_ascii=False) for k, v in row.items()} for row in rows]), parquet)
+    assert _examples(parquet) == _examples(jsonl) == (["clasifica código español"], ["coding"])
