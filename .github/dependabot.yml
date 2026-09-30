@@ -9,10 +9,10 @@ updates:
     labels:
       - "dependencies"
     ignore:
-      # transformers 4.46.x (scripts/requirements-training.txt) requires huggingface-hub<1.0;
-      # drop this rule when transformers is upgraded.
+      # transformers 5.x (scripts/requirements-training.txt) requires huggingface-hub<2.0;
+      # revisit this rule when transformers allows hub 2.x.
       - dependency-name: "huggingface-hub"
-        versions: [">=1.0"]
+        versions: [">=2.0"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

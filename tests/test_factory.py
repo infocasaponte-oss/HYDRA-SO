@@ -101,6 +101,15 @@ def test_gguf_roundtrip(tmp_path):
     assert ins.format == ModelFormat.GGUF and ins.has_chat_template and ins.supports_gguf
 
 
+def test_inspect_hf_reads_transformers5_dtype_key(hf_model):
+    # transformers 5 saves "dtype" in config.json instead of "torch_dtype"
+    cfg = json.loads((hf_model / "config.json").read_text())
+    cfg["dtype"] = "float16"
+    del cfg["torch_dtype"]
+    (hf_model / "config.json").write_text(json.dumps(cfg))
+    assert inspect(hf_model).dtype == "F16"
+
+
 def test_inspect_hf_and_lora(hf_model, tmp_path):
     ins = inspect(hf_model)
     assert ins.format == ModelFormat.SAFETENSORS and ins.architecture == "LlamaForCausalLM"
