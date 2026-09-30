@@ -81,3 +81,27 @@ jobs:
           "$BIN/hydra" run "¿Cuánto es 2+2?" | tee answer.txt
           grep -q "4" answer.txt
           "$BIN/python" -c "import hydra.api.main as m; assert len(m.app.state.runtime_routes) >= 15"
+
+  docker:
+    name: docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build image
+        run: docker build -t hydra-ci .
+
+      - name: Container starts and serves /health
+        run: |
+          docker run -d --name hydra-ci -e HYDRA_OFFLINE=true hydra-ci
+          for i in $(seq 1 30); do
+            if docker exec hydra-ci python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"; then
+              docker exec hydra-ci sh -c 'python --version && docker --version && pip check'
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs hydra-ci
+          exit 1
