@@ -11,7 +11,7 @@ from hydra.router.router import CognitiveRouter
 
 
 def request(**kwargs):
-    return HydraRequest(messages=[Message(role="user", content="borra código en producción")], **kwargs)
+    return HydraRequest(messages=[Message(role="user", content="necesito una consulta de código")], **kwargs)
 
 
 def payload():
@@ -124,3 +124,4 @@ async def test_enabled_bootstrap_owns_client_lifecycle(settings, mock):
     finally:
         await runtime.close()
     assert client.is_closed
+

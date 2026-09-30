@@ -84,7 +84,8 @@ class DecisionObservation(BaseModel):
     model: str
     reason: str | None = None
     elapsed_ms: float = Field(default=0, ge=0)
-    selected: TaskType | None = None
+    # TaskType values plus HYDRA policy outcomes: review | abstain.
+    selected: str | None = None
     probabilities: dict[str, float] = Field(default_factory=dict)
     confidence: float | None = Field(default=None, ge=0, le=1)
 
