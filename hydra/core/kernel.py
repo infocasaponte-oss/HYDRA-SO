@@ -333,12 +333,15 @@ class HydraKernel:
                 ctx.budget.steps += 1
                 try:
                     chosen, judged = await self._execute_plan(ctx, plan)
-                except GenerationFailed as exc:
-                    if best is not None:  # a later attempt failed: keep the best verified answer
+                except (GenerationFailed, BudgetExceeded) as exc:
+                    # a later attempt (escalation) failed or ran out of budget: keep the best verified answer
+                    if best is not None:
                         await ctx.emit(EventType.RETRY_DECIDED, "kernel", {
                             "action": "keep_previous_best", "error": str(exc)[:300]})
                         await ctx.status(TaskStatus.VERIFYING)
                         break
+                    if isinstance(exc, BudgetExceeded):
+                        raise
                     plan = await self._recover(ctx, plan, exc)
                     continue
 

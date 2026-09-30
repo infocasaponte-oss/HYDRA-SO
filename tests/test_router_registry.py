@@ -119,3 +119,41 @@ def test_failed_health_probe_expires_so_the_provider_is_retried(monkeypatch):
     assert not registry.provider_healthy("ollama")
     now[0] += ModelRegistry.PROVIDER_HEALTH_TTL_S + 1
     assert registry.provider_healthy("ollama")
+
+
+def test_models_not_installed_in_the_runtime_are_excluded(monkeypatch):
+    # live failure: hydra-vision pointed at gemma4:26b, never pulled, and escalations timed out on it
+    from hydra.providers.ollama import ollama_model_key
+    from hydra.registry.registry import refresh_installed_models
+
+    registry = ModelRegistry([model("coder", provider="ollama", runtime_model="qwen2.5-coder:7b"),
+                              model("hydra", provider="ollama", runtime_model="hydra-q5"),
+                              model("vision", provider="ollama", runtime_model="gemma4:26b"),
+                              model("other", provider="mock")])
+
+    class FakeOllama:
+        async def installed_models(self):
+            return {ollama_model_key("qwen2.5-coder:7b"), ollama_model_key("hydra-q5:latest")}
+
+    now = [1000.0]
+    monkeypatch.setattr("hydra.registry.registry.time.monotonic", lambda: now[0])
+    missing = asyncio.run(refresh_installed_models(registry, {"ollama": FakeOllama(), "mock": object()}))
+    assert missing == {"ollama": ["vision"]}
+    assert {m.id for m in registry.available()} == {"coder", "hydra", "other"}  # untagged == :latest
+    now[0] += ModelRegistry.PROVIDER_HEALTH_TTL_S + 1  # stale mark: retried, e.g. after `ollama pull`
+    assert "vision" in {m.id for m in registry.available()}
+
+
+def test_ollama_provider_lists_installed_models():
+    import httpx
+
+    from hydra.providers.ollama import OllamaProvider
+
+    tags = {"models": [{"name": "qwen3:8b", "model": "qwen3:8b"}, {"name": "hydra-q5-v2:latest"}]}
+    provider = OllamaProvider("http://ollama")
+    provider.client = httpx.AsyncClient(base_url="http://ollama", transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json=tags)))
+    assert asyncio.run(provider.installed_models()) == {"qwen3:8b", "hydra-q5-v2:latest"}
+    provider.client = httpx.AsyncClient(base_url="http://ollama", transport=httpx.MockTransport(
+        lambda request: httpx.Response(500)))
+    assert asyncio.run(provider.installed_models()) is None  # unknown, never "nothing installed"

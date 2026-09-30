@@ -14,6 +14,11 @@ from hydra.core.errors import ErrorKind, ModelError
 from hydra.providers.base import ModelProvider, http_error
 
 
+def ollama_model_key(name: str) -> str:
+    """Ollama treats an untagged model name as name:latest."""
+    return name if ":" in name else f"{name}:latest"
+
+
 class OllamaProvider(ModelProvider):
     def __init__(self, base_url: str = "http://localhost:11434", timeout_s: float = 120) -> None:
         self.client = httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout_s)
@@ -100,6 +105,15 @@ class OllamaProvider(ModelProvider):
             return r.status_code == 200
         except Exception:
             return False
+
+    async def installed_models(self) -> set[str] | None:
+        """Models present in this Ollama instance (normalised to name:tag); None if unreachable."""
+        try:
+            r = await self.client.get("/api/tags", timeout=5)
+            r.raise_for_status()
+            return {ollama_model_key(m.get("name") or m.get("model", "")) for m in r.json().get("models", [])}
+        except Exception:
+            return None
 
     async def close(self) -> None:
         await self.client.aclose()
