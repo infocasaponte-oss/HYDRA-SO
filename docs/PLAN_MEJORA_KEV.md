@@ -40,6 +40,11 @@ calibración o de la configuración. El test queda bloqueado antes de tocar peso
 
 ## Fase 1 — Corpus HYDRA de decisiones (3–5 días)
 
+Resultado de la primera ejecución v3: las 1.200 solicitudes se procesaron sin
+errores, pero la cabeza Kev solo devolvió etiquetas compatibles en 600/1.000
+casos de test. La siguiente iteración debe ampliar el contrato y las etiquetas
+antes de interpretar la cobertura como calidad.
+
 Crear 2.000 ejemplos admitidos antes de entrenar: 1.200 casos normales, 400
 difíciles/ambiguos y 400 OOD/abstención. Para cada ejemplo guardar texto, etiqueta
 correcta, opciones en dos órdenes, severidad, idioma, procedencia, permiso de
