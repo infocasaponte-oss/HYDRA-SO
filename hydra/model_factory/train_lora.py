@@ -80,8 +80,8 @@ def train(cfg_path: str) -> None:
         messages = example["messages"]
         if messages[-1]["role"] != "assistant":
             raise ValueError("SFT examples must end with an assistant answer")
-        prompt = tok.apply_chat_template(messages[:-1], tokenize=True, add_generation_prompt=True)
-        ids = tok.apply_chat_template(messages, tokenize=True)[:job["max_seq_length"]]
+        prompt = tok.apply_chat_template(messages[:-1], tokenize=True, add_generation_prompt=True, return_dict=False)
+        ids = tok.apply_chat_template(messages, tokenize=True, return_dict=False)[:job["max_seq_length"]]
         if len(prompt) >= len(ids):
             raise ValueError("sequence length truncates the entire assistant answer")
         return {"input_ids": ids, "attention_mask": [1] * len(ids),
