@@ -13,7 +13,7 @@
     "tool_use",
     "vision"
   ],
-  "train_accuracy": 1.0,
+  "train_accuracy": 0.9988,
   "sources": [
     "data\\decision-corpus-v3\\train.jsonl",
     "data\\human-dev-v1.jsonl"
