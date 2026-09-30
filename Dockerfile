@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 FROM docker:29-cli AS dockercli
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 LABEL org.opencontainers.image.title="HYDRA Cognitive Engine" \
       org.opencontainers.image.authors="Luis Manuel Cousido Hermida" \
