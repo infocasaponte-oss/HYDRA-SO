@@ -53,6 +53,11 @@ async def public_get(url: str) -> dict:
         raise ValueError("Too many redirects")
 
 
+def _is_host(hostname: str | None, domain: str) -> bool:
+    """Exact domain or a real subdomain of it (not evil-duckduckgo.com)."""
+    return bool(hostname) and (hostname == domain or hostname.endswith("." + domain))
+
+
 class Page(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -114,7 +119,7 @@ async def search(query: str, engine="brave", limit=5) -> dict:
                 params = parse_qs(parsed.query)
                 if parsed.hostname in ("www.google.com", "google.com") and parsed.path == "/url":
                     link = params.get("q", params.get("url", [link]))[0]
-                elif parsed.hostname and parsed.hostname.endswith("duckduckgo.com") and "uddg" in params:
+                elif _is_host(parsed.hostname, "duckduckgo.com") and "uddg" in params:
                     link = params["uddg"][0]
                 parsed = urlsplit(link)
                 hostname = parsed.hostname or ""

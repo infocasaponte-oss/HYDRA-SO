@@ -74,3 +74,10 @@ async def test_search_fallback_unwraps_links_and_reports_challenges(monkeypatch)
     result = await public_web.search("test")
     assert result["engine"] == "duckduckgo" and result["paid_api_used"] is False
     assert result["results"] == [{"title": "Official source", "url": "https://example.com/doc"}]
+
+
+def test_redirect_unwrapping_only_trusts_the_real_duckduckgo_domain():
+    from hydra.tools.public_web import _is_host
+    assert _is_host("duckduckgo.com", "duckduckgo.com") and _is_host("html.duckduckgo.com", "duckduckgo.com")
+    assert not _is_host("evilduckduckgo.com", "duckduckgo.com")
+    assert not _is_host("duckduckgo.com.attacker.net", "duckduckgo.com") and not _is_host(None, "duckduckgo.com")
