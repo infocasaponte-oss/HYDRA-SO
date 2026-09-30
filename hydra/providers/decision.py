@@ -9,6 +9,31 @@ from urllib.parse import urlparse
 import httpx
 
 
+def canonicalize_questions(questions: dict) -> tuple[dict, dict[str, list[str]]]:
+    """Sort choice labels sent to the model and remember each caller's order."""
+    canonical: dict = {}
+    orders: dict[str, list[str]] = {}
+    for key, question in questions.items():
+        copied = dict(question)
+        if question.get("type") == "choice":
+            labels = list(question["criteria"])
+            orders[key] = labels
+            copied["criteria"] = {label: question["criteria"][label] for label in sorted(labels)}
+        canonical[key] = copied
+    return canonical, orders
+
+
+def restore_choice_order(payload: dict, orders: dict[str, list[str]]) -> dict:
+    """Remap probability dictionaries to the exact order supplied by the caller."""
+    result = dict(payload)
+    answers = {key: dict(value) for key, value in payload.get("answers", {}).items()}
+    for key, labels in orders.items():
+        if key in answers and "probabilities" in answers[key]:
+            answers[key]["probabilities"] = {label: answers[key]["probabilities"][label] for label in labels}
+    result["answers"] = answers
+    return result
+
+
 def probability(value) -> float:
     if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
         raise ValueError("invalid probability")
@@ -88,13 +113,14 @@ class LocalSystemOneProvider:
 
     async def decide(self, state: str | dict | list, questions: dict) -> dict:
         validate_questions(questions)
+        wire_questions, orders = canonicalize_questions(questions)
         response = await self.client.post("/v1/systemone", json={
-            "state": state, "model": self.model, "questions": questions})
+            "state": state, "model": self.model, "questions": wire_questions})
         response.raise_for_status()
         payload = response.json()
         if payload.get("model") != self.model:
             raise ValueError("decision model alias mismatch")
-        return validate_answers(questions, payload)
+        return validate_answers(questions, restore_choice_order(payload, orders))
 
     async def close(self) -> None:
         await self.client.aclose()

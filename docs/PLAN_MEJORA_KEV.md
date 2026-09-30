@@ -56,6 +56,13 @@ errores. No usar las trazas reales del test para corregir el entrenamiento.
 
 ## Fase 2 — Calibración sin modificar Kev (1–2 días)
 
+Implementado en esta iteración: `TemperatureCalibrator` aplica temperatura como
+artefacto externo y `fit_temperature` selecciona por NLL únicamente sobre filas
+de calibración. El observador puede recibir ese calibrador sin cambiar los pesos.
+El artefacto exige el hash del dataset de calibración y conserva la distribución
+original para auditoría. Aún no se ha aplicado al resultado real de Kev; primero
+hay que ajustar con el corpus v3 ampliado y medir el test congelado.
+
 Usar solo la partición de calibración para ajustar temperatura por clase o una
 calibración isotónica/Platt sobre las probabilidades de Kev. Guardar el calibrador
 como artefacto separado con hash y versión; no reescribir las probabilidades
@@ -72,6 +79,12 @@ las reglas. Las clases `tool_use`, seguridad y privacidad requieren un umbral m�
 alto y verificación independiente.
 
 ## Fase 3 — Invarianza y configuración (2–3 días)
+
+Implementado en esta iteración: el cliente ordena de forma determinista las
+opciones `choice` antes de enviarlas y remapea las probabilidades a la orden del
+contrato al volver. Las respuestas siguen pasando la validación exacta. Esto
+elimina una fuente de variación del protocolo; no oculta una variación interna
+del modelo, que se seguirá midiendo con pares permutados.
 
 Ejecutar una matriz A/B con semilla, temperatura, `KEV_PREFIX_CACHE`, tamaño de
 lote, contexto máximo, orden de opciones y `KEV_CUDA_GRAPHS`. Medir cada cambio

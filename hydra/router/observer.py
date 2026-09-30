@@ -7,14 +7,17 @@ import time
 
 from hydra.core.contracts import DecisionObservation, ExecutionMode, HydraRequest, TaskType
 from hydra.providers.decision import LocalSystemOneProvider, validate_answers
+from hydra.training.calibrator import TemperatureCalibrator
 
 
 class DecisionObserver:
-    def __init__(self, provider: LocalSystemOneProvider, timeout_s: float = 0.5):
+    def __init__(self, provider: LocalSystemOneProvider, timeout_s: float = 0.5,
+                 calibrator: TemperatureCalibrator | None = None):
         if not 0 < timeout_s <= 5:
             raise ValueError("observation timeout must be in (0, 5]")
         self.provider = provider
         self.timeout_s = timeout_s
+        self.calibrator = calibrator
 
     async def observe(self, request: HydraRequest) -> DecisionObservation:
         base = {"model": self.provider.model}
@@ -32,6 +35,8 @@ class DecisionObserver:
             if payload.get("model") != self.provider.model:
                 raise ValueError("model alias mismatch")
             answer = validate_answers(questions, payload)["answers"]["task"]
+            if self.calibrator is not None:
+                answer = self.calibrator.apply(answer)
             return DecisionObservation(
                 status="observed", selected=answer["choice"],
                 probabilities=answer["probabilities"], confidence=answer["confidence"],
