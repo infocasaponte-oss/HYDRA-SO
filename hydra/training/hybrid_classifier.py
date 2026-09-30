@@ -16,15 +16,15 @@ class HybridDecision:
 
 
 _ABSTAIN = (r"\b(resuelve esto|decide esto|hazlo|aprueba esto)\b", r"sin contexto", r"no aparece")
-_HIGH_RISK = (r"pago urgente", r"ejecut(ar|a) .*m[eé]dic", r"cerr(a|ar) .*cuenta", r"cambia(r)? .*firewall", r"concede .*acceso")
+_HIGH_RISK = (r"pago urgente", r"ejecut(ar|a) .*m[eé]dic", r"cerr(a|ar) .*cuenta", r"cambia(r)? .*firewall", r"concede .*acceso", r"acceso solicitado", r"autorizaci[oó]n", r"irreversible", r"elimina(r)? .*registros")
 _PRIVACY = (r"historial", r"direcci[oó]n de correo", r"grabaci[oó]n", r"datos personales", r"tercero")
-_SECURITY = (r"contrase[nñ]a", r"fraude", r"carga maliciosa", r"enviar archivos fuera", r"malware", r"vulnerabilidad")
-_CODING = (r"consulta sql", r"expresi[oó]n regular", r"parametriz")
-_REASONING = (r"problema matem[aá]tico", r"demuestra", r"razona")
-_RESEARCH = (r"investiga", r"fuentes", r"documentaci[oó]n")
-_TOOL = (r"ejecuta", r"comando", r"archivos del proyecto")
-_VISION = (r"imagen", r"fotograf[ií]a", r"documento visual")
-_CHAT = (r"saluda", r"felicit", r"conversaci[oó]n")
+_SECURITY = (r"contrase[nñ]a", r"fraude", r"carga maliciosa", r"enviar archivos fuera", r"malware", r"vulnerabilidad", r"suplanta", r"escalada")
+_CODING = (r"consulta sql", r"expresi[oó]n regular", r"parametriz", r"c[oó]digo", r"funci[oó]n")
+_REASONING = (r"problema matem[aá]tico", r"demuestra", r"razona", r"fracciones", r"interruptores", r"hip[oó]tesis", r"cu[aá]ntos", r"combinaciones")
+_RESEARCH = (r"investiga", r"fuentes", r"documentaci[oó]n", r"protocolo", r"evidencia", r"comparaci[oó]n documentada")
+_TOOL = (r"ejecuta", r"comando", r"archivos del proyecto", r"lista los archivos", r"versi[oó]n instalada", r"versi[oó]n .*python")
+_VISION = (r"imagen", r"fotograf[ií]a", r"documento visual", r"girad", r"captura")
+_CHAT = (r"saluda", r"felicit", r"conversaci[oó]n", r"romper el hielo", r"dedicatoria")
 
 
 def _hit(patterns: tuple[str, ...], text: str) -> bool:
