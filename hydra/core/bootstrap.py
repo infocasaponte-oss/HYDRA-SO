@@ -4,6 +4,7 @@ everything runs in memory; with ``offline`` no model runtime is needed."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -308,7 +309,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     # Probe providers before the first routing decision. Registry configuration remains
     # intact; only the runtime availability view is updated.
     if not settings.offline and "registry" not in overrides:
-        health = await __import__("asyncio").gather(
+        health = await asyncio.gather(
             *(provider.health() for provider in providers.values()),
             return_exceptions=True,
         )
