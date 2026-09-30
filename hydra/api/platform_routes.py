@@ -458,7 +458,12 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     async def dataset_build(spec: dict, request: Request):
         from hydra.corpus.factory import DatasetSpec
 
-        return rt(request).datasets.build(DatasetSpec.model_validate(spec)).model_dump(mode="json")
+        try:
+            return rt(request).datasets.build(DatasetSpec.model_validate(spec)).model_dump(mode="json")
+        except FileExistsError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/hydra/v1/datasets", dependencies=secured)
     async def datasets(request: Request):

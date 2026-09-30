@@ -7,6 +7,8 @@ import asyncio
 import os
 import shutil
 import sys
+import signal
+import subprocess
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -32,20 +34,62 @@ class CommandRunner:
 
     async def run(self, cmd: list[str], cwd: Path | None = None, timeout: float = 24 * 3600,
                   stdin: bytes | None = None) -> CommandResult:
+        async def tail(stream, limit):
+            data = bytearray()
+            while chunk := await stream.read(8192):
+                data.extend(chunk)
+                if len(data) > limit:
+                    del data[:-limit]
+            return bytes(data).decode(errors="replace")
+
+        async def terminate_tree():
+            if os.name == "nt":
+                killer = await asyncio.create_subprocess_exec(
+                    "taskkill", "/PID", str(proc.pid), "/T", "/F",
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+                await killer.wait()
+            else:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if proc.returncode is None:
+                proc.kill()
+            await proc.wait()
+
         proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=str(cwd) if cwd else None,
+            **({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+               else {"start_new_session": True}),
             stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        readers = [asyncio.create_task(tail(proc.stdout, 50000)),
+                   asyncio.create_task(tail(proc.stderr, 20000))]
+        async def communicate():
+            if stdin is not None:
+                try:
+                    proc.stdin.write(stdin)
+                    await proc.stdin.drain()
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                finally:
+                    proc.stdin.close()
+            await proc.wait()
+            return await asyncio.gather(*readers)
         try:
-            out, err = await asyncio.wait_for(proc.communicate(stdin), timeout=timeout)
+            out, err = await asyncio.wait_for(communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            proc.kill()
-            out, err = await proc.communicate()
-            return CommandResult(cmd=cmd, returncode=-9, stdout=out.decode(errors="replace")[-20000:],
-                                 stderr="timeout\n" + err.decode(errors="replace")[-20000:])
+            await terminate_tree()
+            await asyncio.gather(*readers, return_exceptions=True)
+            return CommandResult(cmd=cmd, returncode=-9, stdout="", stderr="timeout")
+        except asyncio.CancelledError:
+            await terminate_tree()
+            for reader in readers:
+                reader.cancel()
+            await asyncio.gather(*readers, return_exceptions=True)
+            raise
         return CommandResult(cmd=cmd, returncode=proc.returncode or 0,
-                             stdout=out.decode(errors="replace")[-50000:],
-                             stderr=err.decode(errors="replace")[-20000:])
+                             stdout=out, stderr=err)
 
 
 class ToolLocator:

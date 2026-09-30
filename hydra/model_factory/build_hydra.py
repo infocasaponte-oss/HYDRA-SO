@@ -42,6 +42,9 @@ def validate_inputs(recipe: dict) -> dict:
         filename = f"{split}.jsonl"
         if sha256(corpus/filename) != manifest["files"][filename]["sha256"]:
             raise ValueError(f"dataset hash mismatch: {filename}")
+    if "calibration.jsonl" in manifest["files"]:
+        if sha256(corpus/"calibration.jsonl") != manifest["files"]["calibration.jsonl"]["sha256"]:
+            raise ValueError("dataset hash mismatch: calibration.jsonl")
     return {"base_sha256": base_hash, "dataset": manifest,
             "recipe": recipe, "quantizer_sha256": sha256(Path(recipe["quantizer"])),
             "converter_sha256": sha256(Path(recipe["llamacpp"])/"convert_hf_to_gguf.py"),
@@ -91,9 +94,12 @@ def build(recipe_path: Path) -> Path:
                           str(root/"merged"),"--outfile",str(root/"HYDRA-f16.gguf"),"--outtype","f16"],
               [root/"HYDRA-f16.gguf"])
         target = root/"HYDRA.gguf"
-        stage("quantize", [recipe["quantizer"],str(root/"HYDRA-f16.gguf"),str(target),"Q4_K_M"], [target])
+        quantization = recipe.get("quantization", "Q4_K_M")
+        if quantization not in {"Q4_K_M", "Q5_K_M", "Q8_0"}:
+            raise ValueError("unsupported candidate quantization")
+        stage("quantize", [recipe["quantizer"],str(root/"HYDRA-f16.gguf"),str(target),quantization], [target])
         info = read_gguf(target)
-        if not info.tensors or info.file_type != "Q4_K_M":
+        if not info.tensors or info.file_type != quantization:
             raise ValueError("invalid or unexpected GGUF output")
         old.update(status="CANDIDATE_REQUIRES_EVALUATION", approved=False,
                    artifact=str(target), sha256=sha256(target), architecture=info.architecture)

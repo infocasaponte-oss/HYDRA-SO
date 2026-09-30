@@ -58,7 +58,9 @@ def train(cfg_path: str) -> None:
         tok.pad_token = tok.eos_token
 
     bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    kwargs: dict = {"dtype": torch.bfloat16 if bf16 else torch.float32}
+    if job.get("require_gpu") and not torch.cuda.is_available():
+        raise RuntimeError("this training job requires CUDA")
+    kwargs: dict = {"torch_dtype": torch.bfloat16 if bf16 else torch.float16 if torch.cuda.is_available() else torch.float32}
     if job["method"] == "qlora":
         from transformers import BitsAndBytesConfig  # type: ignore
 
@@ -102,11 +104,15 @@ def train(cfg_path: str) -> None:
                                per_device_train_batch_size=job["batch_size"],
                                gradient_accumulation_steps=job["gradient_accumulation"],
                                learning_rate=job["learning_rate"], logging_steps=10, save_strategy="epoch",
-                               bf16=bf16, seed=job["seed"], gradient_checkpointing=True,
+                               bf16=bf16, fp16=torch.cuda.is_available() and not bf16,
+                               seed=job["seed"], gradient_checkpointing=True,
                                report_to=[]),
     )
     result = trainer.train()
     metrics = dict(result.metrics)
+    metrics.update(device="cuda" if torch.cuda.is_available() else "cpu",
+                   gpu_name=torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+                   peak_allocated_bytes=torch.cuda.max_memory_allocated() if torch.cuda.is_available() else 0)
     if valid is not None:
         metrics.update(trainer.evaluate())
     Path(job["output_dir"]).mkdir(parents=True, exist_ok=True)
@@ -120,7 +126,7 @@ def merge(base: str, adapter: str, output: str) -> None:
     from peft import PeftModel  # type: ignore
     from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 
-    model = AutoModelForCausalLM.from_pretrained(base, dtype=torch.bfloat16)
+    model = AutoModelForCausalLM.from_pretrained(base, torch_dtype=torch.bfloat16)
     model = PeftModel.from_pretrained(model, adapter).merge_and_unload()
     model.save_pretrained(output, safe_serialization=True)
     AutoTokenizer.from_pretrained(base).save_pretrained(output)
