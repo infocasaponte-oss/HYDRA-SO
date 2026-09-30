@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     decision_shadow_endpoint: str = ""
     decision_shadow_model: str = "kev-latest"
     decision_shadow_timeout_s: float = Field(default=0.5, gt=0, le=5)
+    decision_calibrator_path: Path | None = None
     # Embeddings: "hashing" (local, no model) | "vllm" | "ollama" (e.g. nomic-embed-text).
     embedding_provider: str = "hashing"
     embedding_model: str = ""

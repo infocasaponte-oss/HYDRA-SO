@@ -19,3 +19,9 @@ Para sustituir la compuerta por una cabeza Kev v2 se necesitan datos verificados
 test independiente y los umbrales de [PLAN_MEJORA_KEV.md](PLAN_MEJORA_KEV.md).
 
 Validación: 19 pruebas del gate, observador y canonicalización; Ruff correcto.
+
+El calibrador separado ya puede cargarse desde `HYDRA_DECISION_CALIBRATOR_PATH`
+(`Settings.decision_calibrator_path`). El runtime valida el formato y exige que
+el manifiesto incluya el hash del dataset de calibración antes de usarlo. Sus
+probabilidades solo enriquecen la observación; la ruta efectiva y la política
+siguen siendo deterministas.

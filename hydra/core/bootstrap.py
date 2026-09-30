@@ -36,6 +36,7 @@ from hydra.router.learned import LearnedRoutingPolicy
 from hydra.router.router import CognitiveRouter
 from hydra.router.observer import DecisionObserver
 from hydra.providers.decision import LocalSystemOneProvider
+from hydra.training.calibrator import TemperatureCalibrator
 from hydra.scheduler.invoker import ModelInvoker
 from hydra.scheduler.planner import Planner
 from hydra.simulation.engine import Simulator
@@ -327,9 +328,12 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         log.debug("no telemetry to fit the learned router yet")
     observer = None
     if settings.decision_shadow_endpoint and not settings.offline:
+        calibrator = (TemperatureCalibrator.load(settings.decision_calibrator_path)
+                      if settings.decision_calibrator_path else None)
         observer = DecisionObserver(LocalSystemOneProvider(
             endpoint=settings.decision_shadow_endpoint, model=settings.decision_shadow_model,
-            timeout=settings.decision_shadow_timeout_s), settings.decision_shadow_timeout_s)
+            timeout=settings.decision_shadow_timeout_s), settings.decision_shadow_timeout_s,
+            calibrator=calibrator)
     kernel = HydraKernel(
         router=CognitiveRouter(classifier, classifier_model, observer=observer),
         registry=registry,
