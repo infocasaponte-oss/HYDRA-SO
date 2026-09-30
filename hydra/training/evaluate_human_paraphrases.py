@@ -14,11 +14,12 @@ from hydra.training.human_paraphrase_eval import build
 from hydra.training.specialists import TextClassifier
 
 
-async def evaluate(output: Path = Path("data/evaluations/human-paraphrase-v1.json")) -> dict:
+async def evaluate(output: Path = Path("data/evaluations/human-paraphrase-v1.json"),
+                   classifier_path: Path = Path("models/hydra-decision-v2/classifier.json")) -> dict:
     source = Path("data/human-paraphrase-v1.jsonl")
     manifest = build(source)
     rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines()]
-    classifier = TextClassifier.load(Path("models/hydra-decision-v2/classifier.json"))
+    classifier = TextClassifier.load(classifier_path)
     head_rows = []
     for row in rows:
         probabilities = classifier.predict_proba(row["text"])

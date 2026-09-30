@@ -10,8 +10,13 @@ from hydra.training.decision_metrics import metrics
 from hydra.training.specialists import TextClassifier, _examples
 
 
-def train(corpus: Path = Path("data/decision-corpus-v3"), output: Path = Path("models/hydra-decision-v2")) -> dict:
+def train(corpus: Path = Path("data/decision-corpus-v3"), output: Path = Path("models/hydra-decision-v2"),
+          human_dev: Path | None = Path("data/human-dev-v1.jsonl")) -> dict:
     X, y = _examples(corpus / "train.jsonl")
+    if human_dev is not None and human_dev.exists():
+        human_rows = [json.loads(line) for line in human_dev.read_text(encoding="utf-8").splitlines()]
+        X.extend(row["text"] for row in human_rows if row.get("training_allowed") is True)
+        y.extend(row["expected"] for row in human_rows if row.get("training_allowed") is True)
     classifier = TextClassifier(sorted(set(y)), dims=4096)
     classifier.fit(X, y, epochs=16, lr=0.5, seed=42)
     output.mkdir(parents=True, exist_ok=True)
@@ -22,7 +27,7 @@ def train(corpus: Path = Path("data/decision-corpus-v3"), output: Path = Path("m
     manifest = {"format": "hydra-decision-v2/1", "backend": "hydra-text-classifier",
                 "labels": classifier.labels, "train_examples": len(X), "seed": 42,
                 "calibration_temperature": temperature,
-                "training_corpus": str(corpus / "train.jsonl"),
+                "training_corpus": [str(corpus / "train.jsonl"), str(human_dev) if human_dev else None],
                 "test_corpus": str(corpus / "test.jsonl"),
                 "limitations": "Synthetic corpus; candidate head, not Kev checkpoint."}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
