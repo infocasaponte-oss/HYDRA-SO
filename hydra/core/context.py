@@ -30,6 +30,8 @@ class TaskContext:
     ranked: list[ModelProfile] = field(default_factory=list)
     tool_ctx: ToolContext | None = None
     memory_lines: list[str] = field(default_factory=list)
+    web_context: list[str] = field(default_factory=list)
+    web_sources: list[str] = field(default_factory=list)
     knowledge_coverage: float | None = None
 
     state: BlackboardState = field(default_factory=BlackboardState)

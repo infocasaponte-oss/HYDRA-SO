@@ -48,9 +48,25 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
     <div id="chatlog" class="chatlog" aria-live="polite"></div>
     <div class="chatbar">
       <textarea id="cq" rows="2" placeholder="Escribe un mensaje… (Enter envía, Mayús+Enter salto de línea)"></textarea>
+      <input id="cimage" type="file" accept="image/png,image/jpeg,image/webp" title="Adjuntar imagen (máximo 8 MB)">
       <select id="cmode" title="Modo de ejecución"><option value="balanced">hydra</option><option value="fast">hydra-fast</option><option value="deep">hydra-deep</option><option value="max">hydra-max</option><option value="private">hydra-private</option></select>
       <button class="act" id="csend" onclick="chatSend()">Enviar</button>
       <button class="act" style="background:var(--muted)" onclick="chatReset()">Nueva conversación</button>
+    </div>
+  </div>
+</section>
+<section class="view" id="v-web">
+  <div class="grid">
+    <div class="card"><h3>Buscar en la web</h3>
+      <input id="webq" placeholder="Qué quieres buscar">
+      <select id="webengine"><option value="brave">Brave</option><option value="google">Google</option><option value="bing">Bing</option><option value="duckduckgo">DuckDuckGo</option></select>
+      <button class="act" onclick="webSearch()">Buscar sin API de pago</button>
+      <div id="weburls"></div><pre id="webresults"></pre>
+    </div>
+    <div class="card"><h3>Leer una URL</h3>
+      <input id="weburl" type="url" placeholder="https://...">
+      <button class="act" onclick="webRead()">Leer página</button>
+      <pre id="webpage"></pre>
     </div>
   </div>
 </section>
@@ -86,7 +102,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <section class="view" id="v-corpus">
   <div class="grid">
     <div class="card"><h3>Salud del corpus</h3><pre id="cstats"></pre></div>
-    <div class="card"><h3>Buscar</h3><input id="cq" placeholder="texto"><button class="act" onclick="corpusSearch()">Buscar</button><pre id="cres"></pre></div>
+    <div class="card"><h3>Buscar</h3><input id="corpus-query" placeholder="texto"><button class="act" onclick="corpusSearch()">Buscar</button><pre id="cres"></pre></div>
     <div class="card"><h3>Construir dataset</h3>
       <div class="row"><input id="dsn" value="studio-sft"><select id="dsf"><option>sft</option><option>dpo</option><option>tool</option><option>process</option><option>planner</option><option>value</option><option>embedding</option></select></div>
       <button class="act" onclick="buildDataset()">Construir</button><pre id="dsres"></pre></div>
@@ -128,7 +144,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 </section>
 </main>
 <script>
-const views=[["chat","Chat"],["tasks","Tareas"],["world","World Graph"],["models","Modelos"],["corpus","Corpus"],["training","Training"],["infra","Infraestructura"],["ip","IP y Licencias"],["system","Sistema"]];
+const views=[["chat","Chat"],["web","Web"],["tasks","Tareas"],["world","World Graph"],["models","Modelos"],["corpus","Corpus"],["training","Training"],["infra","Infraestructura"],["ip","IP y Licencias"],["system","Sistema"]];
 const $=id=>document.getElementById(id);
 const store={get(k){try{return localStorage.getItem(k)||""}catch(e){return ""}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
 $("key").value=store.get("hydra_key");$("key").onchange=e=>store.set("hydra_key",e.target.value);
@@ -186,10 +202,12 @@ function chatRender(pending){const log=$("chatlog");
   chat.map(m=>`<div class="msg ${m.role}">${esc(m.content)}${m.meta?`<span class="meta">${esc(m.meta)}</span>`:""}</div>`).join("")+
   (pending?`<div class="msg assistant pending" id="cpend">${esc(pending)}</div>`:"");
  log.scrollTop=log.scrollHeight}
-async function chatSend(){const q=$("cq").value.trim();if(!q||chatBusy)return;
+async function chatSend(){const image=$("cimage").files[0];const q=$("cq").value.trim()||(image?"Describe la imagen adjunta.":"");if(!q||chatBusy)return;
+ if(image&&(!["image/png","image/jpeg","image/webp"].includes(image.type)||image.size>8*1024*1024)){alert("Adjunta una imagen PNG, JPEG o WebP de hasta 8 MB.");return}
  chatBusy=true;$("csend").disabled=true;$("cq").value="";
  chat=chat.filter(m=>m.role!=="error");chat.push({role:"user",content:q});chatSave();chatRender("pensando…");
  try{const history=chat.slice(-CHAT_WINDOW).map(m=>({role:m.role,content:m.content}));
+  if(image){const uri=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("No se pudo leer la imagen"));reader.readAsDataURL(image)});history[history.length-1].images=[uri];$("cimage").value=""}
   const d=await hydraStream(history,$("cmode").value,ev=>{const p=$("cpend");if(p)p.textContent=`${ev.type} · ${ev.source}…`});
   chat.push({role:"assistant",content:d.answer,meta:metaText(d.meta)})}
  catch(e){chat.push({role:"error",content:"Error: "+e.message})}
@@ -199,8 +217,10 @@ $("cq").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isCom
 $("cmode").value=store.get("hydra_chat_mode")||"balanced";$("cmode").onchange=e=>store.set("hydra_chat_mode",e.target.value);
 chatRender();
 async function worldQuery(){show("wres",await api("/hydra/v1/world/query",{method:"POST",body:JSON.stringify({query:$("wq").value})}))}
+async function webSearch(){show("webresults","Buscando…");$("weburls").replaceChildren();try{const r=await api("/hydra/v1/web/search",{method:"POST",body:JSON.stringify({query:$("webq").value,engine:$("webengine").value})});show("webresults",r);for(const [name,url] of Object.entries(r.search_urls||{})){const a=document.createElement("a");a.textContent="Abrir "+name+" ";a.href=url;a.target="_blank";a.rel="noopener noreferrer";$("weburls").append(a)}}catch(e){show("webresults",e.message)}}
+async function webRead(){show("webpage","Leyendo…");try{show("webpage",await api("/hydra/v1/web/read",{method:"POST",body:JSON.stringify({url:$("weburl").value})}))}catch(e){show("webpage",e.message)}}
 async function resolveCap(){show("capres",await api("/hydra/v1/models/resolve",{method:"POST",body:JSON.stringify({capability:$("cap").value,constraints:{local_only:$("loc").checked}})}))}
-async function corpusSearch(){show("cres",(await api("/hydra/v1/corpus/query",{method:"POST",body:JSON.stringify({text:$("cq").value,limit:20})})).map(r=>({id:r.id,type:r.record_type,status:r.training_status,quality:r.quality,input:r.input})))}
+async function corpusSearch(){show("cres",(await api("/hydra/v1/corpus/query",{method:"POST",body:JSON.stringify({text:$("corpus-query").value,limit:20})})).map(r=>({id:r.id,type:r.record_type,status:r.training_status,quality:r.quality,input:r.input})))}
 async function buildDataset(){try{show("dsres",await api("/hydra/v1/datasets/build",{method:"POST",body:JSON.stringify({name:$("dsn").value,format:$("dsf").value})}))}catch(e){show("dsres",e.message)}}
 async function buildRelease(){try{show("relres",await api("/hydra/v1/releases/build",{method:"POST",body:JSON.stringify({name:$("rel").value})}))}catch(e){show("relres",e.message)}}
 async function bom(){const b=await api("/hydra/v1/bom");show("bomres",{specVersion:b.specVersion,components:b.components.length,serial:b.serialNumber})}

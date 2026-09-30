@@ -48,6 +48,10 @@ PRESETS: dict[ExecutionMode, CognitiveBudget] = {
 def budget_for(request: HydraRequest, time_scale: float = 1.0) -> CognitiveBudget:
     """``time_scale`` stretches wall-clock budgets (e.g. local hardware with cold model loads)."""
     budget = PRESETS[request.mode].model_copy()
+    # A visual task needs perception followed by the answer. FAST's one-call
+    # text preset otherwise consumes its entire allowance before answering.
+    if request.images and request.mode == ExecutionMode.FAST:
+        budget.max_model_calls = 2
     budget.max_seconds *= time_scale
     if request.max_cost is not None:
         budget.max_cost = request.max_cost

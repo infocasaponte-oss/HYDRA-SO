@@ -66,7 +66,7 @@ class DeterministicSolvers:
 
     def solve(self, text: str) -> SolverResult | None:
         t0 = time.perf_counter()
-        for fn in (self._percent, self._arith, self._equation, self._derivative, self._json, self._sql):
+        for fn in (self._numeric_sort, self._percent, self._arith, self._equation, self._derivative, self._json, self._sql):
             try:
                 r = fn(text.strip())
             except Exception:
@@ -75,6 +75,24 @@ class DeterministicSolvers:
                 r.duration_ms = round((time.perf_counter() - t0) * 1000, 3)
                 return r
         return None
+
+    def _numeric_sort(self, text: str) -> SolverResult | None:
+        """A complete, unambiguous read-only command. Never evaluates Python or infers missing items."""
+        import math
+        match = re.fullmatch(r"(?:ordena|ordenar|sort)\s+(?:de menor a mayor|ascendente|ascending)\s*:?\s*"
+                             r"(?P<items>\[[^\[\]]*\])\s*(?:[.;]\s*)?(?:como\s+(?:lista\s+)?json|en\s+json)?\s*[.]?", text, re.I)
+        if not match:
+            return None
+        if len(match["items"]) > 10000:
+            return None
+        values = json.loads(match["items"])
+        if not isinstance(values,list) or len(values) > 256:
+            return None
+        if any(type(v) not in (int,float) or (type(v) is float and not math.isfinite(v)) for v in values):
+            return None
+        result = sorted(values)
+        return SolverResult(solver="numeric_sort",input=match["items"],output=result,
+                            answer=json.dumps(result,ensure_ascii=False,separators=(",", ":")))
 
     def _arith(self, text: str) -> SolverResult | None:
         m = QUESTION.match(text)
