@@ -212,9 +212,17 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
     # ---------------------------------------------------------------- models & tools
     @app.get("/v1/models", dependencies=secured)
     async def models(request: Request):
-        runtime = rt(request)
-        return [{**m.model_dump(), "available": runtime.registry.breaker.available(m.id)}
-                for m in runtime.registry.all()]
+        # The public OpenAI-compatible surface exposes HYDRA modes, not physical
+        # backends. Physical models (including qwen2.5-coder:7b) remain internal.
+        return [
+            {
+                "id": "hydra" if mode is ExecutionMode.BALANCED else f"hydra-{mode.value}",
+                "object": "model",
+                "owned_by": "hydra",
+                "available": True,
+            }
+            for mode in ExecutionMode
+        ]
 
     @app.get("/v1/metrics/models", dependencies=secured)
     async def model_metrics(request: Request):
