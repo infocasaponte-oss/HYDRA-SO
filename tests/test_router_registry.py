@@ -80,3 +80,15 @@ def test_circuit_breaker_opens_and_half_opens():
     b2 = CircuitBreaker(max_failures=5, cooldown_s=999)
     b2.register_failure("x", fatal=True)
     assert not b2.available("x")
+
+
+def test_qwen_coder_is_registered_as_internal_ollama_backend():
+    from hydra.registry.registry import ModelRegistry
+    from hydra.core.config import ROOT
+
+    registry = ModelRegistry.from_yaml(ROOT / "config" / "models.yaml")
+    qwen = registry.get("qwen2.5-coder-7b")
+    assert qwen.provider == "ollama"
+    assert qwen.physical_name == "qwen2.5-coder:7b"
+    assert qwen.local
+    assert qwen.capabilities.coding >= 0.8
