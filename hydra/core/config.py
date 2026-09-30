@@ -55,13 +55,18 @@ class Settings(BaseSettings):
     # Experimental local typed decisions: disabled until explicitly configured.
     decision_shadow_endpoint: str = ""
     decision_shadow_model: str = "kev-latest"
+    decision_full_contract: bool = False
     decision_shadow_timeout_s: float = Field(default=0.5, gt=0, le=5)
     decision_calibrator_path: Path | None = None
+    decision_local_model_path: Path | None = None
+    decision_local_calibration_path: Path | None = None
+    decision_authority_evidence_path: Path | None = None
     # Embeddings: "hashing" (local, no model) | "vllm" | "ollama" (e.g. nomic-embed-text).
     embedding_provider: str = "hashing"
     embedding_model: str = ""
     # Domains research workers may fetch from (comma separated). Empty -> built-in list.
     network_domains: str = ""
+    public_web_enabled: bool = False
 
     repositories_root: Path = Path.cwd() / "repositories"
     """API clients may only point goals and code graphs at directories below this root

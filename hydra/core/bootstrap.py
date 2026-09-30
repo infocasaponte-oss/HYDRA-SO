@@ -341,15 +341,35 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     except Exception:
         log.debug("no telemetry to fit the learned router yet")
     observer = None
-    if settings.decision_shadow_endpoint and not settings.offline:
+    if settings.decision_local_model_path:
+        if not settings.decision_local_calibration_path:
+            raise ValueError("local decision observer requires model-bound calibration")
+        from hydra.router.local_observer import CalibratedLocalObserver
+        observer = CalibratedLocalObserver(settings.decision_local_model_path,
+                                          settings.decision_local_calibration_path)
+    elif settings.decision_shadow_endpoint and not settings.offline:
         calibrator = (TemperatureCalibrator.load(settings.decision_calibrator_path)
                       if settings.decision_calibrator_path else None)
+        from hydra.router.decision_contract import CRITERIA
         observer = DecisionObserver(LocalSystemOneProvider(
             endpoint=settings.decision_shadow_endpoint, model=settings.decision_shadow_model,
             timeout=settings.decision_shadow_timeout_s), settings.decision_shadow_timeout_s,
-            calibrator=calibrator)
+            calibrator=calibrator, criteria=CRITERIA if settings.decision_full_contract else None)
+    authority = None
+    if settings.decision_authority_evidence_path:
+        if observer is None:
+            raise ValueError("decision authority requires a configured observer")
+        import json
+        from hydra.router.decision_authority import DecisionAuthority
+        authority_evidence = json.loads(settings.decision_authority_evidence_path.read_text(encoding="utf-8"))
+        authority = DecisionAuthority.from_evidence(authority_evidence, observer.model)
+        if authority.enabled:
+            if (not isinstance(observer, DecisionObserver) or observer.calibrator is None
+                    or observer.calibrator.model_run != authority_evidence["model_revision"]):
+                raise ValueError("decision authority requires checkpoint-bound Kev calibration")
+            observer.expected_run = authority_evidence["model_revision"]
     kernel = HydraKernel(
-        router=CognitiveRouter(classifier, classifier_model, observer=observer),
+        router=CognitiveRouter(classifier, classifier_model, observer=observer, authority=authority),
         registry=registry,
         planner=Planner(),
         reasoner=ReasonerWorker(invoker),
@@ -364,6 +384,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         telemetry=telemetry,
         workspace=settings.workspace_dir,
         network_domains=domains,
+        public_web_enabled=settings.public_web_enabled and not settings.offline,
         policy=policy,
         cache=cache,
         failures=failures,
