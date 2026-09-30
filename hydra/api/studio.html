@@ -25,6 +25,13 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 .PASS,.ok{color:var(--ok)}.PARTIAL,.warn{color:var(--warn)}.FAIL,.bad{color:var(--bad)}
 .row{display:flex;gap:8px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}
 .kpi{font-size:22px;font-weight:600}.muted{color:var(--muted)}canvas{width:100%;height:480px;background:var(--code);border-radius:6px}
+.chatlog{display:flex;flex-direction:column;gap:8px;height:min(60vh,560px);overflow-y:auto;padding:4px 2px 8px}
+.msg{max-width:min(78%,720px);padding:8px 11px;border-radius:10px;white-space:pre-wrap;word-break:break-word;border:1px solid var(--line)}
+.msg.user{align-self:flex-end;background:var(--accent);color:#fff;border-color:var(--accent)}
+.msg.assistant{align-self:flex-start;background:var(--bg)}.msg.error{align-self:flex-start;color:var(--bad);background:var(--bg)}
+.msg .meta{display:block;margin-top:4px;font-size:11px;color:var(--muted)}.msg.pending{color:var(--muted);font-style:italic}
+.chatbar{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}.chatbar textarea{flex:1 1 320px;resize:vertical}
+.chatbar select,.chatbar button{width:auto;flex:0 0 auto}
 .timeline div{font-family:ui-monospace,Consolas,monospace;font-size:12px;border-left:2px solid var(--line);padding-left:6px;margin:2px 0}
 </style>
 </head>
@@ -35,13 +42,25 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
   <input id="key" placeholder="API key (opcional)" style="max-width:220px;margin-left:auto">
 </header>
 <main>
+<section class="view" id="v-chat">
+  <div class="card">
+    <h3>Chat con HYDRA</h3>
+    <div id="chatlog" class="chatlog" aria-live="polite"></div>
+    <div class="chatbar">
+      <textarea id="cq" rows="2" placeholder="Escribe un mensaje… (Enter envía, Mayús+Enter salto de línea)"></textarea>
+      <select id="cmode" title="Modo de ejecución"><option value="balanced">hydra</option><option value="fast">hydra-fast</option><option value="deep">hydra-deep</option><option value="max">hydra-max</option><option value="private">hydra-private</option></select>
+      <button class="act" id="csend" onclick="chatSend()">Enviar</button>
+      <button class="act" style="background:var(--muted)" onclick="chatReset()">Nueva conversación</button>
+    </div>
+  </div>
+</section>
 <section class="view" id="v-tasks">
   <div class="grid">
     <div class="card"><h3>Nueva tarea</h3>
       <textarea id="q" rows="5" placeholder="Pregunta u objetivo…"></textarea>
       <div class="row"><select id="mode"><option>balanced</option><option>fast</option><option>deep</option><option>max</option><option>private</option></select>
       <select id="kind"><option value="task">Tarea (kernel)</option><option value="goal">Objetivo (planner)</option><option value="translate">Traducir → inglés</option></select></div>
-      <input id="ws" placeholder="Workspace (ruta a repo, solo objetivos)">
+      <input id="ws" placeholder="Workspace: ruta relativa a HYDRA_REPOSITORIES_ROOT (solo objetivos)">
       <button class="act" onclick="runTask()">Ejecutar</button>
     </div>
     <div class="card"><h3>Respuesta</h3><div id="meta" class="muted"></div><pre id="ans"></pre></div>
@@ -109,7 +128,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 </section>
 </main>
 <script>
-const views=[["tasks","Tareas"],["world","World Graph"],["models","Modelos"],["corpus","Corpus"],["training","Training"],["infra","Infraestructura"],["ip","IP y Licencias"],["system","Sistema"]];
+const views=[["chat","Chat"],["tasks","Tareas"],["world","World Graph"],["models","Modelos"],["corpus","Corpus"],["training","Training"],["infra","Infraestructura"],["ip","IP y Licencias"],["system","Sistema"]];
 const $=id=>document.getElementById(id);
 const store={get(k){try{return localStorage.getItem(k)||""}catch(e){return ""}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
 $("key").value=store.get("hydra_key");$("key").onchange=e=>store.set("hydra_key",e.target.value);
@@ -118,7 +137,7 @@ async function api(path,opts={}){const r=await fetch(path,Object.assign({headers
 const show=(id,d)=>{$(id).textContent=typeof d==="string"?d:JSON.stringify(d,null,2)};
 const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 function nav(){$("nav").innerHTML=views.map(([k,l])=>`<button data-v="${k}">${l}</button>`).join("");
- $("nav").onclick=e=>{const v=e.target.dataset.v;if(v)go(v)};go(store.get("hydra_view")||"tasks")}
+ $("nav").onclick=e=>{const v=e.target.dataset.v;if(v)go(v)};go(store.get("hydra_view")||"chat")}
 function go(v){store.set("hydra_view",v);document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v-"+v));
  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.v===v));(loaders[v]||(()=>{}))()}
 const safe=f=>async()=>{try{await f()}catch(e){console.warn(e)}};
@@ -141,14 +160,44 @@ async function runTask(){const q=$("q").value.trim();if(!q)return;const kind=$("
  try{if(kind==="goal"){const g=await api("/hydra/v1/goals",{method:"POST",body:JSON.stringify({goal:q,workspace:$("ws").value||null,mode:$("mode").value})});
    $("meta").textContent=`estado ${g.status} · replans ${g.replans} · ${g.duration_ms} ms`;show("ans",(g.answer||"")+(g.patch?"\n\n"+g.patch:""));$("tl").innerHTML=g.steps.map(s=>`<div class="${s.success?"ok":"bad"}">${esc(s.action)} — ${esc(s.summary)}</div>`).join("");show("learn",g.metrics);return}
   if(kind==="translate"){const t=await api("/v1/translate",{method:"POST",body:JSON.stringify({text:q,target_language:"en"})});show("ans",t.translation);$("meta").textContent=`${t.source_language}→${t.target_language} · ${t.model} · glosario ${t.glossary_compliance}`;return}
-  const r=await fetch("/v1/hydra/stream",{method:"POST",headers:H(),body:JSON.stringify({messages:[{role:"user",content:q}],mode:$("mode").value})});
-  const rd=r.body.getReader();const dec=new TextDecoder();let buf="";
-  while(true){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
-   while((i=buf.indexOf("\n\n"))>=0){const chunk=buf.slice(0,i);buf=buf.slice(i+2);const line=chunk.split("\n").find(l=>l.startsWith("data:"));if(!line)continue;
-    let d;try{d=JSON.parse(line.slice(5))}catch(e){continue}
-    if(d.type&&d.source){$("tl").insertAdjacentHTML("beforeend",`<div>${esc(d.type)} <span class="muted">${esc(d.source)}</span></div>`)}
-    if(d.answer!==undefined&&d.meta){show("ans",d.answer);$("meta").textContent=`confianza ${d.meta.confidence} · verificado ${d.meta.verified} · modelos ${d.meta.models_used.join(", ")} · ${d.meta.latency_ms} ms`;show("learn",d.learning||{})}}}
+  const d=await hydraStream([{role:"user",content:q}],$("mode").value,
+    ev=>$("tl").insertAdjacentHTML("beforeend",`<div>${esc(ev.type)} <span class="muted">${esc(ev.source)}</span></div>`));
+  show("ans",d.answer);$("meta").textContent=metaText(d.meta);show("learn",d.learning||{})
  }catch(e){$("ans").textContent="Error: "+e.message}}
+const metaText=m=>`confianza ${m.confidence} · verificado ${m.verified} · modelos ${m.models_used.join(", ")} · ${m.latency_ms} ms`;
+// POST /v1/hydra/stream (SSE): onEvent gets each kernel event; resolves with the final result, throws on errors.
+async function hydraStream(messages,mode,onEvent){
+ const r=await fetch("/v1/hydra/stream",{method:"POST",headers:H(),body:JSON.stringify({messages,mode})});
+ if(!r.ok){const t=await r.text();throw new Error(r.status+" "+t)}
+ const rd=r.body.getReader();const dec=new TextDecoder();let buf="";
+ while(true){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;
+  while((i=buf.indexOf("\n\n"))>=0){const chunk=buf.slice(0,i);buf=buf.slice(i+2);const line=chunk.split("\n").find(l=>l.startsWith("data:"));if(!line)continue;
+   let d;try{d=JSON.parse(line.slice(5))}catch(e){continue}
+   if(d.error!==undefined)throw new Error(d.error);
+   if(d.answer!==undefined&&d.meta)return d;
+   if(d.type&&d.source&&onEvent)onEvent(d)}}
+ throw new Error("la conexión terminó sin respuesta")}
+// ---- chat: the whole conversation goes to the kernel on every turn (last CHAT_WINDOW messages)
+const CHAT_WINDOW=20;let chat=[];let chatBusy=false;
+try{chat=JSON.parse(store.get("hydra_chat")||"[]");if(!Array.isArray(chat))chat=[]}catch(e){chat=[]}
+function chatSave(){store.set("hydra_chat",JSON.stringify(chat.slice(-100)))}
+function chatRender(pending){const log=$("chatlog");
+ log.innerHTML=(chat.length||pending?"":`<div class="muted">Habla con HYDRA. La conversación se envía completa en cada turno, así que puedes hacer preguntas de seguimiento.</div>`)+
+  chat.map(m=>`<div class="msg ${m.role}">${esc(m.content)}${m.meta?`<span class="meta">${esc(m.meta)}</span>`:""}</div>`).join("")+
+  (pending?`<div class="msg assistant pending" id="cpend">${esc(pending)}</div>`:"");
+ log.scrollTop=log.scrollHeight}
+async function chatSend(){const q=$("cq").value.trim();if(!q||chatBusy)return;
+ chatBusy=true;$("csend").disabled=true;$("cq").value="";
+ chat=chat.filter(m=>m.role!=="error");chat.push({role:"user",content:q});chatSave();chatRender("pensando…");
+ try{const history=chat.slice(-CHAT_WINDOW).map(m=>({role:m.role,content:m.content}));
+  const d=await hydraStream(history,$("cmode").value,ev=>{const p=$("cpend");if(p)p.textContent=`${ev.type} · ${ev.source}…`});
+  chat.push({role:"assistant",content:d.answer,meta:metaText(d.meta)})}
+ catch(e){chat.push({role:"error",content:"Error: "+e.message})}
+ finally{chatBusy=false;$("csend").disabled=false;chatSave();chatRender();$("cq").focus()}}
+function chatReset(){if(chatBusy)return;chat=[];chatSave();chatRender()}
+$("cq").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey&&!e.isComposing){e.preventDefault();chatSend()}});
+$("cmode").value=store.get("hydra_chat_mode")||"balanced";$("cmode").onchange=e=>store.set("hydra_chat_mode",e.target.value);
+chatRender();
 async function worldQuery(){show("wres",await api("/hydra/v1/world/query",{method:"POST",body:JSON.stringify({query:$("wq").value})}))}
 async function resolveCap(){show("capres",await api("/hydra/v1/models/resolve",{method:"POST",body:JSON.stringify({capability:$("cap").value,constraints:{local_only:$("loc").checked}})}))}
 async function corpusSearch(){show("cres",(await api("/hydra/v1/corpus/query",{method:"POST",body:JSON.stringify({text:$("cq").value,limit:20})})).map(r=>({id:r.id,type:r.record_type,status:r.training_status,quality:r.quality,input:r.input})))}
