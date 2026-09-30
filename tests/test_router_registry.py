@@ -1,4 +1,6 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+import asyncio
+
 import pytest
 
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message, TaskType
@@ -98,7 +100,7 @@ def test_unhealthy_provider_is_excluded_before_scoring():
     registry = ModelRegistry(default_models())
     registry.set_provider_health("ollama", False)
     request = req("python bug")
-    route = __import__("asyncio").run(CognitiveRouter().route(request))
+    route = asyncio.run(CognitiveRouter().route(request))
     assert all(m.provider != "ollama" for m in registry.select(request, route))
 
 
