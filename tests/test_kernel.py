@@ -101,3 +101,16 @@ async def test_memory_is_compiled_and_retrieved(runtime):
     r = await runtime.kernel.run(req("recuerda: ¿qué puerto usa payments?"))
     ev = await types(runtime, r.meta.task_id)
     assert EventType.MEMORY_RETRIEVED in ev
+
+
+async def test_escalation_out_of_budget_keeps_the_previous_answer(runtime, mock, monkeypatch):
+    # live failure: the first model answered, the escalation ran out of budget and the whole task failed
+    from hydra.core.budget import BudgetTracker
+    can_call = BudgetTracker.can_call_model
+    monkeypatch.setattr(BudgetTracker, "can_escalate", lambda self: self.escalations == 0)
+    monkeypatch.setattr(BudgetTracker, "can_call_model", lambda self, n=1: self.escalations == 0 and can_call(self, n))
+    mock.quality["critic"] = 0.2  # force an escalation after the first answer
+    r = await runtime.kernel.run(req("Analiza y razona con cuidado este problema: " + "detalle " * 400))
+    assert r.answer and r.meta.escalations == 1
+    events = await runtime.bus.history(__import__("uuid").UUID(r.meta.task_id))
+    assert any(e.type == EventType.RETRY_DECIDED and e.payload.get("action") == "keep_previous_best" for e in events)
