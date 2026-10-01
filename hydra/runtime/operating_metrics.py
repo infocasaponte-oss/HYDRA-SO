@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from hydra.runtime.deployment_registry import DeploymentRegistry
+from hydra.deploy.deployment_registry import DeploymentRegistry
 from hydra.runtime.outbox import TransactionalOutbox
 from hydra.runtime.outbox_metrics import collect_outbox_metrics
 from hydra.runtime.paths import runtime_path

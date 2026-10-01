@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from hydra.runtime.deployment_registry import DeploymentRegistry
+from hydra.deploy.deployment_registry import DeploymentRegistry
 
 _LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
 

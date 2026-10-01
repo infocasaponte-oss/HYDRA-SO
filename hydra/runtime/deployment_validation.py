@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from hydra.runtime.model_factory import ModelVariant
+from hydra.model_factory.contracts import ModelVariant
 from hydra.runtime.model_scout import ModelArtifact, inspect_model_artifact
 
 

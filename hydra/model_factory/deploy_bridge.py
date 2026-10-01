@@ -22,7 +22,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from hydra.runtime.benchmarking import BenchmarkResult
-from hydra.runtime.model_factory import BuildState, ModelLineage, ModelVariant
+from hydra.model_factory.contracts import BuildState, ModelLineage, ModelVariant
 from hydra.runtime.promotion_gate import PromotionPolicy, apply_promotion_gate
 
 READY = "CANDIDATE_REQUIRES_EVALUATION"

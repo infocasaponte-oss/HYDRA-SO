@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from hydra.runtime.deployment import Deployment
+from hydra.deploy.deployment import Deployment
 from hydra.runtime.replay import ReplayManifest
 
 
