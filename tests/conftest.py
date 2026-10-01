@@ -15,6 +15,9 @@ for _token in ("HYDRA_ADMIN_TOKEN", "HYDRA_API_TOKEN", "HYDRA_API_KEY"):
 # Never write test keys into the developer's OS keyring: keep the legacy file layout in tests
 # (tests/test_keystore.py exercises the keyring and keys-dir backends with an in-memory keyring).
 os.environ["HYDRA_KEY_BACKEND"] = "legacy"
+# The process-wide runtime line (hydra.runtime.api) must not adopt a developer's PostgreSQL from .env:
+# its logs stay in the temporary HYDRA_RUNTIME_DIR (tests/test_runtime_backends.py covers PostgreSQL).
+os.environ["HYDRA_RUNTIME_BACKEND"] = "file"
 
 import pytest  # noqa: E402
 

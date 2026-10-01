@@ -65,8 +65,20 @@ def _build(body: Body, seq: int, last: str | None) -> str:
     return text
 
 
+_PATH_LOCKS: dict[str, threading.Lock] = {}
+_PATH_LOCKS_GUARD = threading.Lock()
+
+
+def _path_lock(path: Path) -> threading.Lock:
+    """One lock per file in this process, shared by every FileLog on that file."""
+    key = str(Path(path).resolve())
+    with _PATH_LOCKS_GUARD:
+        return _PATH_LOCKS.setdefault(key, threading.Lock())
+
+
 class FileLog:
-    """JSONL file log; ``seq`` is the 1-based index among non-empty lines. One writer process."""
+    """JSONL file log; ``seq`` is the 1-based index among non-empty lines. One writer process (several
+    instances on the same file in that process are fine: appends re-read whatever the others wrote)."""
 
     backend = "file"
     shared = False
@@ -74,34 +86,70 @@ class FileLog:
     def __init__(self, path: Path, stream: str = "") -> None:
         self.path = Path(path)
         self.stream = stream or self.path.name
-        self._lock = threading.Lock()
-        self._count, self._last = 0, None
-        for _, line in self.read():
-            self._count, self._last = self._count + 1, line
+        self._lock = _path_lock(self.path)
+        self._count, self._last, self._size = 0, None, -1
+        # (seq, byte offset just past it, its raw bytes): reads resume there instead of rescanning, after
+        # checking those bytes are still in place (a rewritten file is read again from the start)
+        self._tail: tuple[int, int, bytes] = (0, 0, b"")
+        with self._lock:
+            self._refresh()
+
+    def _refresh(self) -> None:
+        """Pick up lines appended by another instance (size changed); a shorter file was replaced."""
+        size = self.path.stat().st_size if self.path.exists() else 0
+        if size == self._size:
+            return
+        if size < self._size or not self._tail_intact():  # replaced or rewritten: count again
+            self._count, self._last, self._tail = 0, None, (0, 0, b"")
+        for seq, line in self.read(self._count):
+            self._count, self._last = seq, line
+        self._size = size
+
+    def _tail_intact(self) -> bool:
+        _, pos, last_raw = self._tail
+        if not pos:
+            return True
+        try:
+            with open(self.path, "rb") as f:
+                f.seek(pos - len(last_raw))
+                return f.read(len(last_raw)) == last_raw
+        except OSError:
+            return False
 
     def __len__(self) -> int:
-        return self._count
+        with self._lock:
+            self._refresh()
+            return self._count
 
     def append(self, body: Body) -> tuple[int, str]:
         with self._lock:
+            self._refresh()
             seq = self._count + 1
             text = _build(body, seq, self._last)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.path, "a", encoding="utf-8") as f:
-                f.write(text + "\n")
+            with open(self.path, "ab") as f:
+                f.write((text + "\n").encode("utf-8"))
             self._count, self._last = seq, text
+            self._size = self.path.stat().st_size
+            self._tail = (seq, self._size, (text + "\n").encode("utf-8"))
             return seq, text
 
     def read(self, after: int = 0, upto: int | None = None) -> Iterator[tuple[int, str]]:
         if not self.path.exists():
             return
-        seq = 0
-        with open(self.path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
+        if not self._tail_intact():  # rewritten, not appended: forget the position
+            self._tail = (0, 0, b"")
+        seq, pos, _ = self._tail if self._tail[0] <= after else (0, 0, b"")
+        with open(self.path, "rb") as f:
+            f.seek(pos)
+            for raw in f:
+                pos += len(raw)
+                line = raw.decode("utf-8").strip()
                 if not line:
                     continue
                 seq += 1
+                if raw.endswith(b"\n") and seq > self._tail[0]:
+                    self._tail = (seq, pos, raw)
                 if upto is not None and seq > upto:
                     return
                 if seq > after:

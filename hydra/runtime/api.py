@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from hydra import __version__
+from hydra.core.eventlog import open_log_space
 from hydra.runtime.artifacts import ArtifactStore
 from hydra.runtime.bootstrap import bootstrap_runtime
 from hydra.runtime.budgets import BudgetExceeded, RequestBudget
@@ -36,6 +37,8 @@ from hydra.runtime.operating_metrics import collect_operating_metrics
 from hydra.runtime.outbox_dispatcher import OutboxDispatcher
 from hydra.runtime.outbox_worker import OutboxWorker
 from hydra.runtime.physical_inference import PhysicalInferenceClient
+from hydra.runtime.events import JsonlEventStore
+from hydra.runtime.paths import runtime_path
 from hydra.runtime.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.runtime.provider import LocalLLM
 from hydra.runtime.rate_limit import RateLimit, SlidingWindowRateLimiter
@@ -65,7 +68,8 @@ glossaries = GlossaryStore()
 model_hash_cache = HashCache(Path(settings.runtime_db).parent / "model-hashes.json")
 translations = TranslationService(llm, budget, glossaries)
 artifacts = ArtifactStore()
-provenance = ProvenanceLedger()
+runtime_logs = open_log_space(settings.runtime_backend, settings.postgres_url, "runtime")
+provenance = ProvenanceLedger(log=runtime_logs.open(runtime_path("provenance.jsonl"), ProvenanceLedger.STREAM))
 workspaces = WorkspaceManager(
     max_files=settings.workspace_max_files,
     max_bytes=settings.workspace_max_bytes,
@@ -87,7 +91,10 @@ deployment_controller = DeploymentController(
     runtime_evidence=runtime_evidence,
 )
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
-kernel = HydraKernel(capture_uow=capture_uow)
+kernel = HydraKernel(
+    capture_uow=capture_uow,
+    events=JsonlEventStore(log=runtime_logs.open(runtime_path("events.jsonl"), JsonlEventStore.STREAM)),
+)
 runtime_health_store = RuntimeHealthStore(settings.runtime_db)
 runtime_health = RuntimeHealth(store=runtime_health_store)
 physical_inference = PhysicalInferenceClient(deployment_registry)
