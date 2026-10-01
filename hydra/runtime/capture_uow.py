@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from hydra.runtime.outbox import TransactionalOutbox
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 
 
 @dataclass(frozen=True)

@@ -34,11 +34,11 @@ from hydra.core.capture_outbox_pg import PostgresOutbox
 from hydra.runtime.capture_uow import CaptureUnitOfWork, TaskCommit
 from hydra.runtime.circuit_breaker import CircuitBreaker, CircuitState
 from hydra.deploy.deployment_evidence import CanaryEvidence, ShadowEvidence
-from hydra.runtime.deployment_evidence_store import DeploymentEvidenceStore
+from hydra.deploy.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.runtime.metrics_store import OperatingMetricsStore
 from hydra.runtime.observability import TraceStore
 from hydra.runtime.operating_metrics import OperatingMetrics
-from hydra.runtime.runtime_health_store import RuntimeHealthStore
+from hydra.deploy.runtime_health_store import RuntimeHealthStore
 
 log = logging.getLogger("hydra.runtime")
 

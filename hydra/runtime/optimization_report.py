@@ -9,7 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from hydra.runtime.benchmarking import BenchmarkResult
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 
 
 class OptimizationReport(BaseModel):

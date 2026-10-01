@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 
 
 @dataclass(frozen=True)

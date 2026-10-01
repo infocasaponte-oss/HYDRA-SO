@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 from hydra.tools.task_workspace import TaskWorkspace, TaskWorkspaceManager, WorkspaceStats
 
 __all__ = ["TaskWorkspace", "WorkspaceManager", "WorkspaceStats"]

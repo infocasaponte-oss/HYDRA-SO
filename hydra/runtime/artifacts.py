@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 
 
 class ArtifactRecord(BaseModel):

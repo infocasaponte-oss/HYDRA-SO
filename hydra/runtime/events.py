@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from hydra.core.eventlog import FileLog
 from hydra.runtime.hash_chain import canonical_hash, lock_for
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 
 
 class EventEnvelope(BaseModel):

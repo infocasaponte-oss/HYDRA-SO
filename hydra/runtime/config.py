@@ -6,20 +6,12 @@ platform Settings (process environment first, then ``./.env``). ``HYDRA_API_TOKE
 as an alias of ``HYDRA_API_KEY``."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dotenv import dotenv_values  # python-dotenv ships with pydantic-settings
+from hydra.core.environment import _DOTENV, _env
 
-_DOTENV = {k: v for k, v in dotenv_values(".env").items() if v is not None} if Path(".env").is_file() else {}
-
-
-def _env(name: str, default: str | None = None) -> str | None:
-    """Same precedence as Settings, for the few values read before Settings exists (runtime paths)."""
-    value = os.environ.get(name)
-    return value if value is not None else _DOTENV.get(name, default)
-
+__all__ = ["Settings", "_DOTENV", "_env"]
 
 @dataclass(frozen=True)
 class Settings:

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from hydra.runtime.operating_metrics import OperatingMetrics
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 
 
 class OperatingMetricsStore:

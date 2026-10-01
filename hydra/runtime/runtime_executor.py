@@ -6,9 +6,9 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-from hydra.runtime.runtime_evidence import RuntimeEvidenceStore
-from hydra.runtime.runtime_health import RuntimeHealth
-from hydra.runtime.traffic_router import TrafficDecision, TrafficRouter
+from hydra.deploy.runtime_evidence import RuntimeEvidenceStore
+from hydra.deploy.runtime_health import RuntimeHealth
+from hydra.deploy.traffic_router import TrafficDecision, TrafficRouter
 
 InferenceCall = Callable[[str, str, int], Awaitable[str]]
 

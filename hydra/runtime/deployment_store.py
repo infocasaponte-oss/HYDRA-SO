@@ -24,7 +24,7 @@ from hydra.deploy.deployment import Deployment, DeploymentState
 from hydra.deploy.deployment_registry import DeploymentRegistry
 from hydra.runtime.deployment_validation import DeploymentArtifactValidator
 from hydra.model_factory.contracts import ModelVariant
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 
 log = logging.getLogger("hydra.runtime.deployments")
 T = TypeVar("T")
