@@ -26,6 +26,8 @@ class Worker:
         """``messages`` overrides the conversation (e.g. a research sub-question)."""
         budget = ContextBudget.for_window(model.context_window, generation_tokens)
         system = self.prompt_for(ctx) + ("\n\n" + extra_system if extra_system else "")
+        if model.identity_context:
+            system = model.identity_context + "\n\n" + system
         if ctx.compressed_block and messages is None:
             system += "\n\n" + ctx.compressed_block
         return self.compiler.compile(

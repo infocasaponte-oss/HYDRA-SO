@@ -267,6 +267,12 @@ class HydraKernel:
             ctx.request = request
 
         try:
+            # Engine ownership is configured metadata, not a model-generated fact.
+            from hydra.core.identity import creator_answer
+            creators = {m.engine_creator for m in self.registry.all() if m.enabled and m.engine_creator}
+            identity = creator_answer(request.last_user_text, next(iter(creators)) if len(creators) == 1 else "")
+            if identity and not request.images:
+                return await self._early(ctx, started, "answer", identity)
             # ---------------- semantic cache ----------------
             if self.cache is not None and self.config.semantic_cache and not shadow:
                 hit = await self.cache.lookup(request)
@@ -303,8 +309,9 @@ class HydraKernel:
             if not self.public_web_enabled:
                 ctx.tool_ctx.capabilities.tools -= {"web.search", "web.read"}
                 ctx.tool_ctx.capabilities.public_web = False
-            from hydra.tools.web_context import requested_web
-            explicit_web = self.public_web_enabled and requested_web(request.last_user_text)
+            from hydra.tools.web_context import requested_web, web_query
+            search_query = web_query(request.messages)
+            explicit_web = self.public_web_enabled and requested_web(search_query)
             if explicit_web and not request.private and not shadow:
                 # An explicit user request to consult the web does not depend
                 # on a classifier confusing a technical question with coding.
@@ -316,7 +323,7 @@ class HydraKernel:
             await self._world_context(ctx)
             if self.public_web_enabled and (route.task_type == TaskType.RESEARCH or explicit_web) and not request.private and not shadow:
                 from hydra.tools.web_context import collect_web_context, render_web_context, fetched_sources
-                evidence, _ = await collect_web_context(ctx, self.coder.executor, request.last_user_text)
+                evidence, _ = await collect_web_context(ctx, self.coder.executor, search_query)
                 if evidence:
                     ctx.web_context = [render_web_context(evidence)]
                     ctx.web_sources = fetched_sources(evidence)
