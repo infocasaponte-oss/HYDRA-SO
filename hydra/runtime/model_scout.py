@@ -87,15 +87,13 @@ def inspect_model_artifact(
     artifact_path: str | Path,
     hash_cache: HashCache | None = None,
 ) -> ModelArtifact:
-    root = Path(models_root).resolve()
-    raw = Path(artifact_path)
-    if raw.is_absolute():
-        resolved = raw.resolve()
-    else:
-        resolved = (root / raw).resolve()
-
-    if resolved == root or root not in resolved.parents:
+    # realpath + prefix check (absolute paths are accepted only inside the root, as before).
+    root_real = os.path.realpath(models_root)
+    candidate = os.path.realpath(os.path.join(root_real, os.fspath(artifact_path)))
+    if candidate == root_real or not candidate.startswith(root_real + os.sep):
         raise ValueError("Model artifact path escapes configured models root")
+    root = Path(root_real)
+    resolved = Path(candidate)
     if not resolved.is_file():
         raise FileNotFoundError(f"Model artifact not found: {artifact_path}")
     if resolved.suffix.lower() != ".gguf":

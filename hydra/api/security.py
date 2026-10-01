@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import secrets
 
@@ -43,7 +42,8 @@ def authenticate(settings, host: str, token: str | None) -> str:
         return f"local:{host}"
     if not _matches(token, settings.api_key):
         raise HTTPException(401, "invalid API key")
-    return "api:" + hashlib.sha256(token.encode()).hexdigest()
+    # One configured key -> one identity. The token itself is never hashed, logged or stored.
+    return "api"
 
 
 def authorize_admin(settings, host: str, token: str | None) -> str:
@@ -53,7 +53,7 @@ def authorize_admin(settings, host: str, token: str | None) -> str:
         return f"admin-local:{host}"
     if not _matches(token, settings.admin_token):
         raise HTTPException(403, "admin token required")
-    return "admin:" + hashlib.sha256(token.encode()).hexdigest()
+    return "admin"
 
 
 def websocket_token(headers, subprotocols: list[str]) -> str | None:

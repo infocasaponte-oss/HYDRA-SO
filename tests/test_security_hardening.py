@@ -168,3 +168,19 @@ def test_atomic_write_replaces_and_leaves_no_temporaries(tmp_path):
     write_text_atomic(target, json.dumps({"v": 2}))
     assert json.loads(target.read_text(encoding="utf-8")) == {"v": 2}
     assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+
+def test_model_artifacts_cannot_escape_the_models_root(tmp_path):
+    from hydra.runtime.model_scout import inspect_model_artifact
+
+    root = tmp_path / "models"
+    sibling = tmp_path / "models-evil"
+    root.mkdir()
+    sibling.mkdir()
+    (sibling / "x.gguf").write_bytes(b"gguf")
+    (root / "ok.gguf").write_bytes(b"gguf")
+    for bad in (sibling / "x.gguf", "../models-evil/x.gguf", str(root)):
+        with pytest.raises(ValueError, match="escapes"):
+            inspect_model_artifact(root, bad)
+    assert inspect_model_artifact(root, root / "ok.gguf").path == "ok.gguf"
+    assert inspect_model_artifact(root, "ok.gguf").path == "ok.gguf"
