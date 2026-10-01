@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # Plan de unificación: línea de plataforma y línea runtime (HYDRA-SO)
 
 Fecha: 2026-10-01 · Rama base: `integration/hydra-1.0` (`df57f28`) · Origen: auditoría integral, §6.
@@ -98,6 +99,12 @@ Destino propuesto: `hydra/deploy/`, `hydra/replay/`, `hydra/coding/` y `hydra/mo
 
 ## 3. Principios
 
+0. **El repo contiene dos productos: el motor HYDRA y la fábrica de motores.** La fábrica abarca
+   `model_factory`, entrenamiento, autobuild, GGUF/cuantización, benchmarking, scout y promoción.
+   Al quitar un duplicado, la implementación que se queda debe cubrir **todas** las funciones de las
+   dos, en el motor y en la fábrica. Antes de absorber un módulo se inventarían sus usos en ambos
+   productos y se escriben tests de caracterización de la versión que desaparece. Solo después pasa
+   a ser una reexportación.
 1. **La plataforma es la base.** Ya tiene los backends compartidos y la mayor cobertura. El runtime
    aporta lo que la plataforma no tiene.
 2. **Un PR por paso, todos en verde.** Suite completa y job de integración con PostgreSQL. Ningún
@@ -115,7 +122,7 @@ Destino propuesto: `hydra/deploy/`, `hydra/replay/`, `hydra/coding/` y `hydra/mo
 
 | Fase | Contenido | PRs aprox. | Riesgo |
 |---|---|---|---|
-| **F0 Guardas** | Test de contrato del OpenAPI montado; test de imports (la plataforma no importa `hydra.runtime` salvo la lista actual, que solo puede menguar) | 1 | Bajo |
+| **F0 Guardas** ✅ | `tests/test_contracts.py` y `tests/contracts/`: snapshot de las 140 operaciones HTTP (con las del runtime montadas) y sus esquemas; árbol completo del CLI `hydra` (motor y fábrica); ids de operación únicos; imports plataforma → runtime que solo pueden menguar; y comprobación estática de que todo símbolo `hydra.*` que importan el motor, la fábrica, el runtime y `scripts/` existe | 1 | Bajo |
 | **F1 Configuración y auth** | `runtime/config` derivado de `Settings`; alias de variables; las rutas del runtime usan `api/security.py` (claves por cliente incluidas) | 1–2 | Medio (tokens) |
 | **F2 Duplicados pequeños** | Budgets, hash/IO, contratos simples, traducción, `CognitiveBudget` ×2, `WorldEvent/WorldRelation` ×2, `HardwareProfile` ×2, `SimulationResult` ×2, `Procedure` ×2, helpers CLI | 2–3 | Bajo |
 | **F3 Estado del runtime a almacenes compartidos** | Según §2.2: events y provenance a `hydra_logs`; evidencia a stream con `seq` (los despliegues a mitad de fase convierten su offset de bytes a `seq` al migrar); `deployments.json` a log de versiones; `hydra.db` a tablas PG con reclamación por nodo; creencias, corpus y artefactos del runtime a los de plataforma | 4–5 | **Alto**: es el que cambia formatos en disco |
