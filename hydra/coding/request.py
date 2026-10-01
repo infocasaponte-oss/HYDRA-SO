@@ -2,6 +2,7 @@
 """Coding requests and the repository they target (confined)."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -14,10 +15,12 @@ class CodingRequest(BaseModel):
 
 
 def resolve_repository(root: str | Path, repository: str) -> Path:
-    base = Path(root).resolve()
-    candidate = (base / repository).resolve()
-    if candidate != base and base not in candidate.parents:
+    """The repository directory ``repository`` names inside ``root`` (``root`` itself included). Symlinks
+    are resolved first, so a link pointing outside ``root`` is rejected like ``../``."""
+    base = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.join(base, repository))
+    if candidate != base and not candidate.startswith(base + os.sep):
         raise ValueError("Repository path escape rejected")
-    if not candidate.is_dir():
+    if not os.path.isdir(candidate):
         raise ValueError("Repository does not exist")
-    return candidate
+    return Path(candidate)

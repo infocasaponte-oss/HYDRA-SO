@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -54,10 +55,19 @@ class ReplayStore:
         if self.log is not None:
             self.log.append(manifest.model_dump_json())
             return manifest
-        (self.root / f"{manifest.task_id}.json").write_text(
+        self._manifest_path(manifest.task_id).write_text(
             manifest.model_dump_json(indent=2), encoding="utf-8"
         )
         return manifest
+
+    def _manifest_path(self, task_id: UUID) -> Path:
+        """``<root>/<task_id>.json``; ``task_id`` is normalised through ``UUID`` and the result is checked to
+        stay inside ``root``."""
+        base = os.path.realpath(self.root)
+        path = os.path.realpath(os.path.join(base, f"{UUID(str(task_id))}.json"))
+        if not path.startswith(base + os.sep):
+            raise ValueError("Replay manifest path escape rejected")
+        return Path(path)
 
     def get(self, task_id: UUID) -> ReplayManifest | None:
         if self.log is not None:
@@ -67,7 +77,7 @@ class ReplayStore:
             line = self._index.get(str(task_id))
             if line is not None:
                 return ReplayManifest.model_validate_json(line)
-        path = self.root / f"{task_id}.json"  # also manifests written before the shared log
+        path = self._manifest_path(task_id)  # also manifests written before the shared log
         if not path.is_file():
             return None
         return ReplayManifest.model_validate_json(path.read_text(encoding="utf-8"))
