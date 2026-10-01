@@ -10,8 +10,10 @@ Data: 1 de outubro de 2026.
 - Configurouse HYDRA_ADMIN_TOKEN local, separado das claves dos clientes.
 - Creáronse claves individuais para celtia e nova-ai, cun límite de 30 peticións
   por minuto por cliente e proceso, limitado tamén polo máximo global configurado.
-- O rexistro data/keys/api-clients.json garda só hashes SHA-256 das claves.
-  Lese en cada autenticación: a revogación aplícase sen reiniciar.
+- O rexistro data/keys/api-clients.json garda só o identificador público da
+  clave e un hash scrypt con sal propia (formato da credencial:
+  `hydra.<key_id>.<segredo>`). Lese en cada autenticación: a revogación e a
+  rotación aplícanse sen reiniciar.
 - As claves permiten POST /v1/chat/completions, POST /v1/responses e GET /v1/models.
   Bloquéanse tarefas, WebSocket de tarefas, ferramentas directas e administración.
 - Un token descoñecido ou revogado non pode aproveitar o acceso local sen clave.
@@ -46,8 +48,26 @@ Revogar unha clave:
 .venv/Scripts/python.exe -m scripts.manage_client_keys celtia --revoke
 ```
 
-Para unha nova clave úsase un ID novo, por exemplo celtia-v2, e cámbiase a
-credencial na aplicación. A ferramenta non sobrescribe credenciais existentes.
+Reemitir a clave dun cliente (mesmo ID, límite e alcance; a credencial anterior
+deixa de valer ao momento):
+
+```powershell
+.venv/Scripts/python.exe -m scripts.manage_client_keys celtia --rotate
+```
+
+## Migración desde o formato SHA-256 (2026-10-01)
+
+O gateway xa non acepta as filas antigas (`sha256` sen sal). Despois de
+despregar este cambio, reemítense os dous clientes e entrégaselles o novo
+ficheiro `.env`:
+
+```powershell
+.venv/Scripts/python.exe -m scripts.manage_client_keys celtia --rotate
+.venv/Scripts/python.exe -m scripts.manage_client_keys nova-ai --rotate
+```
+
+Non se debe executar a rotación antes de reiniciar o gateway co código novo:
+un gateway antigo non sabe ler as filas novas.
 
 ## Validación e límites
 

@@ -89,13 +89,15 @@ class Settings(BaseSettings):
     keys_dir: Path | None = None
     """HYDRA_KEYS_DIR: key files outside HYDRA_DATA_DIR (mounted secrets), used when no OS keyring."""
     key_namespace: str = ""
-
-    @field_validator("keys_dir", mode="before")
-    @classmethod
-    def _empty_keys_dir_is_unset(cls, value):
-        # HYDRA_KEYS_DIR= (as in .env.example) would otherwise become Path('.'): the working directory.
-        return None if isinstance(value, str) and not value.strip() else value
     """HYDRA_KEY_NAMESPACE: keyring namespace (default: derived from the data directory path)."""
+
+    @field_validator("sync_trusted_keys_dir", "keys_dir", mode="before")
+    @classmethod
+    def _empty_path_is_unset(cls, value):
+        # An empty variable (HYDRA_SYNC_TRUSTED_KEYS_DIR= / HYDRA_KEYS_DIR=, as in .env.example) would
+        # otherwise become Path('.'): the working directory would hold trusted or private keys.
+        return None if isinstance(value, str) and not value.strip() else value
+
     api_rate_limit_per_minute: int = 60
     """Per-client limit for authenticated API routes. Set <= 0 to disable."""
 

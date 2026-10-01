@@ -20,8 +20,9 @@ data:
   # Pods have no Docker daemon. Code execution needs an external sandbox controller
   # (DOCKER_HOST=tcp://<socket-proxy>:2375 in the hydra-secrets Secret); without it sandboxed tools fail closed.
   HYDRA_SANDBOX_BACKEND: docker
-  HYDRA_RUNTIME_DB: /data/runtime/hydra.db
-  HYDRA_DEPLOYMENTS_FILE: /data/runtime/deployments.json
+  # Every runtime-line store (events, provenance, outbox DB, deployments, artifacts, replays,
+  # workspaces) lives under this persistent directory, not in the container filesystem.
+  HYDRA_RUNTIME_DIR: /data/runtime
 # Secrets are NOT versioned. Create them out of band, e.g.:
 #   kubectl -n hydra create secret generic hydra-secrets #     --from-literal=HYDRA_API_KEY=... --from-literal=HYDRA_ADMIN_TOKEN=... #     --from-literal=HYDRA_POSTGRES_URL=postgresql://hydra:...@postgres.hydra.svc:5432/hydra
 #   kubectl -n hydra create secret generic hydra-postgres --from-literal=POSTGRES_PASSWORD=...
