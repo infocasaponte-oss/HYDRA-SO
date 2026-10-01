@@ -249,6 +249,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.artifacts.store import ArtifactStore
     from hydra.core.capture import CapturePipeline
     from hydra.core.capture_outbox import CaptureOutbox
+    from hydra.core.capture_outbox_pg import open_outbox_store
     from hydra.corpus.capture import CapturePolicy
     from hydra.corpus.dedup import ContaminationGuard, Deduplicator
     from hydra.corpus.factory import DatasetFactory
@@ -318,7 +319,9 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         flight_dir=data / "flight",
         capture_policy=CapturePolicy(auto_training_max_sensitivity=settings.corpus_auto_training_max_sensitivity),
         policy_version=policy_dsl.version, config_ref=config_ref, registry=registry,
-        outbox=CaptureOutbox(data / "capture_outbox.db", ledger=ledger, corpus=corpus))
+        outbox=CaptureOutbox(data / "capture_outbox.db", ledger=ledger, corpus=corpus,
+                             store=open_outbox_store(settings.outbox_backend, data / "capture_outbox.db",
+                                                     settings.postgres_url)))
 
     # ---- backend health ------------------------------------------------------------
     # Probe providers before the first routing decision. Registry configuration remains

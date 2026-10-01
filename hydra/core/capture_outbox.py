@@ -4,7 +4,11 @@
 The CapturePipeline writes inline and never fails a user request. When a ledger or corpus
 write fails, the write is deferred to this outbox instead of being lost: the runtime
 ``OutboxWorker`` retries it with exponential backoff and moves it to the dead-letter queue
-after ``max_attempts`` (at-least-once delivery; corpus ingestion deduplicates)."""
+after ``max_attempts`` (at-least-once delivery; corpus ingestion deduplicates).
+
+The messages live in a local SQLite file, or in the PostgreSQL table ``capture_outbox``
+(HYDRA_OUTBOX_BACKEND, ``hydra.core.capture_outbox_pg``) shared by every node, where each
+worker claims what it retries so no deferred write is replayed by two nodes at once."""
 
 from __future__ import annotations
 
@@ -55,8 +59,11 @@ def _aggregate(task_id: str) -> UUID:
 
 
 class CaptureOutbox:
-    def __init__(self, path: Path, *, ledger=None, corpus=None, policy: RetryPolicy | None = None) -> None:
-        self.outbox = TransactionalOutbox(path)
+    def __init__(self, path: Path, *, ledger=None, corpus=None, policy: RetryPolicy | None = None,
+                 store=None) -> None:
+        """``store``: a ``PostgresOutbox`` (or any store with the ``TransactionalOutbox`` interface);
+        default, the SQLite outbox at ``path``."""
+        self.outbox = store if store is not None else TransactionalOutbox(path)
         self.worker = OutboxWorker(self.outbox, CaptureDispatcher(ledger, corpus), policy)
 
     def defer(self, topic: str, task_id: str, payload: dict[str, Any], trace_id: str = "") -> None:
@@ -69,7 +76,7 @@ class CaptureOutbox:
         return self.worker.run_once(limit)
 
     def stats(self) -> dict[str, Any]:
-        return {"pending": len(self.outbox.pending(1000)), "dead_letters": len(self.outbox.dead_letters(1000))}
+        return self.outbox.counts()  # counting must not claim messages (PostgreSQL pending() does)
 
     def dead_letters(self, limit: int = 100) -> list[dict[str, Any]]:
         return [{**asdict(m), "id": str(m.id), "aggregate_id": str(m.aggregate_id)}

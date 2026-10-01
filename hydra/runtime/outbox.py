@@ -182,6 +182,18 @@ class TransactionalOutbox:
             )
             return cursor.rowcount == 1
 
+    def counts(self) -> dict[str, int]:
+        with self._connect() as connection:
+            pending, dead = connection.execute(
+                """
+                SELECT
+                    COALESCE(SUM(published_at IS NULL AND dead_lettered_at IS NULL), 0),
+                    COALESCE(SUM(dead_lettered_at IS NOT NULL), 0)
+                FROM outbox
+                """
+            ).fetchone()
+        return {"pending": pending, "dead_letters": dead}
+
     def dead_letters(self, limit: int = 100) -> list[OutboxMessage]:
         with self._connect() as connection:
             rows = connection.execute(

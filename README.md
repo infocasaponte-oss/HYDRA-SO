@@ -130,9 +130,10 @@ Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN
   los nodos, con triggers que impiden UPDATE/DELETE/TRUNCATE) y los logs del corpus (`hydra_logs`: registros,
   linaje, tombstones y snapshots), del World Model (deltas y snapshots), del registro de invenciones y de
   los manifiestos de artefactos (`hydra_logs`); cada nodo reproduce los logs en el mismo orden total.
+  También el outbox de captura (`capture_outbox`: cada nodo reclama lo que reintenta, sin duplicados).
   Requiere el extra `postgres`. Los blobs de artefactos van a `HYDRA_ARTIFACT_OBJECTS`: un volumen
   compartido o un bucket S3/MinIO (extra `s3`). Los manifiestos CLUSTER siguen con una réplica por
-  servicio mientras el outbox de captura siga en SQLite local.
+  servicio porque la línea runtime (`HYDRA_RUNTIME_DIR`) aún guarda su estado en disco local.
 
 ## Pruebas
 
@@ -149,9 +150,10 @@ set HYDRA_IT_NATS=nats://localhost:4222
   herramientas externas (llama.cpp, llm-compressor, mlx-lm, optimum, torch/transformers/peft/trl) que
   HYDRA integra pero no incluye; sin ellas lo informa (`ToolMissing`) en vez de fingir.
 * El scheduler de clúster, la analítica federada y las colas están probados en una máquina y con
-  nodos simulados. Con PostgreSQL (y blobs en S3 o un volumen compartido) la cola del fabric, el ledger,
-  el corpus, el World Model, el registro de IP y los artefactos ya son compartidos entre nodos; escalar
-  réplicas requiere además llevar el outbox de captura a PostgreSQL.
+  nodos simulados. Con PostgreSQL (y blobs en S3 o un volumen compartido) todo el estado de la línea de
+  plataforma es compartido entre nodos (fabric, ledger, corpus, World Model, IP, artefactos y outbox de
+  captura); escalar réplicas requiere además unificar la línea runtime, que guarda su estado en
+  `HYDRA_RUNTIME_DIR` (auditoría, §6).
 * En Ollama el tipo de caché KV es un ajuste del servidor (`OLLAMA_KV_CACHE_TYPE`): el AutoBuilder
   lo varía solo con llama-server.
 * HYDRA registra evidencia técnica y de autoría; no decide patentabilidad ni autoría legal.

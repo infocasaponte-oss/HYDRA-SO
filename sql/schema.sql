@@ -178,6 +178,26 @@ CREATE TRIGGER hydra_logs_no_truncate BEFORE TRUNCATE ON hydra_logs
     FOR EACH STATEMENT EXECUTE FUNCTION hydra_logs_immutable();
 
 -- =====================================================================================
+-- Capture outbox: hydra.core.capture_outbox_pg.PostgresOutbox (HYDRA_OUTBOX_BACKEND), which also creates
+-- it. Deferred ledger/corpus writes; workers claim due rows with FOR UPDATE SKIP LOCKED and a lease.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS capture_outbox (
+    id               UUID PRIMARY KEY,
+    topic            TEXT NOT NULL,
+    aggregate_id     UUID NOT NULL,
+    trace_id         TEXT NOT NULL,
+    payload          JSONB NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL,
+    published_at     TIMESTAMPTZ,
+    attempts         INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at  TIMESTAMPTZ,
+    last_error       TEXT,
+    dead_lettered_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS capture_outbox_due ON capture_outbox (next_attempt_at, created_at)
+    WHERE published_at IS NULL AND dead_lettered_at IS NULL;
+
+-- =====================================================================================
 -- Tables of earlier schema versions that were reserved and never written (safe to drop).
 -- =====================================================================================
 -- Artifact manifests live in hydra_logs (stream artifacts/manifests.jsonl); blobs in HYDRA_ARTIFACT_OBJECTS.

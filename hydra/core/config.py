@@ -147,6 +147,10 @@ class Settings(BaseSettings):
     capture: bool = True
     """Capture pipeline: world model, artifacts (CAS), corpus, ledger, flight recorder."""
     capture_outbox_poll_s: float = 2.0
+    outbox_backend: str = "auto"
+    """HYDRA_OUTBOX_BACKEND: capture outbox: auto (PostgreSQL table capture_outbox when HYDRA_POSTGRES_URL is
+    set and psycopg is installed, else data/capture_outbox.db) | sqlite | postgres (required). Unpublished
+    messages of an existing SQLite outbox are imported once."""
     """How often deferred capture writes (ledger/corpus) are retried from the outbox."""
     corpus_auto_training_max_sensitivity: int = 0
     """Own executions at or below this sensitivity are trainable by default (0 = PUBLIC)."""
