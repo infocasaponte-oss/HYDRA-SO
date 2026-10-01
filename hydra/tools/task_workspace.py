@@ -60,11 +60,18 @@ class TaskWorkspaceManager:
     def create(self, task_id: UUID, source: str | Path) -> TaskWorkspace:
         # The allowed source root is operator configuration, never request data.
         # Confine before any filesystem inspection or copying of the source.
-        raw_source = confine(self.source_root, str(source))
-        if raw_source.is_symlink():
-            raise ValueError("Workspace source may not be a symlink")
-        source_path = raw_source.resolve()
-        if not source_path.is_dir():
+        requested = confine(self.source_root, str(source))
+        # Select a server-enumerated repository rather than forwarding request
+        # path data to filesystem operations. Nested paths are not repositories.
+        source_path = None
+        if self.source_root.is_dir():
+            for repository in self.source_root.iterdir():
+                if repository.resolve() == requested:
+                    if repository.is_symlink():
+                        raise ValueError("Workspace source may not be a symlink")
+                    source_path = repository.resolve()
+                    break
+        if source_path is None or not source_path.is_dir():
             raise ValueError("Workspace source must be a directory")
 
         self._scan_source(source_path)
