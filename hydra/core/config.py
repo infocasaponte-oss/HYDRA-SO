@@ -176,6 +176,28 @@ class Settings(BaseSettings):
     runtime_anchor_interval_s: float = 300.0
     """Anchor the runtime event/provenance chain heads in the signed ledger this often (0 = only on shutdown)."""
 
+    # Runtime line (hydra.runtime.config.Settings is a view of these; same HYDRA_* variables as before).
+    api_host: str = "127.0.0.1"
+    api_port: int = 8080
+    llm_url: str = "http://127.0.0.1:8081/v1"
+    """HYDRA_LLM_URL: OpenAI-compatible server the runtime line chats with (llama-server)."""
+    models_dir: str = "models"
+    """HYDRA_MODELS_DIR: GGUF models the runtime line inventories and deploys."""
+    runtime_dir: str = "runtime"
+    """HYDRA_RUNTIME_DIR: runtime-line state (events, provenance, outbox, deployments...)."""
+    runtime_db: str = ""
+    """HYDRA_RUNTIME_DB: runtime-line SQLite database (default <runtime_dir>/hydra.db)."""
+    deployments_file: str = ""
+    """HYDRA_DEPLOYMENTS_FILE: deployment registry (default <runtime_dir>/deployments.json)."""
+    readiness_max_pending: int = 1000
+    readiness_max_pending_age_seconds: float = 300.0
+    admin_rate_limit_per_minute: int = 6
+    sandbox_runtime: str = "docker"
+    code_verification_mode: str = "advisory"
+    workspace_max_files: int = 20_000
+    workspace_max_bytes: int = 256 * 1024 * 1024
+    max_output_tokens: int = 4096
+
     hedge_after_ms: float = 3500
     breaker_failures: int = 5
     breaker_cooldown_s: float = 60

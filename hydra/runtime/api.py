@@ -114,6 +114,7 @@ outbox_worker = OutboxWorker(capture_uow.outbox, outbox_dispatcher)
 security_config = SecurityConfig(
     api_token=settings.api_token,
     admin_token=settings.admin_token,
+    client_keys_file=settings.client_keys_file,
 )
 rate_limiter = SlidingWindowRateLimiter()
 security_audit = SecurityAudit(kernel.events)

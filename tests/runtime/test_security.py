@@ -28,7 +28,7 @@ def test_api_token_required_when_configured():
     with pytest.raises(HTTPException):
         require_api_access(RequestStub(token="wrong"), config)
     identity = require_api_access(RequestStub(token="secret"), config)
-    assert len(identity) == 64
+    assert identity == "api"  # gateway identity: the token is never hashed, logged or stored
 
 
 def test_admin_fails_closed_when_unconfigured():

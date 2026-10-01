@@ -109,7 +109,9 @@ fallos distribuidos limpios, sin auto-modificación) y la **Definition of Done**
 El gateway sirve también la línea HYDRA-SO (`hydra.runtime`, con su historia completa): `/ready`, `/v1/chat`,
 `/hydra/v1/tasks/route|execute`, `/hydra/v1/admin/*` (despliegues shadow/canary/rollback, métricas, dead
 letters, auditoría de replay) y `/hydra/v1/coding/verify-fix`. Un único token (`HYDRA_API_KEY` o
-`HYDRA_API_TOKEN`) protege ambas líneas (HTTP y WebSocket; sin token, solo clientes loopback).
+`HYDRA_API_TOKEN`) protege ambas líneas con las mismas reglas (HTTP y WebSocket; sin token, solo clientes
+loopback; las claves por cliente `hydra.<id>.<secret>` solo sirven para inferencia y reciben 403 en el resto).
+Las dos líneas leen la misma configuración (`hydra.core.config.Settings`).
 `HYDRA_ADMIN_TOKEN` (cabecera `X-Hydra-Admin-Token`) protege además toda operación de operador: rutas
 admin del runtime (fallan cerradas sin él) y, en la plataforma, flags, config sets, aprobación de corpus,
 IP, releases, ciclo de vida de modelos, sync edge, heartbeats de nodos y autorizaciones explícitas de

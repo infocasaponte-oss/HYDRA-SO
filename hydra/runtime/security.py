@@ -1,19 +1,29 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+"""Access control of the runtime-line routes.
+
+API access follows exactly the gateway rules (``hydra.api.security.authenticate``): the configured
+API key, loopback-only without one, and per-client keys (``hydra.<id>.<secret>``), which are
+inference-only and therefore refused on these routes with 403. Admin access is deliberately stricter
+than the platform's: deployment, outbox and replay operations need a configured ``HYDRA_ADMIN_TOKEN``
+even from loopback."""
 from __future__ import annotations
 
 import hashlib
 import hmac
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from fastapi import HTTPException, Request, status
 
-from hydra.api.security import is_loopback
+from hydra.api.client_keys import client_route
+from hydra.api.security import authenticate
 
 
 @dataclass(frozen=True)
 class SecurityConfig:
     api_token: str | None
     admin_token: str | None
+    client_keys_file: str | None = None
 
 
 def _provided_token(request: Request) -> str | None:
@@ -23,11 +33,6 @@ def _provided_token(request: Request) -> str | None:
     return request.headers.get("x-hydra-token") or request.headers.get("x-api-key")
 
 
-def _local_request(request: Request) -> bool:
-    client = request.client
-    return client is not None and is_loopback(client.host)
-
-
 def _matches(provided: str | None, expected: str | None) -> bool:
     if not provided or not expected:
         return False
@@ -35,21 +40,13 @@ def _matches(provided: str | None, expected: str | None) -> bool:
 
 
 def require_api_access(request: Request, config: SecurityConfig) -> str:
-    provided = _provided_token(request)
-    if config.api_token:
-        if not _matches(provided, config.api_token):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid HYDRA API token",
-            )
-        return hashlib.sha256(provided.encode()).hexdigest()
-
-    if not _local_request(request):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="HYDRA API token is not configured; remote access is disabled",
-        )
-    return f"local:{request.client.host}"
+    """Caller identity (``api``, ``local:<host>``), or 401/403/503 as on every gateway route."""
+    gateway = SimpleNamespace(api_key=config.api_token or "",
+                              client_keys_file=config.client_keys_file or "data/keys/api-clients.json")
+    identity = authenticate(gateway, request.client.host if request.client else "", _provided_token(request))
+    if identity.startswith("client:"):
+        client_route(identity, request.method, request.url.path)
+    return identity
 
 
 def require_admin_access(request: Request, config: SecurityConfig) -> str:
