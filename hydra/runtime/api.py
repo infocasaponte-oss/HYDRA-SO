@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from dataclasses import asdict
 from pathlib import Path
 from uuid import UUID
 
@@ -22,7 +23,7 @@ from hydra.runtime.config import settings
 from hydra.runtime.contracts import HydraTask
 from hydra.runtime.deployment import Deployment
 from hydra.runtime.deployment_controller import DeploymentController
-from hydra.runtime.deployment_evidence import CanaryEvidence, ShadowEvidence
+from hydra.runtime.deployment_controller import EvidenceRejected
 from hydra.runtime.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.runtime.deployment_store import DeploymentStore
 from hydra.runtime.deployment_validation import DeploymentArtifactValidator
@@ -79,9 +80,11 @@ deployment_store = DeploymentStore(
 deployment_registry = deployment_store.load()
 deployment_evidence_store = DeploymentEvidenceStore(settings.runtime_db)
 operating_metrics_store = OperatingMetricsStore(settings.runtime_db)
+runtime_evidence = RuntimeEvidenceStore()
 deployment_controller = DeploymentController(
     deployment_registry,
     evidence_store=deployment_evidence_store,
+    runtime_evidence=runtime_evidence,
 )
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(capture_uow=capture_uow)
@@ -89,7 +92,6 @@ runtime_health_store = RuntimeHealthStore(settings.runtime_db)
 runtime_health = RuntimeHealth(store=runtime_health_store)
 physical_inference = PhysicalInferenceClient(deployment_registry)
 traffic_router = TrafficRouter(deployment_registry, runtime_health)
-runtime_evidence = RuntimeEvidenceStore()
 runtime_executor = RuntimeExecutor(
     traffic_router,
     runtime_health,
@@ -163,16 +165,6 @@ class DeploymentRegisterRequest(BaseModel):
     generation: int = Field(default=0, ge=0)
 
 
-class ShadowEvidenceRequest(BaseModel):
-    samples: int = Field(ge=0)
-    agreement_rate: float = Field(ge=0, le=1)
-    error_rate: float = Field(ge=0, le=1)
-
-
-class CanaryEvidenceRequest(BaseModel):
-    requests: int = Field(ge=0)
-    error_rate: float = Field(ge=0, le=1)
-    p95_latency_ms: float = Field(ge=0)
 
 
 @app.get("/health")
@@ -478,24 +470,18 @@ async def begin_deployment_shadow(variant_id: UUID, request: Request) -> dict:
 
 
 @app.post("/hydra/v1/admin/deployments/{variant_id}/canary")
-async def approve_deployment_canary(
-    variant_id: UUID,
-    req: ShadowEvidenceRequest,
-    request: Request,
-) -> dict:
+async def approve_deployment_canary(variant_id: UUID, request: Request) -> dict:
+    """Promote SHADOW -> CANARY on the shadow evidence the server measured from live traffic."""
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-deployment-canary:{identity}", admin_rate_limit)
     deployment = deployment_registry.deployments.get(str(variant_id))
     if deployment is None:
         raise HTTPException(status_code=404, detail="Deployment not found")
-    evidence = ShadowEvidence(
-        samples=req.samples,
-        agreement_rate=req.agreement_rate,
-        error_rate=req.error_rate,
-    )
     try:
-        deployment_controller.approve_canary(deployment, evidence)
+        evidence = deployment_controller.approve_canary(deployment)
         deployment_store.save(deployment_registry)
+    except EvidenceRejected as exc:
+        raise HTTPException(status_code=409, detail=_rejection(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     security_audit.record(
@@ -505,28 +491,23 @@ async def approve_deployment_canary(
         identity_hash=identity,
         aggregate_id=variant_id,
     )
-    return {"variant_id": str(variant_id), "state": deployment.state.value}
+    return {"variant_id": str(variant_id), "state": deployment.state.value, "evidence": asdict(evidence)}
 
 
 @app.post("/hydra/v1/admin/deployments/{variant_id}/activate")
-async def activate_deployment(
-    variant_id: UUID,
-    req: CanaryEvidenceRequest,
-    request: Request,
-) -> dict:
+async def activate_deployment(variant_id: UUID, request: Request) -> dict:
+    """Promote CANARY -> ACTIVE on the canary evidence the server measured from live traffic."""
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-deployment-activate:{identity}", admin_rate_limit)
     deployment = deployment_registry.deployments.get(str(variant_id))
     if deployment is None:
         raise HTTPException(status_code=404, detail="Deployment not found")
-    evidence = CanaryEvidence(
-        requests=req.requests,
-        error_rate=req.error_rate,
-        p95_latency_ms=req.p95_latency_ms,
-    )
     try:
+        evidence = deployment_controller.measure_canary(deployment)
         active = deployment_controller.activate(deployment, evidence)
         deployment_store.save(deployment_registry)
+    except EvidenceRejected as exc:
+        raise HTTPException(status_code=409, detail=_rejection(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     security_audit.record(
@@ -536,7 +517,36 @@ async def activate_deployment(
         identity_hash=identity,
         aggregate_id=variant_id,
     )
-    return {"variant_id": str(active.variant_id), "state": active.state.value}
+    return {"variant_id": str(active.variant_id), "state": active.state.value, "evidence": asdict(evidence)}
+
+
+@app.get("/hydra/v1/admin/deployments/{variant_id}/evidence")
+async def deployment_evidence(variant_id: UUID, request: Request) -> dict:
+    """Live-traffic evidence for the deployment's current phase and the policy it must meet."""
+    identity = require_admin_access(request, security_config)
+    rate_limiter.check(f"admin-deployment-evidence:{identity}", admin_rate_limit)
+    deployment = deployment_registry.deployments.get(str(variant_id))
+    if deployment is None:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    measured = None
+    if deployment.state.value == "shadow":
+        measured = asdict(deployment_controller.measure_shadow(deployment))
+    elif deployment.state.value == "canary":
+        measured = asdict(deployment_controller.measure_canary(deployment))
+    return {
+        "variant_id": str(variant_id),
+        "state": deployment.state.value,
+        "evidence": measured,
+        "policy": asdict(deployment_controller.policy),
+    }
+
+
+def _rejection(exc: EvidenceRejected) -> dict:
+    return {
+        "error": str(exc),
+        "evidence": asdict(exc.evidence),
+        "policy": asdict(deployment_controller.policy),
+    }
 
 
 @app.post("/hydra/v1/admin/deployments/rollback/{capability}")

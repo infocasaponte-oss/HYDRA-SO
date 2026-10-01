@@ -639,7 +639,7 @@ perfiles; kubeconform **18/18 recursos válidos**; `terraform validate` correcto
 | M-02 | ✅ Corregido | `safe_id` en `ConfigRegistry._path` (cubre API y CLI); 400 en la API |
 | M-03 | ⏳ Pendiente | Mover las claves a keyring/DPAPI/KMS cambia el arranque y la recuperación (`hydra backup/restore`): requiere decisión de operación |
 | M-04 | ✅ Corregido | CSP estricta (`connect-src 'self'`, `frame-ancestors 'none'`), `nosniff`, `no-referrer`; `esc()` escapa comillas; todos los campos de tablas escapados |
-| M-05 | ⏳ Pendiente | Calcular la evidencia canary/shadow en servidor es un rediseño del gate de promoción |
+| M-05 | ✅ Corregido (PR propio) | La evidencia shadow/canary se mide en servidor desde `runtime-evidence.jsonl` (errores y latencias por llamada, fallos de canary incluidos), contando solo desde el inicio de cada fase (offset del log). `/canary` y `/activate` no aceptan cifras; `GET .../evidence` muestra el progreso |
 | M-06 | ✅ Parcial | Prometheus y Grafana solo en 127.0.0.1, contraseña de Grafana por `.env`, comentarios corregidos |
 | M-07 | ✅ Corregido | Namespace antes que los recursos (`depends_on`), DRA opcional (`enable_dra`), sin secretos en el state |
 | M-08 | ✅ Corregido | `hydra/core/atomic.py` (temporal único + fsync + `os.replace` + reintentos en Windows) en inventions, ACL, flags, políticas y almacén de secretos, lab, glosarios, sync, discovery, autobuild/.env, perfiles y estado de releases. `evidence_io.write_json` lo reutiliza |

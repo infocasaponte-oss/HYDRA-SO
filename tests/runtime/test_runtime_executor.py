@@ -62,3 +62,32 @@ async def test_shadow_is_not_authoritative(tmp_path):
     saved = (tmp_path / "evidence.jsonl").read_text()
     assert "active-answer" not in saved
     assert "shadow-answer" not in saved
+
+
+@pytest.mark.asyncio
+async def test_canary_failures_and_latency_are_recorded_as_evidence(tmp_path):
+    registry = DeploymentRegistry()
+    active = deployment(DeploymentState.ACTIVE, 1)
+    canary = deployment(DeploymentState.CANARY, 2)
+    shadow = deployment(DeploymentState.SHADOW, 3)
+    for item in (active, canary, shadow):
+        registry.add(item)
+    canary_id, shadow_id = str(canary.variant_id), str(shadow.variant_id)
+
+    async def call(variant_id: str, prompt: str, max_tokens: int) -> str:
+        if variant_id in (canary_id, shadow_id):
+            raise RuntimeError("variant down")
+        return "active-answer"
+
+    health = RuntimeHealth()
+    evidence = RuntimeEvidenceStore(tmp_path / "evidence.jsonl")
+    executor = RuntimeExecutor(TrafficRouter(registry, health, canary_percent=100), health, call, evidence)
+    result = await executor.execute(capability="reasoning.general", trace_id="t", prompt="p", max_tokens=8)
+    assert result.answer == "active-answer" and result.canary_variant_id == canary_id
+
+    measured_canary = evidence.canary_evidence(canary_id)
+    assert measured_canary.requests == 1 and measured_canary.error_rate == 1.0
+    measured_shadow = evidence.shadow_evidence(shadow_id)
+    assert measured_shadow.samples == 1 and measured_shadow.error_rate == 1.0
+    record = next(evidence.records())
+    assert record["canary_error"] is True and record["primary_latency_ms"] >= 0
