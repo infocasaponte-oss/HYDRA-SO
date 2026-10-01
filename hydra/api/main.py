@@ -90,8 +90,15 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         token = x_api_key or x_hydra_token or (authorization or "").removeprefix("Bearer ").strip()
         return authenticate(settings, request.client.host if request.client else "", token)
 
-    async def throttle(identity: str = Depends(auth)) -> None:
-        rate_limiter.check(identity, settings.api_rate_limit_per_minute, 60.0)
+    async def throttle(request: Request, identity: str = Depends(auth)) -> None:
+        from hydra.api.client_keys import client_route, lookup
+        client_route(identity, request.method, request.url.path)
+        limit = settings.api_rate_limit_per_minute
+        if identity.startswith('client:'):
+            token = request.headers.get('x-api-key') or request.headers.get('x-hydra-token') or request.headers.get('authorization', '').removeprefix('Bearer ').strip()
+            client = lookup(settings.client_keys_file, token)
+            limit = min(limit, int(client['requests_per_minute']))
+        rate_limiter.check(identity, limit, 60.0)
 
     async def admin(request: Request, x_hydra_admin_token: str | None = Header(default=None)) -> str:
         return authorize_admin(settings, request.client.host if request.client else "", x_hydra_admin_token)

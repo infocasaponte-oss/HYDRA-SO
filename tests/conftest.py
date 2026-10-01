@@ -8,6 +8,10 @@ import tempfile
 # default). Tests get a private directory so they never touch, or race on, the developer's state.
 # It must be set before any hydra.runtime module is imported.
 os.environ.setdefault("HYDRA_RUNTIME_DIR", tempfile.mkdtemp(prefix="hydra-runtime-tests-"))
+# Nor do they inherit the developer's tokens: hydra.runtime.config also reads ./.env, but the
+# process environment wins, so empty values keep auth tests deterministic with or without .env.
+for _token in ("HYDRA_ADMIN_TOKEN", "HYDRA_API_TOKEN", "HYDRA_API_KEY"):
+    os.environ[_token] = ""
 
 import pytest  # noqa: E402
 
@@ -44,7 +48,8 @@ def default_models() -> list[ModelProfile]:
 @pytest.fixture
 def settings(tmp_path) -> Settings:
     return Settings(offline=True, sandbox_backend="subprocess", workspace_dir=tmp_path / "ws",
-                    data_dir=tmp_path / "data", postgres_url="", redis_url="", nats_url="")
+                    data_dir=tmp_path / "data", postgres_url="", redis_url="", nats_url="",
+                    api_key="", admin_token="", client_keys_file=tmp_path / "clients.json")
 
 
 @pytest.fixture

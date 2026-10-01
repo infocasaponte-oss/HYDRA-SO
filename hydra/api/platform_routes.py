@@ -303,6 +303,8 @@ def register_platform_routes(app: FastAPI, rt, secured, admin_secured=None) -> N
         try:  # same policy as HTTP: key required, or loopback-only when no key is configured
             identity = authenticate(runtime.settings, websocket.client.host if websocket.client else "",
                                     websocket_token(websocket.headers, protocols))
+            if identity.startswith('client:'):
+                raise HTTPException(403, 'client keys do not allow task WebSockets')
         except HTTPException:
             await websocket.close(code=4401)
             return

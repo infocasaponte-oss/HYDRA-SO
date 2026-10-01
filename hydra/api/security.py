@@ -36,7 +36,13 @@ def _matches(provided: str | None, expected: str) -> bool:
 
 def authenticate(settings, host: str, token: str | None) -> str:
     """Return a stable caller identity (used for rate limiting) or raise 401/503."""
+    from hydra.api.client_keys import lookup
+    client = lookup(getattr(settings, 'client_keys_file', 'data/keys/api-clients.json'), token)
+    if client:
+        return 'client:' + client['id']
     if not settings.api_key:
+        if token:
+            raise HTTPException(401, 'invalid API key')
         if not is_loopback(host):
             raise HTTPException(503, "API key is not configured for remote access")
         return f"local:{host}"

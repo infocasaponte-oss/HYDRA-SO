@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     api_key: str = Field(default="", validation_alias=AliasChoices("api_key", "HYDRA_API_KEY", "HYDRA_API_TOKEN"))
     """Gateway token (HYDRA_API_KEY, or HYDRA_API_TOKEN as used by the runtime line)."""
     admin_token: str = ""
+    client_keys_file: Path = Path("data/keys/api-clients.json")
     """HYDRA_ADMIN_TOKEN: required (header ``X-Hydra-Admin-Token``) by routes that change governance,
     IP, corpus approval, releases, models or sync state. Empty -> those routes accept loopback only."""
     sync_trusted_keys_dir: Path | None = None
