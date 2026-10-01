@@ -7,9 +7,10 @@ Families, rather than random rows, define the held-out partitions.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
+
+from hydra.core.hashing import sha256_file
 
 SYSTEM = "Eres HYDRA, asistente de programación. Responde con código Python correcto, sin explicaciones."
 FAMILIES = {
@@ -32,11 +33,7 @@ FAMILIES = {
 
 
 def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(8*1024*1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return sha256_file(path, chunk=8 * 1024 * 1024)
 
 
 def build(output: Path, per_family: int = 32) -> dict:

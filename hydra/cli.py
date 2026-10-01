@@ -28,6 +28,8 @@ import sys
 from pathlib import Path
 
 import hydra
+from hydra.cli_io import kv_pairs as _kv
+from hydra.cli_io import print_json as _print
 
 
 def _settings(args):
@@ -39,29 +41,11 @@ def _settings(args):
     return Settings()
 
 
-def _print(obj) -> None:
-    if hasattr(obj, "model_dump_json"):
-        print(obj.model_dump_json(indent=2))
-    else:
-        print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
-
-
 def _image(path: str) -> str:
     if path.startswith(("http://", "https://", "data:")):
         return path
     mime = mimetypes.guess_type(path)[0] or "image/png"
     return f"data:{mime};base64," + base64.b64encode(Path(path).read_bytes()).decode()
-
-
-def _kv(pairs: list[str] | None) -> dict:
-    out = {}
-    for p in pairs or []:
-        k, _, v = p.partition("=")
-        try:
-            out[k] = json.loads(v)
-        except json.JSONDecodeError:
-            out[k] = v
-    return out
 
 
 def _source(spec: str):

@@ -1,6 +1,5 @@
 {
  "hydra/api/platform_routes.py": [
-  "hydra.runtime.budgets:BudgetExceeded",
   "hydra.runtime.outbox_metrics:collect_outbox_metrics",
   "hydra.runtime:api"
  ],
@@ -20,9 +19,6 @@
  ],
  "hydra/edge/autobuild.py": [
   "hydra.runtime.gpu_telemetry:PeakVramMonitor"
- ],
- "hydra/edge/translation.py": [
-  "hydra.runtime.budgets:RequestBudget"
  ],
  "hydra/model_factory/deploy_bridge.py": [
   "hydra.runtime.benchmarking:BenchmarkResult",

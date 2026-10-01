@@ -141,13 +141,25 @@ mejora (`improvements.json`: los ids `HYDRA-IMP-nnn` se asignan con el documento
 runtime en PostgreSQL (`runtime_spans`, acotada): `/hydra/v1/admin/metrics` describe el clúster entero.
 `TradeSecretVault` (IP) no se instancia en producción.
 
+### 2.5 Homónimos: mismo nombre, conceptos distintos (se conservan)
+
+| Nombre | Uno | Otro |
+|---|---|---|
+| `BudgetExceeded` | `core/budget`: presupuesto cognitivo agotado durante la tarea (el kernel degrada la respuesta) | `core/request_budget.RequestBudgetExceeded`: la petición excede su tamaño (HTTP 413/400) |
+| `CognitiveBudget` | `core/budget`: presupuesto resuelto (todos los campos) | `core/task`: límites opcionales que pide una tarea |
+| `HardwareProfile` | `edge/profiles`: ajuste de llama.cpp por GPU | `model_factory/hardware`: máquina para elegir cuantización y formato |
+| `SimulationResult` | `planning/simulator`: simulación de una acción del plan | `simulation/engine`: ensayo en seco de una herramienta |
+| `Procedure` | `memory/models`: memoria procedimental | `planning/procedures`: procedimiento aprendido y promovido |
+| `WorldEvent`/`WorldRelation` | `world/model`: World Model bitemporal | `world/state`: estado provisional de una tarea |
+| `_now` | devuelven `datetime` o `str` según el modelo que los usa | |
+
 ## 4. Fases
 
 | Fase | Contenido | PRs aprox. | Riesgo |
 |---|---|---|---|
 | **F0 Guardas** ✅ | `tests/test_contracts.py` y `tests/contracts/`: snapshot de las 140 operaciones HTTP (con las del runtime montadas) y sus esquemas; árbol completo del CLI `hydra` (motor y fábrica); ids de operación únicos; imports plataforma → runtime que solo pueden menguar; y comprobación estática de que todo símbolo `hydra.*` que importan el motor, la fábrica, el runtime y `scripts/` existe | 1 | Bajo |
 | **F1 Configuración y auth** ✅ | `runtime/config` derivado de `Settings`; alias de variables; las rutas del runtime usan `api/security.py` (claves por cliente incluidas) | 1–2 | Medio (tokens) |
-| **F2 Duplicados pequeños** | Budgets, hash/IO, contratos simples, traducción, `CognitiveBudget` ×2, `WorldEvent/WorldRelation` ×2, `HardwareProfile` ×2, `SimulationResult` ×2, `Procedure` ×2, helpers CLI | 2–3 | Bajo |
+| **F2 Duplicados pequeños** ✅ | Fusionados los duplicados reales: límites de petición a `core/request_budget` (el runtime reexporta; un import plataforma → runtime menos), `_print`/`_kv` del CLI (`cli_io`), similitud coseno (`core/vectors`), hash de fichero (`core.hashing.sha256_file`) y contador de tokens. **No** fusionados, por ser homónimos de conceptos distintos (fusionarlos quitaría funciones): ver §2.5 | 1 | Bajo |
 | **F3 Estado del runtime a almacenes compartidos** | Según §2.2: events y provenance a `hydra_logs`; evidencia a stream con `seq` (los despliegues a mitad de fase convierten su offset de bytes a `seq` al migrar); `deployments.json` a log de versiones; `hydra.db` a tablas PG con reclamación por nodo; creencias, corpus y artefactos del runtime a los de plataforma | 4–5 | **Alto**: es el que cambia formatos en disco |
 | **F4 Comportamiento** | Verificador, planificador (un único `ExecutionPlan`), sandbox/workspaces, policy y observabilidad; antes de cada fusión, diff funcional y tests de caracterización de la versión que desaparece | 4–5 | Alto (semántica) |
 | **F5 Kernel y contratos** | `/hydra/v1/tasks/route|execute` y `/v1/chat` servidos por el kernel de plataforma (`/v1/chat` como alias de `/v1/chat/completions`), conservando los esquemas | 2 | Alto |

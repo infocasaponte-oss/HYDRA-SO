@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from hydra.memory.compiler import extract_facts
+from hydra.memory.context import count_tokens
 
 SENT = re.compile(r"(?<=[.!?])\s+|\n+")
 DECISION = re.compile(r"(?i)\b(decid|acord|vamos a|we will|we'll|let's|usaremos|we decided|agreed|elegimos|chose)\w*")
@@ -49,7 +50,7 @@ class CompressedState(BaseModel):
 
 
 def _tokens(text: str) -> int:
-    return max(1, len(text) // 4)
+    return count_tokens(text)
 
 
 def compress(messages: list[dict[str, Any]], keep_last: int, budget_tokens: int,

@@ -23,7 +23,7 @@ from hydra.core.contracts import ExecutionMode, HydraRequest, Message
 from hydra.core.kernel import HydraTaskFailed
 from hydra.core.paths import PathNotAllowed, confine, safe_id
 from hydra.core.task import EventEnvelope, HydraResult, HydraTask
-from hydra.runtime.budgets import BudgetExceeded
+from hydra.core.request_budget import RequestBudgetExceeded as BudgetExceeded
 
 log = logging.getLogger("hydra.api")
 MAX_JOBS = 500
