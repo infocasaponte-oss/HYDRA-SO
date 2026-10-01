@@ -118,6 +118,26 @@ Destino propuesto: `hydra/deploy/`, `hydra/replay/`, `hydra/coding/` y `hydra/mo
 6. **Ninguna importación nueva de `hydra.runtime` desde la plataforma.** Lo vigila un test que
    recorre los imports.
 
+### 2.4 Registros pequeños en `HYDRA_DATA_DIR` (F3e, previo a varias réplicas)
+
+Encontrados al preparar F6: ficheros JSON que cada proceso reescribe enteros (con dos réplicas, el último
+en escribir borra lo del otro). **F3e-1 ✅** los pasa a `hydra.core.docstore` (tabla `hydra_documents`,
+lectura-modificación-escritura con la fila bloqueada) sin cambiar lo que hace ninguno:
+
+| Producto | Registro | Cómo se escribe ahora |
+|---|---|---|
+| Motor | `flags.json`, `glossaries.json`, `model_lifecycle.json` | una clave por escritura sobre la última versión |
+| Motor | `configs/<env>.jsonl` | log de eventos: la versión se numera con el stream bloqueado |
+| Motor | `secrets/secrets.enc`, `policies.json` | documento con el token Fernet (nunca el texto en claro) y otro con las políticas |
+| Motor | `lab.json` | por experimento; las métricas vivas las mide el nodo que sirve el tráfico |
+| Motor | `failure_memory.json` | cada nodo **suma** sus observaciones a los totales guardados |
+| Motor | `edge/applied_deltas.json` | se aplica con el documento bloqueado: un bundle importado por dos nodos aplica cada delta una vez |
+| Fábrica | `models/{artifacts,variants,lineage,jobs}.json`, `models/adapters.json` | una entrada por escritura: API y workers de fábrica comparten el registro |
+
+**F3e-2 (pendiente):** aprendizaje del planificador (`planning/historical.json`, `calibration.json`,
+`procedures.json`, `value.json`), propuestas de mejora (`replay.py`) y resumen de trazas en PostgreSQL.
+`TradeSecretVault` (IP) no se instancia en producción.
+
 ## 4. Fases
 
 | Fase | Contenido | PRs aprox. | Riesgo |

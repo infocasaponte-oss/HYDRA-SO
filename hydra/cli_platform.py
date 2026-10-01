@@ -505,7 +505,7 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
     if cmd == "glossary":
         from hydra.edge.translation import GlossaryStore
 
-        store = GlossaryStore(rt.settings.data_dir / "glossaries.json")
+        store = GlossaryStore(rt.settings.data_dir / "glossaries.json", docs=rt.documents)
         match args.action:
             case "set":
                 _print(store.put(args.name, {k: str(v) for k, v in _kv(args.terms).items()}))
@@ -595,6 +595,7 @@ def run_without_runtime(args, settings) -> int:
         from hydra.governance.recovery import backup
 
         from hydra.core.keystore import KeyStore
+        from hydra.core.docstore import open_document_store
         from hydra.core.eventlog import open_log_space
         from hydra.ledger.pg import open_ledger
 
@@ -603,7 +604,9 @@ def run_without_runtime(args, settings) -> int:
                 open_log_space(settings.world_backend, settings.postgres_url, "world"),
                 open_log_space(settings.ip_backend, settings.postgres_url, "ip"),
                 open_log_space(settings.artifacts_backend, settings.postgres_url, "artifacts"),
-                open_log_space(settings.runtime_backend, settings.postgres_url, "runtime")]
+                open_log_space(settings.runtime_backend, settings.postgres_url, "runtime"),
+                open_log_space(settings.documents_backend, settings.postgres_url, "configs"),
+                open_document_store(settings.documents_backend, settings.postgres_url)]
         _print(backup(settings.data_dir, Path(args.out), include_private_keys=args.include_private_keys,
                       postgres_url=settings.postgres_url or None, ledger=ledger, logs=logs,
                       keystore=KeyStore.from_settings(settings) if args.include_private_keys else None))

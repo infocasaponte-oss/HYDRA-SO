@@ -108,6 +108,7 @@ class HydraRuntime:
     tracer: Any = None
     executor: Any = None
     capture_outbox: Any = None
+    documents: Any = None
     _goal_runner: Any = None
     _bg: list[Any] = field(default_factory=list)
 
@@ -231,7 +232,10 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     # ---- policy, cache, failure memory ---------------------------------------------------
     policy = overrides.get("policy") or PolicyKernel.from_yaml(settings.policy_config)
     cache = SemanticCache(embedder, memory)
-    failures = FailureMemory(settings.data_dir / "failure_memory.json")
+    from hydra.core.docstore import open_document_store
+
+    documents = overrides.get("documents") or open_document_store(settings.documents_backend, settings.postgres_url)
+    failures = FailureMemory(settings.data_dir / "failure_memory.json", docs=documents)
     for et in (EventType.MODEL_COMPLETED, EventType.MODEL_FAILED, EventType.TOOL_COMPLETED, EventType.TOOL_FAILED):
         await bus.subscribe(et, failures.observe)
 
@@ -292,11 +296,12 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     ip = IPRegistry(data / "ip", ledger, logs=open_log_space(settings.ip_backend, settings.postgres_url, "ip"))
     licenses = LicenseEngine.from_yaml(settings.licenses_config)
     workspaces = WorkspaceManager(data / "workspaces")
-    configs = ConfigRegistry(data / "configs", ledger)
-    flags = FeatureFlags(data / "flags.json")
+    configs = ConfigRegistry(data / "configs", ledger,
+                             logs=open_log_space(settings.documents_backend, settings.postgres_url, "configs"))
+    flags = FeatureFlags(data / "flags.json", docs=documents)
     secrets = SecretsBroker(data / "secrets", audit=lambda et, p: ledger.append(et, p, object_type="secret",
                                                                                  object_id=p.get("ref", "")),
-                            keystore=keystore)
+                            keystore=keystore, docs=documents)
     policy_dsl = PolicyEngine.from_yaml(settings.policy_rules_config)
     market = CapabilityMarket()
     executor = ToolExecutor(tools, ToolPolicyEngine(policy), bus, simulator=Simulator(), secrets=secrets,
@@ -416,7 +421,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     market.sync_registry(registry, tools)
 
     evaluator = EvalEngine(providers, sandbox, tools, model_compiler, load_suites(settings.evals_dir))
-    lab = HydraLab(kernel, evaluator, settings.data_dir / "lab.json", bus)
+    lab = HydraLab(kernel, evaluator, settings.data_dir / "lab.json", bus, docs=documents)
 
     monitor = None
     if settings.runtime_monitor and not settings.offline and "registry" not in overrides:
@@ -465,5 +470,6 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.model_factory.service import ModelFactory  # local import: optional heavy subsystem
 
     runtime.factory = ModelFactory.from_settings(settings, registry=registry, evaluator=evaluator,
-                                                 telemetry=telemetry, bus=bus, lab=lab)
+                                                 telemetry=telemetry, bus=bus, lab=lab, docs=documents)
+    runtime.documents = documents
     return runtime

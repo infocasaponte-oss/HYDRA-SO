@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     volume every node mounts) or s3://bucket/prefix (needs the s3 extra; credentials from the AWS variables)."""
     s3_endpoint_url: str = ""
     """HYDRA_S3_ENDPOINT_URL: S3-compatible endpoint (MinIO, Ceph, R2...); empty for AWS S3."""
+    documents_backend: str = "auto"
+    """HYDRA_DOCUMENTS_BACKEND: small shared registries of the engine and the factory (feature flags,
+    config sets, secret vault and policies, lab, glossaries, model lifecycle, factory registry and
+    adapters, failure memory, edge sync state): auto (PostgreSQL table hydra_documents and hydra_logs when
+    HYDRA_POSTGRES_URL is set and psycopg is installed, else their files under HYDRA_DATA_DIR) | file |
+    postgres (required). Existing files are adopted once and kept."""
     key_backend: str = "auto"
     """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
     keys_dir: Path | None = None

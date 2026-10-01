@@ -9,13 +9,13 @@ Nothing is special by name: models are capability vectors with confidence interv
 
 from __future__ import annotations
 
-import json
 import math
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+from hydra.core.docstore import DocumentStore, KeyedModels
 from hydra.core.atomic import write_text_atomic
 from hydra.core.hashing import hash_obj, now_iso
 from hydra.evals.suites import EvalCase
@@ -247,9 +247,13 @@ LIFECYCLE = ["CANDIDATE", "SHADOW", "ACTIVE", "DEPRECATED", "RETIRED", "ARCHIVED
 class ModelLifecycle:
     """Retired models keep weights, benchmarks, lineage, license and traces (reproducibility)."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, docs: DocumentStore | None = None) -> None:
         self.path = path
-        self.state: dict[str, dict[str, Any]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        self._registry = KeyedModels((docs or DocumentStore()).document("model_lifecycle.json", path))
+
+    @property
+    def state(self) -> dict[str, dict[str, Any]]:
+        return self._registry.all()
 
     def status(self, model_id: str) -> str:
         return self.state.get(model_id, {}).get("status", "ACTIVE")
@@ -257,14 +261,17 @@ class ModelLifecycle:
     def transition(self, model_id: str, to: str, reason: str, actor: str = "hydra") -> dict[str, Any]:
         if to not in LIFECYCLE:
             raise ValueError(to)
-        cur = self.state.setdefault(model_id, {"status": "CANDIDATE", "history": []})
-        if LIFECYCLE.index(to) < LIFECYCLE.index(cur["status"]) and not (cur["status"] == "DEPRECATED" and to == "ACTIVE"):
-            raise ValueError(f"invalid transition {cur['status']} -> {to}")
-        cur["history"].append({"from": cur["status"], "to": to, "reason": reason, "by": actor, "at": now_iso()})
-        cur["status"] = to
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_atomic(self.path, json.dumps(self.state, indent=2))
-        return cur
+
+        def apply(current: dict[str, Any] | None) -> dict[str, Any]:
+            cur = current or {"status": "CANDIDATE", "history": []}
+            if LIFECYCLE.index(to) < LIFECYCLE.index(cur["status"]) and not (
+                    cur["status"] == "DEPRECATED" and to == "ACTIVE"):
+                raise ValueError(f"invalid transition {cur['status']} -> {to}")
+            cur["history"].append({"from": cur["status"], "to": to, "reason": reason, "by": actor, "at": now_iso()})
+            cur["status"] = to
+            return cur
+
+        return self._registry.change(model_id, apply)
 
 
 class BenchmarkContract(BaseModel):
