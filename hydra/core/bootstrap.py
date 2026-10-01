@@ -257,7 +257,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.governance.config_registry import ConfigRegistry, FeatureFlags
     from hydra.governance.policy_dsl import PolicyEngine
     from hydra.governance.secrets import SecretsBroker
-    from hydra.ledger.chain import Ledger
+    from hydra.ledger.pg import open_ledger
     from hydra.ledger.ip import IPRegistry
     from hydra.ledger.licenses import LicenseEngine
     from hydra.ledger.signing import Signer
@@ -267,7 +267,8 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
 
     data = settings.data_dir
     signer = overrides.get("signer") or Signer.load_or_create(data / "keys")
-    ledger = Ledger(data / "ledger", signer, anchor_every=settings.ledger_anchor_every)
+    ledger = open_ledger(settings.ledger_backend, data / "ledger", signer, settings.ledger_anchor_every,
+                         settings.postgres_url)
     artifact_store = ArtifactStore(data / "artifacts")
     world = WorldModel(data / "world")
     world_rag = GraphRAG(world)

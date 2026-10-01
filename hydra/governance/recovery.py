@@ -10,6 +10,8 @@ Private keys are excluded unless explicitly requested (they belong in a KMS/HSM)
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import shutil
 import subprocess
@@ -35,15 +37,23 @@ class BackupManifest(BaseModel):
     include_private_keys: bool = False
 
 
-def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, postgres_url: str | None = None
-           ) -> BackupManifest:
+def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, postgres_url: str | None = None,
+           ledger=None) -> BackupManifest:
+    """``ledger``: the node's ledger. A PostgreSQL ledger is exported into the archive as
+    ``data/ledger/events.jsonl`` / ``anchors.jsonl`` (the portable format restore verifies)."""
     out.parent.mkdir(parents=True, exist_ok=True)
     manifest = BackupManifest(source=str(data_dir), include_private_keys=include_private_keys)
     files = [p for p in data_dir.rglob("*") if p.is_file() and p.suffix not in EXCLUDE_ALWAYS
              and (include_private_keys or p.name not in PRIVATE_KEY_NAMES)]
-    ledger = data_dir / "ledger" / "events.jsonl"
-    if ledger.exists():
-        lines = [x for x in ledger.read_text(encoding="utf-8").splitlines() if x.strip()]
+    exported: dict[str, str] = {}
+    if ledger is not None and getattr(ledger, "backend", "file") != "file":
+        exported["ledger/events.jsonl"], exported["ledger/anchors.jsonl"] = ledger.export_jsonl()
+        files = [p for p in files if p.relative_to(data_dir).as_posix() not in exported]
+    ledger_text = exported.get("ledger/events.jsonl")
+    if ledger_text is None and (data_dir / "ledger" / "events.jsonl").exists():
+        ledger_text = (data_dir / "ledger" / "events.jsonl").read_text(encoding="utf-8")
+    if ledger_text is not None:
+        lines = [x for x in ledger_text.splitlines() if x.strip()]
         manifest.ledger_events = len(lines)
         manifest.ledger_head = json.loads(lines[-1]).get("event_hash") if lines else None
     dump_path = None
@@ -55,9 +65,16 @@ def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, pos
             manifest.postgres_dump = dump_path.name
     for p in files:
         manifest.files[p.relative_to(data_dir).as_posix()] = sha256_file(p)
+    for rel, text in exported.items():
+        manifest.files[rel] = hashlib.sha256(text.encode("utf-8")).hexdigest()
     with tarfile.open(out, "w:gz") as tar:
         for p in files:
             tar.add(p, arcname=f"data/{p.relative_to(data_dir).as_posix()}")
+        for rel, text in exported.items():
+            raw = text.encode("utf-8")
+            info = tarfile.TarInfo(f"data/{rel}")
+            info.size = len(raw)
+            tar.addfile(info, io.BytesIO(raw))
         if dump_path is not None and dump_path.exists():
             tar.add(dump_path, arcname=dump_path.name)
         mp = out.with_suffix(".manifest.json")
