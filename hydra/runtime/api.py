@@ -16,7 +16,7 @@ from hydra.artifacts.blobs import open_blobs
 from hydra.core.eventlog import open_log_space
 from hydra.runtime.artifacts import ArtifactStore
 from hydra.runtime.beliefs import BeliefStore
-from hydra.runtime.corpus import CorpusStore
+from hydra.corpus.artifact_candidates import CorpusStore
 from hydra.runtime.bootstrap import bootstrap_runtime
 from hydra.runtime.budgets import BudgetExceeded, RequestBudget
 from hydra.runtime.code_agent import CodeAgent
@@ -36,7 +36,7 @@ from hydra.model_factory.contracts import ModelVariant
 from hydra.model_factory.model_scout import HashCache, scan_models
 from hydra.runtime.observability import CognitiveTracer
 from hydra.runtime.operating_metrics import collect_operating_metrics
-from hydra.runtime.outbox_dispatcher import OutboxDispatcher
+from hydra.core.outbox_dispatcher import OutboxDispatcher
 from hydra.core.outbox_worker import OutboxWorker
 from hydra.runtime.physical_inference import PhysicalInferenceClient
 from hydra.core.durable_events import JsonlEventStore

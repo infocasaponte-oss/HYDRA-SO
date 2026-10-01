@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-from hydra.runtime.corpus import CorpusRecord, CorpusStatus
+from hydra.corpus.artifact_candidates import CorpusRecord, CorpusStatus
 from hydra.core.runtime_paths import runtime_path
 
 

@@ -1,27 +1,9 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from __future__ import annotations
 
-from enum import StrEnum
-
-from pydantic import BaseModel, Field
-
 from hydra.corpus.gates import PrivacyGate
+from hydra.corpus.privacy_contracts import PrivacyScanResult, PrivacyScanStatus
 from hydra.runtime.artifacts import ArtifactRecord, ArtifactStore
-
-
-class PrivacyScanStatus(StrEnum):
-    NOT_SCANNED = "not_scanned"
-    CLEAR = "clear"
-    FLAGGED = "flagged"
-    INCOMPLETE = "incomplete"
-
-
-class PrivacyScanResult(BaseModel):
-    status: PrivacyScanStatus = PrivacyScanStatus.NOT_SCANNED
-    scanner_version: str = "hydra-privacy-v1"
-    finding_types: list[str] = Field(default_factory=list)
-    artifacts_scanned: int = 0
-    bytes_scanned: int = 0
 
 
 _GATE = PrivacyGate(pseudonymize_persons=False)
@@ -106,3 +88,5 @@ class PrivacyScanner:
             artifacts_scanned=scanned,
             bytes_scanned=total,
         )
+
+__all__ = ["PrivacyScanStatus", "PrivacyScanResult", "PrivacyScanner"]

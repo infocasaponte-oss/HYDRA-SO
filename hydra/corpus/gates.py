@@ -130,6 +130,23 @@ class GateDecision(BaseModel):
 class CorpusCurator:
     """incoming -> QUARANTINE -> privacy -> rights -> quality -> dedupe -> contamination -> CURATED/GOLD."""
 
+    @staticmethod
+    def artifact_status(
+        *,
+        rights_confirmed: bool,
+        privacy_reviewed: bool,
+        training_allowed: bool,
+        rights_evidence: bool,
+        privacy_status: str,
+    ) -> str:
+        """Admission for artifact-backed candidates; full text curation is a separate gate."""
+        if privacy_status == "flagged":
+            return "blocked"
+        if (rights_confirmed and privacy_reviewed and training_allowed
+                and rights_evidence and privacy_status == "clear"):
+            return "curated"
+        return "quarantined"
+
     def __init__(self, dedup=None, contamination=None, min_verification: float = 0.9,
                  privacy: PrivacyGate | None = None, rights: RightsGate | None = None) -> None:
         self.privacy = privacy or PrivacyGate()
