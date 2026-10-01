@@ -5,6 +5,21 @@ Data: 2026-10-01 · Base: `integration/hydra-1.0` en `ff20bde` (merge da #62) ·
 Complementa `docs/PLAN_UNIFICACION_LINEAS_2026-10-01.md`: alí está o porqué; aquí está a orde e o
 detalle do que falta.
 
+## Avance (revisado o 2026-10-02)
+
+| Paso | Estado |
+|---|---|
+| P0 1.1 regresión da #63 (repositorios aniñados e `.`) | ✅ #63 (`b48b7ba`: percorre entradas enumeradas polo servidor, rexeita symlinks e junctions) |
+| P0 1.2 alerta 70 de CodeQL | ✅ pechada; 0 alertas abertas en `integration` |
+| P0 1.3 CodeQL en PRs apiladas | ✅ `pull_request` sen filtro de ramas |
+| P0 1.4 auditoría §14 | ✅ esta PR |
+| F4b sandbox de verificación e workspaces | ✅ #63 |
+| F4j despregamentos (`hydra/deploy/`) | ✅ #65–#68 |
+| F4i-1/2 eventos durables, outbox, procedencia e despachador común | ✅ #69, #70 |
+| F4g-1 admisión de artefactos e almacenamento de candidatos do corpus | ⏳ #71 (aberta) |
+| F4c observabilidade | ⏳ esta PR |
+| `hydra/runtime/` | 98 módulos e 5.822 liñas (antes 7.837) |
+
 ## 0. Estado actual (auditado)
 
 | Ámbito | Estado |

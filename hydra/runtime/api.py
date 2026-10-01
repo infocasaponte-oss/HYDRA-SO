@@ -34,6 +34,7 @@ from hydra.runtime.kernel import HydraKernel
 from hydra.runtime.learning_capture import LearningCapture
 from hydra.model_factory.contracts import ModelVariant
 from hydra.model_factory.model_scout import HashCache, scan_models
+from hydra.observability.spans import OtlpSpanExporter
 from hydra.runtime.observability import CognitiveTracer
 from hydra.runtime.operating_metrics import collect_operating_metrics
 from hydra.runtime.outbox_dispatcher import OutboxDispatcher
@@ -116,7 +117,8 @@ if any(LEGACY_OFFSETS[key] in d.metadata for d in deployment_registry.deployment
 capture_uow = runtime_stores.capture_uow
 kernel = HydraKernel(
     capture_uow=capture_uow,
-    tracer=CognitiveTracer(store=runtime_stores.traces),
+    tracer=CognitiveTracer(store=runtime_stores.traces,
+                           exporter=OtlpSpanExporter(settings.otel_endpoint) if settings.otel_endpoint else None),
     events=JsonlEventStore(log=runtime_logs.open(runtime_path("events.jsonl"), JsonlEventStore.STREAM)),
 )
 runtime_health_store = runtime_stores.runtime_health
