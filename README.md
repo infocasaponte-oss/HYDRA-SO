@@ -132,7 +132,8 @@ Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN
   los manifiestos de artefactos (`hydra_logs`); cada nodo reproduce los logs en el mismo orden total.
   También el outbox de captura (`capture_outbox`: cada nodo reclama lo que reintenta, sin duplicados).
   Requiere el extra `postgres`. Los blobs de artefactos van a `HYDRA_ARTIFACT_OBJECTS`: un volumen
-  compartido o un bucket S3/MinIO (extra `s3`). Los manifiestos CLUSTER siguen con una réplica por
+  compartido o un bucket S3/MinIO (extra `s3`); los objetos locales existentes se copian una vez al cambiar.
+  Los manifiestos CLUSTER siguen con una réplica por
   servicio porque la línea runtime (`HYDRA_RUNTIME_DIR`) aún guarda su estado en disco local.
 
 ## Pruebas

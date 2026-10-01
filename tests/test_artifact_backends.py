@@ -169,3 +169,37 @@ def test_real_bucket(tmp_path):
         for obj in s3.list_objects_v2(Bucket=bucket).get("Contents", []):
             s3.delete_object(Bucket=bucket, Key=obj["Key"])
         s3.delete_bucket(Bucket=bucket)
+
+
+def test_switching_to_s3_migrates_existing_objects_once(tmp_path, monkeypatch):
+    local_root = tmp_path / "artifacts" / "objects"
+    before = ArtifactStore(tmp_path / "artifacts")
+    a = before.put("written before the switch")
+    b = before.put("this one gets corrupted")
+    LocalBlobs(local_root).overwrite(b.sha256, b"bit rot")
+    s3 = FakeS3()
+    real_init = S3Blobs.__init__
+    monkeypatch.setattr(S3Blobs, "__init__", lambda self, url, endpoint_url="": real_init(self, url, client=s3))
+    blobs = open_blobs("s3://bucket/cas", local_root)
+    after = ArtifactStore(tmp_path / "artifacts", blobs=blobs)
+    assert after.text(a.artifact_id) == "written before the switch"
+    assert after.verify()["corrupt_or_missing"] == [b.sha256]  # corrupt objects are not copied
+    assert not (local_root / ".migrated-to").exists()  # incomplete: retried on the next start
+    LocalBlobs(local_root).overwrite(b.sha256, b"this one gets corrupted")
+    puts = s3.puts
+    open_blobs("s3://bucket/cas", local_root)
+    assert s3.puts == puts + 1 and (local_root / ".migrated-to").read_text() == "s3://bucket/cas/"
+    open_blobs("s3://bucket/cas", local_root)
+    assert s3.puts == puts + 1  # migrated once
+    assert (local_root / a.sha256[:2] / a.sha256[2:4] / a.sha256).exists()  # local copies kept
+
+
+def test_backups_leave_out_credential_files(tmp_path):
+    data = tmp_path / "data"
+    (data / "secrets").mkdir(parents=True)
+    (data / "secrets" / "minio.env").write_text("MINIO_ROOT_PASSWORD=x", encoding="utf-8")
+    (data / ".env").write_text("A=1", encoding="utf-8")
+    (data / "notes.txt").write_text("kept", encoding="utf-8")
+    assert set(backup(data, tmp_path / "b.tar.gz").files) == {"notes.txt"}
+    assert {"secrets/minio.env", ".env", "notes.txt"} <= set(
+        backup(data, tmp_path / "c.tar.gz", include_private_keys=True).files)
