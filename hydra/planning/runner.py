@@ -92,10 +92,11 @@ class GoalRunner:
         data = runtime.settings.data_dir
         self.checkpoints = data / "goals"
         self.checkpoints.mkdir(parents=True, exist_ok=True)
-        self.historical = HistoricalSimulator(data / "planning" / "historical.json")
-        self.calibration = CalibrationEngine(data / "planning" / "calibration.json")
-        self.procedures = ProcedureStore(data / "planning" / "procedures.json")
-        self.value = ValueModel(data / "planning" / "value.json")
+        docs = getattr(runtime, "documents", None)
+        self.historical = HistoricalSimulator(data / "planning" / "historical.json", docs=docs)
+        self.calibration = CalibrationEngine(data / "planning" / "calibration.json", docs=docs)
+        self.procedures = ProcedureStore(data / "planning" / "procedures.json", docs=docs)
+        self.value = ValueModel(data / "planning" / "value.json", docs=docs)
         self.traces_path = data / "planning" / "traces.jsonl"
         self.gate = ActionGate(audit=self._audit)
         self.sim = SimulatorEnsemble(self.historical, self.calibration, self.gate.risk)

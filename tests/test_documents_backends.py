@@ -190,3 +190,89 @@ def test_document_backend_selection():
     assert open_document_store("auto", "").backend == "file"
     with pytest.raises(ValueError):
         open_document_store("postgres", "")
+
+
+# ------------------------------------------------------------------------------------------ F3e-2
+from types import SimpleNamespace  # noqa: E402
+
+from hydra.planning.procedures import Procedure, ProcedureStore, ValueModel  # noqa: E402
+from hydra.planning.simulator import CalibrationEngine, HistoricalSimulator  # noqa: E402
+from hydra.replay import ImprovementLab  # noqa: E402
+from hydra.runtime.observability import CognitiveTracer  # noqa: E402
+from hydra.runtime.operating_metrics import collect_operating_metrics  # noqa: E402
+from hydra.runtime.pg_stores import open_runtime_stores  # noqa: E402
+from hydra.telemetry.metrics import InferenceRun  # noqa: E402
+
+
+def test_planner_learning_adds_up_across_nodes(pg_url, tmp_path):
+    nodes = [DocumentStore(pg_url) for _ in range(4)]
+    hist = [HistoricalSimulator(tmp_path / f"h{k}.json", docs=d) for k, d in enumerate(nodes)]
+    cal = [CalibrationEngine(tmp_path / f"c{k}.json", docs=d) for k, d in enumerate(nodes)]
+    val = [ValueModel(tmp_path / f"v{k}.json", docs=d) for k, d in enumerate(nodes)]
+
+    def work(k):
+        for i in range(10):
+            hist[k].record("code", "tests.run:all", success=i % 2 == 0, ms=10.0)
+            cal[k].record("rules", "code", predicted=0.8, actual=True)
+            val[k].update({"goal": "fix"}, "code.patch", reward=1.0)
+
+    threads = [threading.Thread(target=work, args=(k,)) for k in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    fresh = DocumentStore(pg_url)
+    stats = HistoricalSimulator(tmp_path / "x.json", docs=fresh).stats["code|tests.run"]
+    assert (stats.n, stats.successes, stats.total_ms) == (40, 20, 400.0)
+    assert len(CalibrationEngine(tmp_path / "y.json", docs=fresh).data["rules|code"]) == 40
+    assert ValueModel(tmp_path / "z.json", docs=fresh).score({"goal": "fix"}, ["code.patch"]) == {"code.patch": (1.0, 40)}
+
+
+def test_procedures_keep_versions_and_statistics_across_nodes(pg_url, tmp_path):
+    a = ProcedureStore(tmp_path / "pa.json", docs=DocumentStore(pg_url))
+    b = ProcedureStore(tmp_path / "pb.json", docs=DocumentStore(pg_url))
+    first = a.add(Procedure(name="p", domain="code", steps=["inspect", "patch"]))
+    second = b.add(Procedure(name="p", domain="code", steps=["inspect", "patch", "test"]))
+    assert second.version == 2 and second.parent == first.id  # b saw a's procedure under the lock
+    for store in (a, b):
+        store.record(first.id, success=True, cost=1.0, duration_ms=100.0)
+    b._doc.refresh_s = 0
+    assert b.items[first.id].executions == 2
+    assert b.advance(first.id).status == "SHADOW"
+
+
+def test_planner_stores_without_a_path_stay_in_memory():
+    sim = HistoricalSimulator()
+    sim.record("code", "verify", success=True, ms=1.0)
+    assert sim.stats["code|verify"].n == 1 and HistoricalSimulator().stats == {}
+
+
+async def test_improvement_ids_are_unique_across_nodes(pg_url, tmp_path):
+    runs = [InferenceRun(task_id=uuid4(), task_type="code", model_id="m", role="critic", latency_ms=100.0,
+                         success=False) for _ in range(30)]
+
+    async def recent_runs():
+        return runs
+
+    def node(k):
+        return SimpleNamespace(settings=SimpleNamespace(data_dir=tmp_path / f"n{k}"), documents=DocumentStore(pg_url),
+                               telemetry=SimpleNamespace(recent_runs=recent_runs))
+
+    first = await ImprovementLab(node(0)).analyze()
+    second = await ImprovementLab(node(1)).analyze()  # sees node 0's proposals: no id is reused
+    ids = [p.id for p in second]
+    assert len(ids) == len(set(ids)) and {p.id for p in first} <= set(ids)
+
+
+def test_operating_metrics_cover_the_whole_cluster(pg_url, tmp_path):
+    nodes = [open_runtime_stores(tmp_path / f"n{k}.db", pg_url) for k in range(2)]
+    for k, stores in enumerate(nodes):
+        tracer = CognitiveTracer(store=stores.traces)
+        for _ in range(3):
+            with tracer.span("routing", trace_id=f"t{k}"):
+                pass
+        with pytest.raises(RuntimeError), tracer.span("inference", trace_id=f"t{k}"):
+            raise RuntimeError("down")
+    metrics = collect_operating_metrics(outbox=nodes[0].capture_uow.outbox, traces=nodes[1].traces)
+    assert metrics.spans_total == 8 and metrics.spans_error == 2
+    assert metrics.spans_by_name == {"inference": 2, "routing": 6}

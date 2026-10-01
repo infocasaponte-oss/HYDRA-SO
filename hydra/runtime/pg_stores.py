@@ -8,7 +8,9 @@ Same interfaces as the SQLite stores, shared by every node:
 * ``PostgresDeploymentEvidenceStore``: evidence accepted at each promotion (``deployment_evidence``);
 * ``PostgresOperatingMetricsStore``: operating metrics snapshots (``operating_metrics``, with the node);
 * ``PostgresRuntimeHealthStore``: circuit breakers per node and variant (``runtime_health``). A node
-  restores its own breakers: the health of a runtime as seen from one node says nothing about another.
+  restores its own breakers: the health of a runtime as seen from one node says nothing about another;
+* ``PostgresTraceStore``: cognitive spans of every node (``runtime_spans``, bounded), so the operating
+  metrics describe the cluster rather than the node that answered the admin request.
 
 ``open_runtime_stores`` picks SQLite or PostgreSQL and, on PostgreSQL, imports an existing
 ``hydra.db`` once (unpublished outbox messages and task commits by id; evidence, metrics and this
@@ -34,6 +36,7 @@ from hydra.runtime.circuit_breaker import CircuitBreaker, CircuitState
 from hydra.runtime.deployment_evidence import CanaryEvidence, ShadowEvidence
 from hydra.runtime.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.runtime.metrics_store import OperatingMetricsStore
+from hydra.runtime.observability import TraceStore
 from hydra.runtime.operating_metrics import OperatingMetrics
 from hydra.runtime.runtime_health_store import RuntimeHealthStore
 
@@ -60,6 +63,12 @@ CREATE TABLE IF NOT EXISTS operating_metrics (
     node        TEXT NOT NULL,
     captured_at TIMESTAMPTZ NOT NULL,
     payload     JSONB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runtime_spans (
+    id          BIGSERIAL PRIMARY KEY,
+    node        TEXT NOT NULL,
+    span        JSONB NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS runtime_health (
     node              TEXT NOT NULL,
@@ -215,6 +224,29 @@ class PostgresRuntimeHealthStore:
         return restored
 
 
+class PostgresTraceStore:
+    """Same interface as ``hydra.runtime.observability.TraceStore``; keeps the last ``max_spans``."""
+
+    def __init__(self, db: _Connections, *, max_spans: int = 50_000, node: str | None = None) -> None:
+        self.db = db
+        self.max_spans = max_spans
+        self.node = node or socket.gethostname()
+        self._appended = 0
+
+    def append(self, span) -> None:
+        body = json.loads(json.dumps(asdict(span), sort_keys=True, default=str))
+        con = self.db.get()
+        con.execute("INSERT INTO runtime_spans (node, span) VALUES (%s, %s)", (self.node, self.db.jsonb(body)))
+        self._appended += 1
+        if self._appended % 1000 == 0:  # bounded history, trimmed now and then rather than per span
+            con.execute("DELETE FROM runtime_spans WHERE id <= "
+                        "(SELECT id FROM runtime_spans ORDER BY id DESC OFFSET %s LIMIT 1)", (self.max_spans,))
+
+    def recent(self, limit: int = 10_000) -> list[dict]:
+        rows = self.db.get().execute("SELECT span FROM runtime_spans ORDER BY id DESC LIMIT %s", (limit,)).fetchall()
+        return [span for (span,) in reversed(rows)]
+
+
 # ------------------------------------------------------------------------------------------ selection
 @dataclass
 class RuntimeStores:
@@ -223,6 +255,7 @@ class RuntimeStores:
     operating_metrics: OperatingMetricsStore | PostgresOperatingMetricsStore
     runtime_health: RuntimeHealthStore | PostgresRuntimeHealthStore
     backend: str = "sqlite"
+    traces: TraceStore | PostgresTraceStore | None = None
 
 
 def open_runtime_stores(runtime_db: str | Path, postgres_url: str = "") -> RuntimeStores:
@@ -230,11 +263,12 @@ def open_runtime_stores(runtime_db: str | Path, postgres_url: str = "") -> Runti
     once if it exists (it is kept as is)."""
     if not postgres_url:
         return RuntimeStores(CaptureUnitOfWork(runtime_db), DeploymentEvidenceStore(runtime_db),
-                             OperatingMetricsStore(runtime_db), RuntimeHealthStore(runtime_db))
+                             OperatingMetricsStore(runtime_db), RuntimeHealthStore(runtime_db), traces=TraceStore())
     db = _Connections(postgres_url)
     outbox = PostgresOutbox(postgres_url, table="runtime_outbox")
     stores = RuntimeStores(PostgresCaptureUnitOfWork(db, outbox), PostgresDeploymentEvidenceStore(db),
-                           PostgresOperatingMetricsStore(db), PostgresRuntimeHealthStore(db), backend="postgres")
+                           PostgresOperatingMetricsStore(db), PostgresRuntimeHealthStore(db), backend="postgres",
+                           traces=PostgresTraceStore(db))
     if Path(runtime_db).is_file():
         imported = import_sqlite(Path(runtime_db), db, outbox, stores.runtime_health.node)
         if any(imported.values()):

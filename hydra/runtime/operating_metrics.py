@@ -1,7 +1,6 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from __future__ import annotations
 
-import json
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,14 +29,16 @@ def collect_operating_metrics(
     trace_path: str | Path = runtime_path("traces.jsonl"),
     deployments: DeploymentRegistry | None = None,
     max_trace_records: int = 10_000,
+    traces=None,
 ) -> OperatingMetrics:
+    """``traces``: a store with ``recent(limit)`` (the kernel's trace store, cluster-wide on PostgreSQL);
+    without it, the spans are read from ``trace_path``."""
     outbox_metrics = collect_outbox_metrics(outbox)
-    path = Path(trace_path)
-    records: list[dict] = []
-    if path.exists():
-        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line]
-        for line in lines[-max_trace_records:]:
-            records.append(json.loads(line))
+    if traces is None:
+        from hydra.runtime.observability import TraceStore
+
+        traces = TraceStore(trace_path)
+    records: list[dict] = traces.recent(max_trace_records)
 
     durations = [
         float(record["duration_ms"])

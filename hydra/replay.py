@@ -164,16 +164,30 @@ class ImprovementLab:
     """Discover weakness -> propose improvement (never apply it): the Autonomous Improvement Laboratory."""
 
     def __init__(self, runtime) -> None:
+        from hydra.core.docstore import DocumentStore
+
         self.rt = runtime
         self.path = runtime.settings.data_dir / "improvements.json"
+        self._doc = (getattr(runtime, "documents", None) or DocumentStore()).document(
+            "improvements.json", self.path, default=list)
 
     def load(self) -> list[ImprovementProposal]:
-        return [ImprovementProposal(**x) for x in json.loads(self.path.read_text())] if self.path.exists() else []
+        return [ImprovementProposal(**x) for x in self._doc.get()]
 
     async def analyze(self) -> list[ImprovementProposal]:
+        """Telemetry is read first; the proposals are then derived on the latest stored list with the
+        document locked, so two nodes analysing at once never mint the same HYDRA-IMP id."""
         runs = await self.rt.telemetry.recent_runs()
-        props = self.load()
-        n0 = len(props)
+        holder: dict[str, list[ImprovementProposal]] = {}
+
+        def apply(rows: list) -> list:
+            holder["props"] = self._propose(runs, [ImprovementProposal(**x) for x in rows])
+            return [p.model_dump() for p in holder["props"]]
+
+        self._doc.update(apply)
+        return holder["props"]
+
+    def _propose(self, runs, props: list[ImprovementProposal]) -> list[ImprovementProposal]:
         by_role: dict[str, float] = {}
         by_model_role: dict[tuple, list] = {}
         for r in runs:
@@ -198,6 +212,4 @@ class ImprovementLab:
                 id=f"HYDRA-IMP-{len(props) + 1:03d}", observation=f"{len(fails) / len(runs):.1%} model calls fail",
                 cluster="reliability", proposal="lower priority of failing models / add fallback variant (quant)",
                 projected={"failure_rate": round(-len(fails) / len(runs) * 0.5, 4)}))
-        if len(props) != n0:
-            self.path.write_text(json.dumps([p.model_dump() for p in props], indent=2), encoding="utf-8")
         return props

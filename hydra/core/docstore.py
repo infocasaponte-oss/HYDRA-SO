@@ -73,9 +73,15 @@ class DocumentStore:
         rows = self.connection().execute("SELECT name, body FROM hydra_documents ORDER BY name").fetchall()
         return {name: json.dumps(body, indent=2, ensure_ascii=False) for name, body in rows}
 
-    def document(self, name: str, path: Path, default: Callable[[], Any] = dict, refresh_s: float = 1.0) -> Document:
-        """``name``: the document's key (also its place in a backup); ``path``: its file."""
-        return Document(self, name, Path(path), default, refresh_s)
+    def document(self, name: str, path: Path | None, default: Callable[[], Any] = dict,
+                 refresh_s: float = 1.0) -> Document:
+        """``name``: the document's key (also its place in a backup); ``path``: its file (None: kept in
+        memory only, as stores without a path always were)."""
+        store = self if path is not None else _MEMORY
+        return Document(store, name, Path(path) if path is not None else None, default, refresh_s)
+
+
+_MEMORY = DocumentStore("")
 
 
 class Document:
@@ -96,17 +102,19 @@ class Document:
 
     # ------------------------------------------------------------------ files
     def _read_file(self) -> Any:
-        if not self.path.is_file():
+        if self.path is None or not self.path.is_file():
             return self.default()
         return json.loads(self.path.read_text(encoding="utf-8"))
 
     def _write_file(self, value: Any) -> None:
+        if self.path is None:
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         write_text_atomic(self.path, json.dumps(value, indent=2, ensure_ascii=False, default=str))
 
     # ------------------------------------------------------------------ PostgreSQL
     def _adopt_file(self) -> None:
-        if not self.path.is_file():
+        if self.path is None or not self.path.is_file():
             return
         cur = self.store.connection().execute(
             "INSERT INTO hydra_documents (name, body, version) VALUES (%s, %s, 1) ON CONFLICT (name) DO NOTHING",

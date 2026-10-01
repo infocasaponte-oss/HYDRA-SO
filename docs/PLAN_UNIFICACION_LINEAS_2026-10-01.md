@@ -62,7 +62,7 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 | `model_factory.jsonl` | `runtime/model_factory.py` | `ModelFactoryLedger` no tiene ningún uso (ni tests); `ModelVariant`/`BuildState` sí (despliegues, `deploy_bridge`). Se decide en F4 con la factoría de la plataforma |
 | `glossaries/` | `runtime/translation.py` | No alcanzable desde el gateway: la plataforma sirve `/v1/translate` y `/v1/glossaries` con su propio almacén. Se retira en F4 |
 | `workspaces/` | `runtime/workspaces.py` | `tools.workspace.WorkspaceManager`, por tarea y efímero, en volumen local por pod (no necesita compartirse) |
-| `traces.jsonl` | `observability.py`, `operating_metrics.py` | OTLP (`HYDRA_OTEL_ENDPOINT`) y métricas en PostgreSQL; el JSONL queda solo para desarrollo |
+| `traces.jsonl` | `observability.py`, `operating_metrics.py` | ✅ F3e-2: con PostgreSQL, tabla `runtime_spans` (todos los nodos, acotada) y las métricas de operación son del clúster; el JSONL queda para el modo fichero. OTLP (`HYDRA_OTEL_ENDPOINT`) sigue disponible si se monta un colector |
 
 ### 2.3 Subsistemas duplicados (de §6 de la auditoría, con decisión)
 
@@ -134,8 +134,11 @@ lectura-modificación-escritura con la fila bloqueada) sin cambiar lo que hace n
 | Motor | `edge/applied_deltas.json` | se aplica con el documento bloqueado: un bundle importado por dos nodos aplica cada delta una vez |
 | Fábrica | `models/{artifacts,variants,lineage,jobs}.json`, `models/adapters.json` | una entrada por escritura: API y workers de fábrica comparten el registro |
 
-**F3e-2 (pendiente):** aprendizaje del planificador (`planning/historical.json`, `calibration.json`,
-`procedures.json`, `value.json`), propuestas de mejora (`replay.py`) y resumen de trazas en PostgreSQL.
+**F3e-2 ✅:** aprendizaje del planificador (`planning/historical.json` y `value.json`: cada nodo suma sus
+ejecuciones y recompensas; `calibration.json`: historial común, últimos 500 por clave; `procedures.json`:
+versiones, estadísticas y promociones sobre la última lista con el documento bloqueado), propuestas de
+mejora (`improvements.json`: los ids `HYDRA-IMP-nnn` se asignan con el documento bloqueado) y trazas del
+runtime en PostgreSQL (`runtime_spans`, acotada): `/hydra/v1/admin/metrics` describe el clúster entero.
 `TradeSecretVault` (IP) no se instancia en producción.
 
 ## 4. Fases
