@@ -35,6 +35,14 @@ class TraceStore:
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(asdict(span), sort_keys=True, default=str) + "\n")
 
+    def recent(self, limit: int = 10_000) -> list[dict]:
+        """The last ``limit`` spans (operating metrics). On PostgreSQL
+        (``hydra.runtime.pg_stores.PostgresTraceStore``) they are the spans of the whole cluster."""
+        if not self.path.exists():
+            return []
+        lines = [line for line in self.path.read_text(encoding="utf-8").splitlines() if line]
+        return [json.loads(line) for line in lines[-limit:]]
+
 
 class CognitiveTracer:
     def __init__(self, store: TraceStore | None = None):

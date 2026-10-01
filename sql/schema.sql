@@ -222,6 +222,12 @@ CREATE TABLE IF NOT EXISTS operating_metrics (
     captured_at TIMESTAMPTZ NOT NULL,
     payload     JSONB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS runtime_spans (
+    id          BIGSERIAL PRIMARY KEY,
+    node        TEXT NOT NULL,
+    span        JSONB NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS runtime_health (
     node              TEXT NOT NULL,
     variant_id        TEXT NOT NULL,

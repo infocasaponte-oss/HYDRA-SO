@@ -34,6 +34,7 @@ from hydra.runtime.kernel import HydraKernel
 from hydra.runtime.learning_capture import LearningCapture
 from hydra.runtime.model_factory import ModelVariant
 from hydra.runtime.model_scout import HashCache, scan_models
+from hydra.runtime.observability import CognitiveTracer
 from hydra.runtime.operating_metrics import collect_operating_metrics
 from hydra.runtime.outbox_dispatcher import OutboxDispatcher
 from hydra.runtime.outbox_worker import OutboxWorker
@@ -114,6 +115,7 @@ if any(LEGACY_OFFSETS[key] in d.metadata for d in deployment_registry.deployment
 capture_uow = runtime_stores.capture_uow
 kernel = HydraKernel(
     capture_uow=capture_uow,
+    tracer=CognitiveTracer(store=runtime_stores.traces),
     events=JsonlEventStore(log=runtime_logs.open(runtime_path("events.jsonl"), JsonlEventStore.STREAM)),
 )
 runtime_health_store = runtime_stores.runtime_health
@@ -386,7 +388,7 @@ async def admin_metrics(request: Request) -> dict:
     )
     metrics = collect_operating_metrics(
         outbox=capture_uow.outbox,
-        trace_path=kernel.tracer.store.path,
+        traces=kernel.tracer.store,
         deployments=deployment_registry,
     )
     snapshot_id = operating_metrics_store.append(metrics)

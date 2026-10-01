@@ -10,11 +10,10 @@ planner/simulator (System 2). There is always a heuristic fallback."""
 
 from __future__ import annotations
 
-import json
 import math
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -118,56 +117,80 @@ class ProcedureMiner:
 
 
 class ProcedureStore:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.items: dict[str, Procedure] = {}
-        if path.exists():
-            for p in json.loads(path.read_text(encoding="utf-8")):
-                proc = Procedure(**p)
-                self.items[proc.id] = proc
+    """Learned procedures in the ``planning/procedures.json`` document (``hydra.core.docstore``). Every
+    change is applied to the latest list with the document locked: versions, statistics and promotions
+    made on other nodes are never overwritten."""
 
-    def _save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps([p.model_dump(mode="json") for p in self.items.values()], indent=2),
-                             encoding="utf-8")
+    def __init__(self, path: Path, docs=None) -> None:
+        from hydra.core.docstore import DocumentStore
+
+        self.path = path
+        self._doc = (docs or DocumentStore()).document("planning/procedures.json", path, default=list)
+        self._raw = None
+        self._items: dict[str, Procedure] = {}
+
+    @property
+    def items(self) -> dict[str, Procedure]:
+        raw = self._doc.get()
+        if raw is not self._raw:
+            self._items = {p["id"]: Procedure(**p) for p in raw}
+            self._raw = raw
+        return self._items
+
+    def _change(self, fn: Callable[[dict[str, Procedure]], Procedure]) -> Procedure:
+        holder = {}
+
+        def apply(rows: list) -> list:
+            items = {p["id"]: Procedure(**p) for p in rows}
+            holder["p"] = fn(items)
+            return [p.model_dump(mode="json") for p in items.values()]
+
+        self._doc.update(apply)
+        return holder["p"]
 
     def add(self, proc: Procedure) -> Procedure:
-        same = [p for p in self.items.values() if p.domain == proc.domain and p.steps == proc.steps]
-        if same:
-            return same[0]
-        prev = [p for p in self.items.values() if p.domain == proc.domain]
-        if prev:
-            proc.version = max(p.version for p in prev) + 1
-            proc.parent = max(prev, key=lambda p: p.version).id
-        self.items[proc.id] = proc
-        self._save()
-        return proc
+        def apply(items: dict[str, Procedure]) -> Procedure:
+            same = [p for p in items.values() if p.domain == proc.domain and p.steps == proc.steps]
+            if same:
+                return same[0]
+            prev = [p for p in items.values() if p.domain == proc.domain]
+            if prev:
+                proc.version = max(p.version for p in prev) + 1
+                proc.parent = max(prev, key=lambda p: p.version).id
+            items[proc.id] = proc
+            return proc
+
+        return self._change(apply)
 
     def record(self, proc_id: str, success: bool, cost: float, duration_ms: float) -> Procedure:
-        p = self.items[proc_id]
-        n = p.executions
-        p.avg_cost = (p.avg_cost * n + cost) / (n + 1)
-        p.avg_duration_ms = (p.avg_duration_ms * n + duration_ms) / (n + 1)
-        p.executions += 1
-        p.successes += int(success)
-        self._save()
-        return p
+        def apply(items: dict[str, Procedure]) -> Procedure:
+            p = items[proc_id]
+            n = p.executions
+            p.avg_cost = (p.avg_cost * n + cost) / (n + 1)
+            p.avg_duration_ms = (p.avg_duration_ms * n + duration_ms) / (n + 1)
+            p.executions += 1
+            p.successes += int(success)
+            return p
+
+        return self._change(apply)
 
     def advance(self, proc_id: str, min_executions: int = 5, min_success: float = 0.8) -> Procedure:
         """CANDIDATE -> SHADOW -> CANARY -> ACTIVE only with evidence."""
-        p = self.items[proc_id]
-        i = STAGES.index(p.status)
-        if p.status in ("ACTIVE", "DEPRECATED", "RETIRED"):
+        def apply(items: dict[str, Procedure]) -> Procedure:
+            p = items[proc_id]
+            i = STAGES.index(p.status)
+            if p.status in ("ACTIVE", "DEPRECATED", "RETIRED"):
+                return p
+            if p.status != "CANDIDATE" and (p.executions < min_executions or p.success_rate < min_success):
+                return p
+            p.status = STAGES[i + 1]
+            if p.status == "ACTIVE":
+                for other in items.values():
+                    if other.domain == p.domain and other.id != p.id and other.status == "ACTIVE":
+                        other.status = "DEPRECATED"
             return p
-        if p.status != "CANDIDATE" and (p.executions < min_executions or p.success_rate < min_success):
-            return p
-        p.status = STAGES[i + 1]
-        if p.status == "ACTIVE":
-            for other in self.items.values():
-                if other.domain == p.domain and other.id != p.id and other.status == "ACTIVE":
-                    other.status = "DEPRECATED"
-        self._save()
-        return p
+
+        return self._change(apply)
 
     def best(self, domain: str, statuses: tuple[str, ...] = ("ACTIVE", "CANARY")) -> Procedure | None:
         cands = [p for p in self.items.values() if p.domain == domain and p.status in statuses]
@@ -185,23 +208,29 @@ class ValueModel:
     """Tabular action-value model Q(state_key, action) with visit counts (HYDRA-Value-1B's
     data source; a small trained model can replace it behind ``score``)."""
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, docs=None) -> None:
+        from hydra.core.docstore import DocumentStore, KeyedModels
+
         self.path = path
-        self.q: dict[str, dict[str, list[float]]] = {}
-        if path and path.exists():
-            self.q = json.loads(path.read_text())
+        self._registry = KeyedModels((docs or DocumentStore()).document("planning/value.json", path))
+
+    @property
+    def q(self) -> dict[str, dict[str, list[float]]]:
+        """Q(state, action) as [total reward, visits]; every node adds its rewards to the shared totals."""
+        return self._registry.all()
 
     @staticmethod
     def state_key(state: dict[str, Any]) -> str:
         return "|".join(f"{k}={state[k]}" for k in sorted(state) if isinstance(state[k], (str, int, bool)))
 
     def update(self, state: dict[str, Any], action: str, reward: float) -> None:
-        s = self.q.setdefault(self.state_key(state), {})
-        total, n = s.get(action, [0.0, 0])
-        s[action] = [total + reward, n + 1]
-        if self.path:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self.q))
+        def add(s: dict | None) -> dict:
+            s = dict(s or {})
+            total, n = s.get(action, [0.0, 0])
+            s[action] = [total + reward, n + 1]
+            return s
+
+        self._registry.change(self.state_key(state), add)
 
     def score(self, state: dict[str, Any], actions: list[str]) -> dict[str, tuple[float, int]]:
         s = self.q.get(self.state_key(state), {})
