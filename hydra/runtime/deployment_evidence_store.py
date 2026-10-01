@@ -8,10 +8,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from hydra.runtime.deployment_evidence import CanaryEvidence, ShadowEvidence
+from hydra.runtime.paths import runtime_path
 
 
 class DeploymentEvidenceStore:
-    def __init__(self, path: str | Path = "runtime/hydra.db"):
+    def __init__(self, path: str | Path = runtime_path("hydra.db")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()

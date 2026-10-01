@@ -3,9 +3,9 @@ name: CodeQL
 
 on:
   push:
-    branches: [main]
+    branches: [main, "integration/**"]
   pull_request:
-    branches: [main]
+    branches: [main, "integration/**"]
   schedule:
     - cron: "23 4 * * 1"
 

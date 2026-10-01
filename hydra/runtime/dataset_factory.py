@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from hydra.runtime.corpus import CorpusRecord, CorpusStatus
+from hydra.runtime.paths import runtime_path
 
 
 class DatasetManifest(BaseModel):
@@ -22,7 +23,7 @@ class DatasetManifest(BaseModel):
 
 
 class DatasetFactory:
-    def __init__(self, root: str | Path = "runtime/datasets"):
+    def __init__(self, root: str | Path = runtime_path("datasets")):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

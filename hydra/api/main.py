@@ -6,10 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
-import ipaddress
 import json
-import secrets
 import time
 from contextlib import asynccontextmanager
 from typing import Any
@@ -20,18 +17,22 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 import hydra
+from hydra.api.evaluation_routes import register as register_evaluation_routes
 from hydra.api.os_routes import register_os_routes
 from hydra.api.platform_routes import register_platform_routes
 from hydra.api.runtime_routes import register_runtime_routes, runtime_lifespan
+from hydra.api.security import authenticate, authorize_admin
+from hydra.api.web_routes import register_web_routes
 from hydra.blackboard.projector import replay
 from hydra.core.bootstrap import HydraRuntime, build_runtime
 from hydra.core.config import Settings
 from hydra.core.contracts import ExecutionMode, HydraRequest, HydraResponse, Message, TaskType
 from hydra.core.events import HydraEvent
 from hydra.core.kernel import HydraTaskFailed
+from hydra.governance.rate_limit import SlidingWindowRateLimiter
 from hydra.memory.graph import MemoryGraph
 from hydra.memory.models import MemoryStatus, MemoryType
-from hydra.governance.rate_limit import SlidingWindowRateLimiter
+
 
 class Feedback(BaseModel):
     score: float = Field(ge=0, le=1)
@@ -77,6 +78,8 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.state.rate_limiter = rate_limiter  # shared with the WebSocket endpoint
+
     def rt(request: Request) -> HydraRuntime:
         return request.app.state.runtime
 
@@ -84,26 +87,17 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
                    authorization: str | None = Header(default=None),
                    x_api_key: str | None = Header(default=None),
                    x_hydra_token: str | None = Header(default=None)) -> str:
-        if not settings.api_key:
-            host = request.client.host if request.client else ""
-            local = host in {"localhost", "testclient"}
-            if not local:
-                try:
-                    local = ipaddress.ip_address(host).is_loopback
-                except ValueError:
-                    local = False
-            if not local:
-                raise HTTPException(503, "API key is not configured for remote access")
-            return f"local:{host}"
         token = x_api_key or x_hydra_token or (authorization or "").removeprefix("Bearer ").strip()
-        if not secrets.compare_digest(token or "", settings.api_key):
-            raise HTTPException(401, "invalid API key")
-        return "api:" + hashlib.sha256(token.encode()).hexdigest()
+        return authenticate(settings, request.client.host if request.client else "", token)
 
     async def throttle(identity: str = Depends(auth)) -> None:
         rate_limiter.check(identity, settings.api_rate_limit_per_minute, 60.0)
 
+    async def admin(request: Request, x_hydra_admin_token: str | None = Header(default=None)) -> str:
+        return authorize_admin(settings, request.client.host if request.client else "", x_hydra_admin_token)
+
     secured = [Depends(throttle)]
+    admin_secured = [Depends(throttle), Depends(admin)]
 
     # ---------------------------------------------------------------- health
     @app.get("/health")
@@ -300,11 +294,9 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
             "hydra": result.meta.model_dump(mode="json"),
         }
 
-    register_os_routes(app, rt, secured)
-    register_platform_routes(app, rt, secured)
-    from hydra.api.web_routes import register_web_routes
+    register_os_routes(app, rt, secured, admin_secured)
+    register_platform_routes(app, rt, secured, admin_secured)
     register_web_routes(app, rt, secured)
-    from hydra.api.evaluation_routes import register as register_evaluation_routes
     register_evaluation_routes(app, secured, settings.evaluation_candidate_version)
     if settings.runtime_api:  # after platform routes: they win on (path, method) collisions
         app.state.runtime_routes = register_runtime_routes(app)

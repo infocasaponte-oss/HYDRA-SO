@@ -18,6 +18,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 import hydra
+from hydra.core.atomic import write_text_atomic
 from hydra.core.hashing import canonical_json, now_iso, sha256_file, sha256_hex
 from hydra.ledger.bom import cyclonedx, sbom
 from hydra.ledger.chain import Ledger, LedgerEventType
@@ -218,9 +219,9 @@ def promote(path: Path, to_env: str, gates: dict[str, bool], signer: Signer, led
         raise PermissionError(f"gates not passed: {failed}")
     manifest.promotions.append({"from": manifest.environment, "to": to_env, "at": now_iso(), "gates": gates})
     manifest.environment = to_env
-    state_path.write_text(json.dumps({"environment": to_env, "history": manifest.promotions,
-                                      "signature": signer.envelope(sha256_hex(canonical_json(
-                                          manifest.promotions)))}, indent=2), encoding="utf-8")
+    write_text_atomic(state_path, json.dumps({"environment": to_env, "history": manifest.promotions,
+                                              "signature": signer.envelope(sha256_hex(canonical_json(
+                                                  manifest.promotions)))}, indent=2))
     if ledger is not None:
         ledger.append(LedgerEventType.RELEASE_APPROVED, {"release": manifest.release, "environment": to_env,
                                                          "gates": gates}, object_type="release",

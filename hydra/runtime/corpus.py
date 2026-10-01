@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.runtime.paths import runtime_path
 from hydra.runtime.privacy import PrivacyScanResult, PrivacyScanStatus
 
 
@@ -97,7 +98,7 @@ class CorpusIndex:
 
 
 class CorpusStore:
-    def __init__(self, path: str | Path = "runtime/corpus.jsonl"):
+    def __init__(self, path: str | Path = runtime_path("corpus.jsonl")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 

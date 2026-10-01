@@ -7,6 +7,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.runtime.paths import runtime_path
+
 
 class BeliefStatus(StrEnum):
     HYPOTHESIS = "hypothesis"
@@ -33,7 +35,7 @@ class Belief(BaseModel):
 
 
 class BeliefStore:
-    def __init__(self, path: str | Path = "runtime/beliefs.jsonl"):
+    def __init__(self, path: str | Path = runtime_path("beliefs.jsonl")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 

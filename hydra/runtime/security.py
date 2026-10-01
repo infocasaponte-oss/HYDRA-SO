@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, Request, status
 
-_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+from hydra.api.security import is_loopback
 
 
 @dataclass(frozen=True)
@@ -25,7 +25,7 @@ def _provided_token(request: Request) -> str | None:
 
 def _local_request(request: Request) -> bool:
     client = request.client
-    return client is not None and client.host in _LOCAL_HOSTS
+    return client is not None and is_loopback(client.host)
 
 
 def _matches(provided: str | None, expected: str | None) -> bool:
@@ -53,7 +53,8 @@ def require_api_access(request: Request, config: SecurityConfig) -> str:
 
 
 def require_admin_access(request: Request, config: SecurityConfig) -> str:
-    provided = _provided_token(request)
+    # X-Hydra-Admin-Token is the gateway-wide admin header; the generic headers stay accepted.
+    provided = request.headers.get("x-hydra-admin-token") or _provided_token(request)
     if not config.admin_token:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

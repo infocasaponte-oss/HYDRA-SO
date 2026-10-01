@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     llamacpp_base_url: str = "http://localhost:8081/v1"
     cloud_base_url: str = "https://api.openai.com/v1"
     cloud_api_key: str = ""
-    internal_api_key: str = "internal"
+    internal_api_key: str = ""
+    """Bearer token for internal OpenAI-compatible runtimes (vLLM/llama.cpp). Empty -> no header."""
 
     # Use deterministic offline models (no runtime needed). Great for dev/tests.
     offline: bool = False
@@ -76,6 +77,12 @@ class Settings(BaseSettings):
     # Gateway protection. Empty -> no auth (development).
     api_key: str = Field(default="", validation_alias=AliasChoices("api_key", "HYDRA_API_KEY", "HYDRA_API_TOKEN"))
     """Gateway token (HYDRA_API_KEY, or HYDRA_API_TOKEN as used by the runtime line)."""
+    admin_token: str = ""
+    """HYDRA_ADMIN_TOKEN: required (header ``X-Hydra-Admin-Token``) by routes that change governance,
+    IP, corpus approval, releases, models or sync state. Empty -> those routes accept loopback only."""
+    sync_trusted_keys_dir: Path | None = None
+    """Directory with ``*.pub.pem`` keys trusted for edge sync imports (default: <data_dir>/keys/trusted).
+    This node's own public key is always trusted; clients can never supply keys."""
     api_rate_limit_per_minute: int = 60
     """Per-client limit for authenticated API routes. Set <= 0 to disable."""
 

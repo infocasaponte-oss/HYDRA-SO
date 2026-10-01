@@ -29,3 +29,11 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+
+  - package-ecosystem: "npm"
+    directory: "/sdk/typescript"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"

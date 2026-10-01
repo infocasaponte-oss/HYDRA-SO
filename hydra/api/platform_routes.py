@@ -9,14 +9,16 @@ import asyncio
 import json
 import logging
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
-from pydantic import AliasChoices, BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from hydra.api.security import authenticate, authorize_admin, websocket_token
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message
 from hydra.core.kernel import HydraTaskFailed
 from hydra.core.paths import PathNotAllowed, confine, safe_id
@@ -24,15 +26,25 @@ from hydra.core.task import EventEnvelope, HydraResult, HydraTask
 from hydra.runtime.budgets import BudgetExceeded
 
 log = logging.getLogger("hydra.api")
+MAX_JOBS = 500
+# The Studio keeps the API key in the browser: it may only talk to this origin, never be framed.
+STUDIO_HEADERS = {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+                               "img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; "
+                               "base-uri 'none'; form-action 'self'; object-src 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
 
 
 # ------------------------------------------------------------------------------ bodies
 class GoalBody(BaseModel):
-    goal: str
+    goal: str = Field(min_length=1, max_length=20_000)
     workspace: str | None = None
     mode: str = "balanced"
-    authorized: list[str] = Field(default_factory=list)
-    max_seconds: float = 600
+    authorized: list[str] = Field(default_factory=list, max_length=64)
+    """Capabilities/action ids explicitly authorized for this goal (requires the admin token)."""
+    max_seconds: float = Field(default=600, gt=0, le=3600)
 
 
 class ResponsesBody(BaseModel):
@@ -188,8 +200,8 @@ class AutobuildBody(BaseModel):
 
 
 class SyncImportBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")  # trust is server configuration, never request data
     bundle: dict[str, Any]
-    trusted_keys: list[str] = Field(default_factory=list)
 
 
 class FederatedCountBody(BaseModel):
@@ -203,8 +215,10 @@ class TrainingBody(BaseModel):
     dataset: dict[str, Any] | None = None
 
 
-def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 - route table
-    jobs: dict[str, dict[str, Any]] = {}
+def register_platform_routes(app: FastAPI, rt, secured, admin_secured=None) -> None:  # noqa: C901 - route table
+    admin_secured = admin_secured if admin_secured is not None else secured
+    jobs: OrderedDict[str, dict[str, Any]] = OrderedDict()
+    running: set[asyncio.Task] = set()
 
     def _spawn(kind: str, coro) -> dict[str, Any]:
         jid = f"{kind}-{uuid4().hex[:8]}"
@@ -217,7 +231,14 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
                     res.model_dump(mode="json") if hasattr(res, "model_dump") else res, default=str)))
             except Exception as exc:
                 jobs[jid].update(status="failed", error=f"{type(exc).__name__}: {exc}"[:500])
-        asyncio.get_running_loop().create_task(run())
+        while len(jobs) > MAX_JOBS:  # bounded history: drop the oldest finished jobs first
+            oldest = next((k for k, v in jobs.items() if v["status"] != "running"), None)
+            if oldest is None:
+                break
+            jobs.pop(oldest)
+        task = asyncio.get_running_loop().create_task(run())
+        running.add(task)  # keep a reference: the event loop only holds weak references to tasks
+        task.add_done_callback(running.discard)
         return jobs[jid]
 
     @app.get("/hydra/v1/jobs/{job_id}", dependencies=secured)
@@ -251,6 +272,11 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     @app.post("/hydra/v1/goals", dependencies=secured)
     async def run_goal(body: GoalBody, request: Request):
         runtime = rt(request)
+        if body.authorized:
+            # Explicit authorizations unlock high-risk actions: they are an operator decision,
+            # never something the requester grants to itself with the ordinary API key.
+            authorize_admin(runtime.settings, request.client.host if request.client else "",
+                            request.headers.get("x-hydra-admin-token"))
         ws = None
         if body.workspace:
             try:  # clients name a repository below HYDRA_REPOSITORIES_ROOT, never a host path
@@ -273,17 +299,35 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     @app.websocket("/v1/ws/tasks")
     async def ws_tasks(websocket: WebSocket):
         runtime = websocket.app.state.runtime
-        key = runtime.settings.api_key
-        token = websocket.headers.get("x-api-key") or websocket.query_params.get("api_key", "")
-        if key and token != key:
+        protocols = [p.strip() for p in websocket.headers.get("sec-websocket-protocol", "").split(",") if p.strip()]
+        try:  # same policy as HTTP: key required, or loopback-only when no key is configured
+            identity = authenticate(runtime.settings, websocket.client.host if websocket.client else "",
+                                    websocket_token(websocket.headers, protocols))
+        except HTTPException:
             await websocket.close(code=4401)
             return
-        await websocket.accept()
+        await websocket.accept(subprotocol="hydra.v1" if "hydra.v1" in protocols else None)
         listeners = websocket.app.state.listeners
+        limiter = getattr(websocket.app.state, "rate_limiter", None)
         try:
             while True:
                 data = await websocket.receive_json()
-                task = HydraTask.model_validate(data)
+                if limiter is not None:
+                    try:
+                        limiter.check(identity, runtime.settings.api_rate_limit_per_minute, 60.0)
+                    except HTTPException as exc:
+                        await websocket.send_json({"type": "error", "kind": "rate_limit", "error": str(exc.detail)})
+                        continue
+                try:
+                    task = HydraTask.model_validate(data)
+                except ValueError as exc:
+                    await websocket.send_json({"type": "error", "kind": "invalid_request", "error": str(exc)[:500]})
+                    continue
+                tenant = task.security_context.tenant_id
+                ok, why = runtime.tenants.check(tenant) if tenant else (True, "")
+                if not ok:
+                    await websocket.send_json({"type": "error", "kind": "forbidden", "error": why})
+                    continue
                 q: asyncio.Queue = asyncio.Queue()
                 listeners.queues[task.id] = q
                 run = asyncio.create_task(runtime.lab.serve(task.to_request(), task_id=task.id))
@@ -317,9 +361,17 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
             for m in body.input]
         if body.instructions:
             msgs.insert(0, Message(role="system", content=body.instructions))
-        mode = {"hydra-fast": ExecutionMode.FAST, "hydra-deep": ExecutionMode.DEEP,
-                "hydra-max": ExecutionMode.MAX, "hydra-private": ExecutionMode.PRIVATE}.get(body.model, ExecutionMode.BALANCED)
-        resp = await rt(request).lab.serve(HydraRequest(messages=msgs, mode=mode))
+        try:  # same model naming as /v1/chat/completions: hydra, hydra-fast, hydra-deep, hydra-max, hydra-private
+            mode = ExecutionMode(body.model.removeprefix("hydra").strip("-") or "balanced")
+        except ValueError:
+            raise HTTPException(400, f"unknown model '{body.model}'; use hydra, hydra-fast, hydra-deep, "
+                                     "hydra-max or hydra-private") from None
+        try:
+            resp = await rt(request).lab.serve(HydraRequest(messages=msgs, mode=mode))
+        except HydraTaskFailed as exc:
+            code = 503 if exc.kind in ("unavailable", "rate_limit", "timeout") else 502
+            raise HTTPException(code, {"task_id": str(exc.task_id), "kind": exc.kind,
+                                       "error": exc.public_message()}) from exc
         return {"id": f"resp_{resp.meta.task_id.replace('-', '')}", "object": "response", "created_at": int(time.time()),
                 "model": body.model, "status": "completed",
                 "output": [{"type": "message", "id": f"msg_{uuid4().hex[:16]}", "role": "assistant", "status": "completed",
@@ -378,7 +430,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     async def conflicts(request: Request):
         return [[b.model_dump() for b in g] for g in rt(request).world.conflicts()]
 
-    @app.post("/hydra/v1/world/beliefs/{belief_id}/confirm", dependencies=secured)
+    @app.post("/hydra/v1/world/beliefs/{belief_id}/confirm", dependencies=admin_secured)
     async def confirm_belief(belief_id: str, request: Request, correct: bool = True, by: str = "human"):
         w = rt(request).world
         if belief_id not in w.beliefs:
@@ -439,12 +491,12 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
             raise HTTPException(404, "unknown record")
         return r.model_dump(mode="json")
 
-    @app.post("/hydra/v1/corpus/records/{record_id}/review", dependencies=secured)
+    @app.post("/hydra/v1/corpus/records/{record_id}/review", dependencies=admin_secured)
     async def corpus_review(record_id: str, body: ReviewBody, request: Request):
         return rt(request).corpus.review(record_id, body.approve, body.reviewer, body.training_allowed).model_dump(
             mode="json")
 
-    @app.post("/hydra/v1/corpus/records/{record_id}/tombstone", dependencies=secured)
+    @app.post("/hydra/v1/corpus/records/{record_id}/tombstone", dependencies=admin_secured)
     async def corpus_tombstone(record_id: str, body: ReasonBody, request: Request):
         return rt(request).corpus.tombstone(record_id, body.reason).model_dump()
 
@@ -454,7 +506,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         return {"ancestors": [e.model_dump() for e in c.ancestors(node_id)],
                 "descendants": [e.model_dump() for e in c.descendants(node_id)]}
 
-    @app.post("/hydra/v1/datasets/build", dependencies=secured)
+    @app.post("/hydra/v1/datasets/build", dependencies=admin_secured)
     async def dataset_build(spec: dict, request: Request):
         from hydra.corpus.factory import DatasetSpec
 
@@ -489,7 +541,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         evs = lg.for_object(object_type, object_id) if object_type and object_id else list(lg.events(event_type))
         return [e.model_dump() for e in evs[-limit:]]
 
-    @app.post("/hydra/v1/ip/inventions", dependencies=secured)
+    @app.post("/hydra/v1/ip/inventions", dependencies=admin_secured)
     async def propose_invention(body: InventionBody, request: Request):
         return rt(request).ip.propose(body.title, problem=body.problem, solution=body.solution,
                                       mechanism=body.mechanism, previous_approach=body.previous_approach,
@@ -502,13 +554,13 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         return {"portfolio": ip.portfolio(), "inventions": [i.model_dump(mode="json") for i in ip.inventions.values()],
                 "overlaps": ip.overlaps()}
 
-    @app.post("/hydra/v1/ip/inventions/{inv}/status", dependencies=secured)
+    @app.post("/hydra/v1/ip/inventions/{inv}/status", dependencies=admin_secured)
     async def invention_status(inv: str, body: StatusBody, request: Request):
         from hydra.ledger.ip import InventionStatus
 
         return rt(request).ip.set_status(inv, InventionStatus(body.status), body.actor, body.reason).model_dump(mode="json")
 
-    @app.post("/hydra/v1/ip/inventions/{inv}/effects", dependencies=secured)
+    @app.post("/hydra/v1/ip/inventions/{inv}/effects", dependencies=admin_secured)
     async def invention_effect(inv: str, body: EffectBody, request: Request):
         from hydra.ledger.ip import TechnicalEffect
 
@@ -518,7 +570,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     async def invention_timeline(inv: str, request: Request):
         return rt(request).ip.timeline(inv)
 
-    @app.post("/hydra/v1/ip/inventions/{inv}/bundle", dependencies=secured)
+    @app.post("/hydra/v1/ip/inventions/{inv}/bundle", dependencies=admin_secured)
     async def invention_bundle(inv: str, request: Request):
         from hydra.ledger.ip import export_bundle
 
@@ -548,7 +600,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         return cyclonedx(datasets=[data_bom_from_release(r) for r in runtime.datasets.releases()],
                          packages=installed_package_licenses())
 
-    @app.post("/hydra/v1/releases/build", dependencies=secured)
+    @app.post("/hydra/v1/releases/build", dependencies=admin_secured)
     async def release_build(body: ReleaseBody, request: Request):
         from hydra.ledger.release import ReleaseBuilder, verify_release
 
@@ -617,7 +669,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
             return {"profile": prof.model_dump(mode="json"), "applied": applied}
         return _spawn("discover", work())
 
-    @app.post("/hydra/v1/models/{model_id:path}/lifecycle", dependencies=secured)
+    @app.post("/hydra/v1/models/{model_id:path}/lifecycle", dependencies=admin_secured)
     async def model_lifecycle(model_id: str, body: LifecycleBody, request: Request):
         from hydra.discovery import ModelLifecycle
 
@@ -629,7 +681,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         return st
 
     # ================================================================== cluster / fabric
-    @app.post("/v1/cluster/heartbeat", dependencies=secured)
+    @app.post("/v1/cluster/heartbeat", dependencies=admin_secured)
     async def heartbeat(node: dict, request: Request):
         from hydra.cluster.nodes import HardwareNode
 
@@ -681,7 +733,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
 
         return [r.model_dump(mode="json") for r in TrainingOrchestrator(rt(request)).runs.values()]
 
-    @app.post("/hydra/v1/training/runs", dependencies=secured, status_code=202)
+    @app.post("/hydra/v1/training/runs", dependencies=admin_secured, status_code=202)
     async def training_start(body: TrainingBody, request: Request):
         from hydra.corpus.factory import DatasetSpec
         from hydra.training.lab import TrainingOrchestrator, TrainingRecipe
@@ -728,18 +780,24 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     async def flags(request: Request):
         return rt(request).flags.snapshot()
 
-    @app.post("/hydra/v1/flags/{name}", dependencies=secured)
+    @app.post("/hydra/v1/flags/{name}", dependencies=admin_secured)
     async def set_flag(name: str, body: FlagBody, request: Request):
         return rt(request).flags.set(name, body.value, body.description).model_dump()
 
     @app.get("/hydra/v1/config/{env}", dependencies=secured)
     async def config_get(env: str, request: Request):
-        c = rt(request).configs.current(env)
+        try:
+            c = rt(request).configs.current(env)
+        except PathNotAllowed as exc:
+            raise HTTPException(400, str(exc)) from exc
         return c.model_dump() if c else {}
 
-    @app.post("/hydra/v1/config/{env}", dependencies=secured)
+    @app.post("/hydra/v1/config/{env}", dependencies=admin_secured)
     async def config_commit(env: str, body: ConfigBody, request: Request):
-        return rt(request).configs.commit(env, body.values, body.author, body.message).model_dump()
+        try:
+            return rt(request).configs.commit(env, body.values, body.author, body.message).model_dump()
+        except PathNotAllowed as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.get("/hydra/v1/policy/rules", dependencies=secured)
     async def policy_rules(request: Request):
@@ -754,7 +812,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
     async def secrets(request: Request):
         return {"refs": rt(request).secrets.refs()}  # references only, never values
 
-    @app.post("/hydra/v1/redteam/run", dependencies=secured)
+    @app.post("/hydra/v1/redteam/run", dependencies=admin_secured)
     async def redteam(request: Request):
         from hydra.governance.redteam import RedTeam
 
@@ -880,7 +938,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
                                                      Path("models")], p)
         return {"profile": p.profile, "models": [m.model_dump() for m in found], "recommendation": best_fit(found)}
 
-    @app.post("/hydra/v1/edge/autobuild", dependencies=secured, status_code=202)
+    @app.post("/hydra/v1/edge/autobuild", dependencies=admin_secured, status_code=202)
     async def edge_autobuild(body: AutobuildBody, request: Request):
         from hydra.edge.autobuild import apply_manifest, autobuild, save_manifest
 
@@ -902,7 +960,7 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
         rm = ResidencyManager(runtime.registry, runtime.settings.ollama_base_url)
         return (await rm.ensure(model_id)).model_dump()
 
-    @app.post("/hydra/v1/edge/sync/export", dependencies=secured)
+    @app.post("/hydra/v1/edge/sync/export", dependencies=admin_secured)
     async def sync_export(request: Request, world_version: int = 0, corpus_offset: int = 0, origin: str = ""):
         from hydra.edge.sync import SyncCursor, export_delta
 
@@ -911,15 +969,14 @@ def register_platform_routes(app: FastAPI, rt, secured) -> None:  # noqa: C901 -
                          origin or runtime.settings.node_id or "edge")
         return b.model_dump()
 
-    @app.post("/hydra/v1/edge/sync/import", dependencies=secured)
+    @app.post("/hydra/v1/edge/sync/import", dependencies=admin_secured)
     async def sync_import(body: SyncImportBody, request: Request):
-        from hydra.edge.sync import SyncBundle, import_delta
+        from hydra.edge.sync import SyncBundle, import_delta, trusted_sync_keys
 
         runtime = rt(request)
-        keys = set(body.trusted_keys) or {runtime.signer.public_pem}
-        return import_delta(runtime, SyncBundle.model_validate(body.bundle), keys).model_dump()
+        return import_delta(runtime, SyncBundle.model_validate(body.bundle), trusted_sync_keys(runtime)).model_dump()
 
     # ================================================================== studio
     @app.get("/studio", response_class=HTMLResponse)
     async def studio():
-        return HTMLResponse((Path(__file__).parent / "studio.html").read_text(encoding="utf-8"))
+        return HTMLResponse((Path(__file__).parent / "studio.html").read_text(encoding="utf-8"), headers=STUDIO_HEADERS)

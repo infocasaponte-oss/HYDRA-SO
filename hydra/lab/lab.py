@@ -19,6 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_text_atomic
 from hydra.core.contracts import HydraRequest, HydraResponse
 from hydra.core.events import EventType, HydraEvent
 
@@ -279,8 +280,8 @@ class HydraLab:
         if self.path is None:
             return
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({k: e.model_dump(mode="json") for k, e in self.experiments.items()},
-                                        indent=1), encoding="utf-8")
+        write_text_atomic(self.path, json.dumps({k: e.model_dump(mode="json") for k, e in self.experiments.items()},
+                                                indent=1))
 
     def _load(self) -> None:
         if self.path is None or not self.path.exists():

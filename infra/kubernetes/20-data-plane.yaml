@@ -1,19 +1,31 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-# DATA PLANE: fabric workers (leases/idempotency), Model Factory worker, GPU inference (vLLM).
+# DATA PLANE: fabric worker (leases/idempotency), Model Factory worker, GPU inference (vLLM).
+# Workers share the SQLite-backed /data volume with hydra-api: one replica each, same node.
 apiVersion: apps/v1
 kind: Deployment
 metadata: {name: hydra-fabric-worker, namespace: hydra}
 spec:
-  replicas: 3
+  replicas: 1
   selector: {matchLabels: {app: hydra-fabric-worker}}
   template:
     metadata: {labels: {app: hydra-fabric-worker}}
     spec:
+      securityContext: {fsGroup: 10001}
+      affinity:  # share the node (and the ReadWriteOnce volume) with hydra-api
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: {matchLabels: {app: hydra-api}}
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: worker
           image: hydra-engine:1.1.0
+          command: ["hydra"]
           args: ["worker", "--capability", "inference", "reasoning", "coding"]
           envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
+          env: [{name: HYDRA_RUNTIME_MONITOR, value: "false"}]
+          resources: {requests: {cpu: 500m, memory: 1Gi}, limits: {cpu: "2", memory: 4Gi}}
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false,
+                            capabilities: {drop: [ALL]}}
           volumeMounts: [{name: data, mountPath: /data}]
       volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
 ---
@@ -26,11 +38,22 @@ spec:
   template:
     metadata: {labels: {app: hydra-factory}}
     spec:
+      securityContext: {fsGroup: 10001}
+      affinity:  # share the node (and the ReadWriteOnce volume) with hydra-api
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: {matchLabels: {app: hydra-api}}
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: factory
           image: hydra-engine:1.1.0
+          command: ["hydra"]
           args: ["factory", "worker"]
           envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
+          env: [{name: HYDRA_RUNTIME_MONITOR, value: "false"}]
+          resources: {requests: {cpu: "1", memory: 2Gi}, limits: {cpu: "8", memory: 32Gi}}
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false,
+                            capabilities: {drop: [ALL]}}
           volumeMounts: [{name: data, mountPath: /data}]
       volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
 ---
@@ -48,10 +71,22 @@ spec:
       nodeSelector: {nvidia.com/gpu.present: "true"}
       containers:
         - name: vllm
-          image: vllm/vllm-openai:latest
+          # Same digest as docker-compose.yml (Dependabot keeps both in step).
+          image: vllm/vllm-openai:latest@sha256:8a69ffad015f138d7170c4ddc429e230a3bc1c1719f67e14324749df200a4b90
           args: ["--model", "Qwen/Qwen3-32B-FP8", "--tensor-parallel-size", "2", "--enable-prefix-caching"]
+          env:
+            - name: HUGGING_FACE_HUB_TOKEN
+              valueFrom: {secretKeyRef: {name: hydra-secrets, key: HF_TOKEN, optional: true}}
           ports: [{containerPort: 8000}]
+          readinessProbe: {httpGet: {path: /health, port: 8000}, periodSeconds: 15}
           resources: {limits: {nvidia.com/gpu: 2}}
+          volumeMounts: [{name: hf-cache, mountPath: /root/.cache/huggingface}]
+      volumes: [{name: hf-cache, persistentVolumeClaim: {claimName: huggingface-cache}}]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: huggingface-cache, namespace: hydra}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 200Gi}}}
 ---
 apiVersion: v1
 kind: Service

@@ -9,6 +9,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from hydra.runtime.paths import runtime_path
+
 
 class ReplayManifest(BaseModel):
     task_id: UUID
@@ -30,7 +32,7 @@ class ReplayManifest(BaseModel):
 
 
 class ReplayStore:
-    def __init__(self, root: str | Path = "runtime/replay"):
+    def __init__(self, root: str | Path = runtime_path("replay")):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

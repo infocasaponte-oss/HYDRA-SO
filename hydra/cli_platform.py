@@ -213,6 +213,9 @@ def add_platform_parsers(sub) -> None:
     sy.add_argument("--origin", default="")
     sy.add_argument("--world-version", type=int, default=0)
     sy.add_argument("--corpus-offset", type=int, default=0)
+    sy.add_argument("--trust-key", action="append", default=[], metavar="PUB_PEM",
+                    help="extra public key file trusted for this import (operator decision; "
+                         "the node key and <data_dir>/keys/trusted/*.pub.pem are always trusted)")
 
 
 def argparse_remainder():
@@ -330,8 +333,13 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
                 _print(rt.datasets.verify_release(args.target))
         return 0
     if cmd == "train":
-        from hydra.training.lab import (SpecialistDiscovery, TrainingOrchestrator, TrainingRecipe,
-                                        meta_learning_dashboard, traces_from_tasks)
+        from hydra.training.lab import (
+            SpecialistDiscovery,
+            TrainingOrchestrator,
+            TrainingRecipe,
+            meta_learning_dashboard,
+            traces_from_tasks,
+        )
 
         match args.action:
             case "run":
@@ -351,8 +359,7 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
                 _print(meta_learning_dashboard(await rt.telemetry.recent_runs(), rt.registry))
         return 0
     if cmd == "ip":
-        from hydra.ledger.ip import (InventionStatus, PriorArtReference, PriorArtSearch, TechnicalEffect,
-                                     export_bundle)
+        from hydra.ledger.ip import InventionStatus, PriorArtReference, PriorArtSearch, TechnicalEffect, export_bundle
 
         t = args.target
         match args.action:
@@ -567,7 +574,7 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
                 _print(rt.configs.rollback(args.env, args.version, "cli"))
         return 0
     if cmd == "sync":
-        from hydra.edge.sync import SyncBundle, SyncCursor, export_delta, import_delta, save_bundle
+        from hydra.edge.sync import SyncBundle, SyncCursor, export_delta, import_delta, save_bundle, trusted_sync_keys
 
         if args.action == "export":
             b = export_delta(rt, SyncCursor(world_version=args.world_version, corpus_offset=args.corpus_offset),
@@ -575,8 +582,9 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
             print(save_bundle(b, Path(args.file)))
         else:
             b = SyncBundle.model_validate_json(Path(args.file).read_text(encoding="utf-8"))
-            _print(import_delta(rt, b, {rt.signer.public_pem, b.signature.get("public_key", "")}
-                                if b.signature else {rt.signer.public_pem}))
+            # Never trust the key embedded in the bundle itself: a self-signed bundle proves nothing.
+            keys = trusted_sync_keys(rt) | {Path(k).read_text(encoding="utf-8") for k in args.trust_key}
+            _print(import_delta(rt, b, keys))
         return 0
     raise SystemExit(f"unknown command {cmd}")
 

@@ -9,6 +9,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from hydra.runtime.benchmarking import BenchmarkResult
+from hydra.runtime.paths import runtime_path
 
 
 class OptimizationReport(BaseModel):
@@ -23,7 +24,7 @@ class OptimizationReport(BaseModel):
 
 
 class OptimizationReportStore:
-    def __init__(self, root: str | Path = "runtime/optimization"):
+    def __init__(self, root: str | Path = runtime_path("optimization")):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

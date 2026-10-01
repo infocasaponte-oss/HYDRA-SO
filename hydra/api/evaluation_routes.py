@@ -3,16 +3,19 @@
 import asyncio
 import json
 from pathlib import Path
+from typing import Literal
 
 from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-from typing import Literal
 
-from hydra.training.verified_corpus import sha256
 from hydra.training.evidence_io import write_json
+from hydra.training.verified_corpus import sha256
 
-ROOT = Path(__file__).resolve().parents[2]
+_SOURCE_ROOT = Path(__file__).resolve().parents[2]
+# Source checkout -> repository root. Installed package (wheel/Docker) -> working directory, where
+# data/, docs/evidence and runtime/ live; never site-packages.
+ROOT = _SOURCE_ROOT if (_SOURCE_ROOT / "pyproject.toml").is_file() else Path.cwd()
 DATA = ROOT / "data/external-evaluation-v2"
 ANSWERS = ROOT / "docs/evidence/external-evaluation-v5.json"
 REVIEWS = ROOT / "runtime/external-evaluation-v5-reviews.json"
@@ -34,6 +37,8 @@ class Authorship(BaseModel):
 
 
 def cases():
+    if not (DATA/"manifest.json").is_file() or not (DATA/"cases.json").is_file():
+        raise HTTPException(404,"El conjunto de evaluación externa no está instalado en este nodo")
     manifest=json.loads((DATA/"manifest.json").read_text(encoding="utf-8"))
     if sha256(DATA/"cases.json") != manifest["cases_sha256"]:
         raise HTTPException(409,"El test congelado ha cambiado")
@@ -47,7 +52,9 @@ def register(app,secured,candidate_version=5):
     reviews_path=REVIEWS if candidate_version==5 else ROOT/f"runtime/external-evaluation-v{candidate_version}-reviews.json"
     @app.get("/hydra/v1/evaluation/review",response_class=HTMLResponse)
     async def page():
-        return HTMLResponse((Path(__file__).with_name("evaluation_review.html")).read_text(encoding="utf-8"))
+        from hydra.api.platform_routes import STUDIO_HEADERS
+        return HTMLResponse((Path(__file__).with_name("evaluation_review.html")).read_text(encoding="utf-8"),
+                            headers=STUDIO_HEADERS)
 
     @app.get("/hydra/v1/evaluation/cases",dependencies=secured)
     async def get_cases():

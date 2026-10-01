@@ -1,15 +1,23 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from __future__ import annotations
 
-import pytest
+import os
+import tempfile
 
-from hydra.core.bootstrap import build_runtime
-from hydra.core.config import Settings
-from hydra.providers.mock import MockProvider
-from hydra.registry.circuit_breaker import CircuitBreaker
-from hydra.registry.models import Capabilities, ModelProfile
-from hydra.registry.registry import ModelRegistry
-from hydra.tools.sandbox import SubprocessSandbox
+# The HYDRA-SO runtime line keeps process-wide state under HYDRA_RUNTIME_DIR (./runtime by
+# default). Tests get a private directory so they never touch, or race on, the developer's state.
+# It must be set before any hydra.runtime module is imported.
+os.environ.setdefault("HYDRA_RUNTIME_DIR", tempfile.mkdtemp(prefix="hydra-runtime-tests-"))
+
+import pytest  # noqa: E402
+
+from hydra.core.bootstrap import build_runtime  # noqa: E402
+from hydra.core.config import Settings  # noqa: E402
+from hydra.providers.mock import MockProvider  # noqa: E402
+from hydra.registry.circuit_breaker import CircuitBreaker  # noqa: E402
+from hydra.registry.models import Capabilities, ModelProfile  # noqa: E402
+from hydra.registry.registry import ModelRegistry  # noqa: E402
+from hydra.tools.sandbox import SubprocessSandbox  # noqa: E402
 
 
 def model(id: str, tier: int = 2, local: bool = True, coding: float = 0.7, reasoning: float = 0.7,
@@ -54,3 +62,20 @@ async def runtime(settings, mock):
     )
     yield rt
     await rt.close()
+
+
+@pytest.fixture(autouse=True)
+def isolated_runtime_models(tmp_path_factory, monkeypatch):
+    """The runtime line inventories ``HYDRA_MODELS_DIR`` (./models by default), hashing every GGUF.
+    Tests must never read the developer's real models (tens of GB): point it at an empty directory."""
+    import sys
+    from dataclasses import replace
+
+    api = sys.modules.get("hydra.runtime.api")
+    if api is None:  # not imported by this test: nothing to isolate
+        return
+    from hydra.runtime.model_scout import HashCache
+
+    models = tmp_path_factory.mktemp("models")
+    monkeypatch.setattr(api, "settings", replace(api.settings, models_dir=str(models)))
+    monkeypatch.setattr(api, "model_hash_cache", HashCache())

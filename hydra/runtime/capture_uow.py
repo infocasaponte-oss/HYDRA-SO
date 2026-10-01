@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from hydra.runtime.outbox import TransactionalOutbox
+from hydra.runtime.paths import runtime_path
 
 
 @dataclass(frozen=True)
@@ -21,7 +22,7 @@ class TaskCommit:
 
 
 class CaptureUnitOfWork:
-    def __init__(self, path: str | Path = "runtime/hydra.db"):
+    def __init__(self, path: str | Path = runtime_path("hydra.db")):
         self.outbox = TransactionalOutbox(path)
         self._init_schema()
 

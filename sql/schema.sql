@@ -72,7 +72,11 @@ CREATE TABLE IF NOT EXISTS model_metrics (
 
 
 -- =====================================================================================
--- HYDRA 1.0 planes (multi-node deployments; the local file stores are the default).
+-- HYDRA 1.0 planes: RESERVED SCHEMA, NOT WIRED YET.
+-- As of 1.1 the ledger, IP registry, artifacts, corpus and World Model persist ONLY in the local
+-- file stores under HYDRA_DATA_DIR; no code reads or writes the tables below. They document the
+-- target multi-node layout (docs/AUDITORIA_INTEGRAL_REPO_2026-10-01.md, section 5). Do not rely
+-- on them for audit or recovery until a PostgreSQL repository is implemented for each plane.
 -- =====================================================================================
 
 -- Append-only, hash-chained, signed provenance / IP ledger.

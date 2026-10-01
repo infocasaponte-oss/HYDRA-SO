@@ -1,19 +1,10 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-"""Atomic local evidence writes with bounded retries for transient Windows reader locks."""
+"""Atomic local evidence writes (unique temporary file, fsync, bounded retries on Windows locks)."""
 import json
-import time
 from pathlib import Path
 
+from hydra.core.atomic import write_text_atomic
 
-def write_json(path:Path,data:dict):
-    path.parent.mkdir(parents=True,exist_ok=True)
-    temporary=path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding="utf-8")
-    for attempt in range(8):
-        try:
-            temporary.replace(path)
-            return
-        except PermissionError:
-            if attempt==7:
-                raise
-            time.sleep(.025*(attempt+1))
+
+def write_json(path: Path, data: dict):
+    write_text_atomic(path, json.dumps(data, ensure_ascii=False, indent=2))

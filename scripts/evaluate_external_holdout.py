@@ -9,20 +9,7 @@ import httpx
 from hydra.training.evaluate_corpus import candidate_hash, model_identity
 from hydra.training.verified_corpus import sha256
 from hydra.training.evidence_io import write_json
-
-
-def matching_json(actual, expected):
-    if isinstance(expected,bool) or isinstance(actual,bool):
-        return type(actual) is type(expected) and actual == expected
-    if isinstance(expected,(int,float)) and isinstance(actual,(int,float)):
-        return actual == expected
-    if type(actual) is not type(expected):
-        return False
-    if isinstance(expected,dict):
-        return actual.keys()==expected.keys() and all(matching_json(actual[k],v) for k,v in expected.items())
-    if isinstance(expected,list):
-        return len(actual)==len(expected) and all(matching_json(a,b) for a,b in zip(actual,expected))
-    return actual==expected
+from hydra.training.json_match import matching_json
 
 
 def automatic_match(text,expected):

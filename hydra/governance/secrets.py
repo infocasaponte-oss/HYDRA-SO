@@ -19,6 +19,8 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_bytes_atomic, write_text_atomic
+
 REF = re.compile(r"secret://([\w.-]+)/([\w.-]+)")
 
 
@@ -60,10 +62,10 @@ class SecretsBroker:
     def put(self, ref: str, value: str, policy: CredentialPolicy | None = None) -> None:
         data = self._load()
         data[ref] = value
-        self.store.write_bytes(self.fernet.encrypt(json.dumps(data).encode()))
+        write_bytes_atomic(self.store, self.fernet.encrypt(json.dumps(data).encode()))
         if policy:
             self.policies[ref] = policy
-            (self.root / "policies.json").write_text(json.dumps([p.model_dump() for p in self.policies.values()]))
+            write_text_atomic(self.root / "policies.json", json.dumps([p.model_dump() for p in self.policies.values()]))
 
     def refs(self) -> list[str]:
         env = [f"secret://{k[13:].lower().replace('_', '/', 1)}" for k in os.environ if k.startswith("HYDRA_SECRET_")]

@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from hydra.runtime.hash_chain import canonical_hash, lock_for
+from hydra.runtime.paths import runtime_path
 
 
 class ProvenanceRecord(BaseModel):
@@ -35,7 +36,7 @@ def _record_body(record: ProvenanceRecord) -> dict:
 
 
 class ProvenanceLedger:
-    def __init__(self, path: str | Path = "runtime/provenance.jsonl"):
+    def __init__(self, path: str | Path = runtime_path("provenance.jsonl")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = lock_for(self.path)

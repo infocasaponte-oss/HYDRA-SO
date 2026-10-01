@@ -19,7 +19,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -45,7 +45,7 @@
       },
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -58,13 +58,6 @@
           "refId": "A"
         }
       ]
-    }
-  ],
-  "__inputs": [
-    {
-      "name": "DS_PROMETHEUS",
-      "type": "datasource",
-      "pluginId": "prometheus"
     }
   ],
   "description": "Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved."

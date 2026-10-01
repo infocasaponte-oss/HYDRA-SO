@@ -13,13 +13,13 @@ data:
   HYDRA_NATS_URL: nats://nats.hydra.svc:4222
   HYDRA_REDIS_URL: redis://redis.hydra.svc:6379/0
   HYDRA_VLLM_BASE_URL: http://vllm-reasoner.hydra.svc:8000/v1
-  HYDRA_OTEL_ENDPOINT: http://otel-collector.observability.svc:4318
+  # Empty = in-process spans only. Point it at your OTLP collector (e.g. http://otel-collector.observability.svc:4318).
+  HYDRA_OTEL_ENDPOINT: ""
+  # Pods have no Docker daemon. Code execution needs an external sandbox controller
+  # (DOCKER_HOST=tcp://<socket-proxy>:2375 in the hydra-secrets Secret); without it sandboxed tools fail closed.
   HYDRA_SANDBOX_BACKEND: docker
----
-apiVersion: v1
-kind: Secret
-metadata: {name: hydra-secrets, namespace: hydra}
-type: Opaque
-stringData:
-  HYDRA_API_KEY: change-me
-  HYDRA_POSTGRES_URL: postgresql://hydra:change-me@postgres.hydra.svc:5432/hydra
+  HYDRA_RUNTIME_DB: /data/runtime/hydra.db
+  HYDRA_DEPLOYMENTS_FILE: /data/runtime/deployments.json
+# Secrets are NOT versioned. Create them out of band, e.g.:
+#   kubectl -n hydra create secret generic hydra-secrets #     --from-literal=HYDRA_API_KEY=... --from-literal=HYDRA_ADMIN_TOKEN=... #     --from-literal=HYDRA_POSTGRES_URL=postgresql://hydra:...@postgres.hydra.svc:5432/hydra
+#   kubectl -n hydra create secret generic hydra-postgres --from-literal=POSTGRES_PASSWORD=...

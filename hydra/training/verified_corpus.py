@@ -61,7 +61,8 @@ def build(output: Path, per_family: int = 32) -> dict:
                 exec(compile(code, "<trusted-curriculum>", "exec"), scope)
                 inputs = [-10, 0, 1, n, n+1, 2*n] if arg == "x" else [[], [n], [n, n, 0], [-10, 0, n, n+1]]
                 cases = [{"input": x, "expected": oracle(x,n,k)} for x in inputs]
-                assert all(scope["solve"](c["input"]) == c["expected"] for c in cases)
+                if not all(scope["solve"](c["input"]) == c["expected"] for c in cases):
+                    raise ValueError(f"template {family}-{i} disagrees with its oracle")
                 rows.append({"id": f"{family}-{i}", "family": family,
                              "messages": [{"role":"system","content":SYSTEM},
                                           {"role":"user","content":prompt},

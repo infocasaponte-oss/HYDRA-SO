@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -39,9 +42,50 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+class HashCache:
+    """SHA-256 of model files keyed by (path, size, mtime_ns), optionally persisted as JSON.
+
+    Inventory listings hash multi-GB GGUF files; without a cache every request re-read tens of
+    gigabytes. Deployment validation never uses the cache (it must read the bytes it promotes)."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+        self._entries: dict[str, dict] = {}
+        if path is not None and path.is_file():
+            try:
+                self._entries = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                self._entries = {}
+
+    def sha256(self, file: Path) -> str:
+        stat = file.stat()
+        key = str(file)
+        entry = self._entries.get(key)
+        if entry and entry.get("size") == stat.st_size and entry.get("mtime_ns") == stat.st_mtime_ns:
+            return entry["sha256"]
+        digest = _sha256(file)
+        with self._lock:
+            self._entries[key] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "sha256": digest}
+            self._save()
+        return digest
+
+    def _save(self) -> None:
+        if self.path is None:
+            return
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_name(f".{self.path.name}.{os.getpid()}.tmp")
+            tmp.write_text(json.dumps(self._entries, indent=1), encoding="utf-8")
+            os.replace(tmp, self.path)
+        except OSError:
+            pass  # the cache is an optimisation; hashing still answers correctly without it
+
+
 def inspect_model_artifact(
     models_root: str | Path,
     artifact_path: str | Path,
+    hash_cache: HashCache | None = None,
 ) -> ModelArtifact:
     root = Path(models_root).resolve()
     raw = Path(artifact_path)
@@ -80,7 +124,7 @@ def inspect_model_artifact(
         name=resolved.name,
         path=str(resolved.relative_to(root)),
         size_bytes=resolved.stat().st_size,
-        sha256=_sha256(resolved),
+        sha256=hash_cache.sha256(resolved) if hash_cache is not None else _sha256(resolved),
         gguf_valid=metadata is not None,
         gguf_version=metadata.version if metadata else None,
         tensor_count=metadata.tensor_count if metadata else None,
@@ -98,14 +142,14 @@ def inspect_model_artifact(
     )
 
 
-def scan_models(models_root: str | Path) -> list[ModelArtifact]:
+def scan_models(models_root: str | Path, hash_cache: HashCache | None = None) -> list[ModelArtifact]:
     root = Path(models_root).resolve()
     if not root.exists():
         return []
     artifacts = []
     for path in sorted(root.rglob("*.gguf")):
         try:
-            artifact = inspect_model_artifact(root, path)
+            artifact = inspect_model_artifact(root, path, hash_cache)
         except (FileNotFoundError, ValueError):
             continue
         artifacts.append(artifact)

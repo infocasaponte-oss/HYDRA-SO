@@ -71,9 +71,12 @@ export class HydraClient {
 
   /** Streams structured events (task.created, route.selected, model.completed, ...) then the result. */
   streamTask(goal: string, onEvent: (e: HydraEventEnvelope) => void, mode: Mode = "balanced"): Promise<HydraResult> {
-    const url = this.baseUrl.replace(/^http/, "ws") + "/v1/ws/tasks" + (this.apiKey ? `?api_key=${encodeURIComponent(this.apiKey)}` : "");
+    const url = this.baseUrl.replace(/^http/, "ws") + "/v1/ws/tasks";
+    // Browsers cannot set WebSocket headers and query strings end up in logs: the key travels as a
+    // subprotocol ("hydra.token.<key>"; keys must be RFC 7230 token characters).
+    const protocols = this.apiKey ? ["hydra.v1", `hydra.token.${this.apiKey}`] : ["hydra.v1"];
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(url, protocols);
       ws.onopen = () => ws.send(JSON.stringify({ goal, mode }));
       ws.onmessage = (m) => {
         const d = JSON.parse(String(m.data));

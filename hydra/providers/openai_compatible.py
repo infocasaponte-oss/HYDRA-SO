@@ -24,10 +24,10 @@ def to_openai_message(m: dict) -> dict:
 
 
 class OpenAICompatibleProvider(ModelProvider):
-    def __init__(self, base_url: str, api_key: str = "internal", timeout_s: float = 120) -> None:
+    def __init__(self, base_url: str, api_key: str = "", timeout_s: float = 120) -> None:
         self.client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
             timeout=timeout_s,
         )
 

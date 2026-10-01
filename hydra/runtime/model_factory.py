@@ -9,6 +9,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.runtime.paths import runtime_path
+
 
 class BuildState(StrEnum):
     SOURCE = "source"
@@ -40,7 +42,7 @@ class ModelVariant(BaseModel):
 
 
 class ModelFactoryLedger:
-    def __init__(self, path: str | Path = "runtime/model_factory.jsonl"):
+    def __init__(self, path: str | Path = runtime_path("model_factory.jsonl")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 

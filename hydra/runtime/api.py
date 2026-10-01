@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -29,7 +30,7 @@ from hydra.runtime.kernel import HydraKernel
 from hydra.runtime.learning_capture import LearningCapture
 from hydra.runtime.metrics_store import OperatingMetricsStore
 from hydra.runtime.model_factory import ModelVariant
-from hydra.runtime.model_scout import scan_models
+from hydra.runtime.model_scout import HashCache, scan_models
 from hydra.runtime.operating_metrics import collect_operating_metrics
 from hydra.runtime.outbox_dispatcher import OutboxDispatcher
 from hydra.runtime.outbox_worker import OutboxWorker
@@ -60,6 +61,7 @@ budget = RequestBudget(
     settings.max_translation_chunks,
 )
 glossaries = GlossaryStore()
+model_hash_cache = HashCache(Path(settings.runtime_db).parent / "model-hashes.json")
 translations = TranslationService(llm, budget, glossaries)
 artifacts = ArtifactStore()
 provenance = ProvenanceLedger()
@@ -259,7 +261,8 @@ async def put_glossary(
 async def models(request: Request) -> dict:
     identity = require_api_access(request, security_config)
     rate_limiter.check(f"models:{identity}", api_rate_limit)
-    artifacts = scan_models(settings.models_dir)
+    # Hashing multi-GB GGUF files is blocking I/O: keep it off the event loop and cached.
+    artifacts = await asyncio.to_thread(scan_models, settings.models_dir, model_hash_cache)
     return {"count": len(artifacts), "models": [item.as_dict() for item in artifacts]}
 
 

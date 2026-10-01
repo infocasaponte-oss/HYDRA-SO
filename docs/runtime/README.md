@@ -63,4 +63,4 @@ pytest -q
 
 La primera rama de desarrollo construirá **HYDRA Runtime v0.3.1 (Audit Hardening)** y posteriormente el Cognitive Kernel.
 
-Consulta `docs/ROADMAP.md` y `docs/ARCHITECTURE.md`.
+Consulta [ROADMAP.md](ROADMAP.md) y [ARCHITECTURE.md](ARCHITECTURE.md).

@@ -6,11 +6,12 @@ import json
 import re
 import unicodedata
 from collections import Counter, defaultdict
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 
-from hydra.training.verified_corpus import sha256
 from hydra.training.evidence_io import write_json
+from hydra.training.json_match import matching_json
+from hydra.training.verified_corpus import sha256
 
 
 def read_cases(path: Path) -> list[dict]:
@@ -43,7 +44,6 @@ def score(row: dict, output: str) -> bool | None:
     if row.get("subtype") == "lista_n":
         return None  # a list of fruits requires content review, not just bullet counting
     if row.get("subtype") == "json":
-        from scripts.evaluate_external_holdout import matching_json
         try:
             return matching_json(json.loads(output.strip()), json.loads(ref))
         except (ValueError, TypeError):

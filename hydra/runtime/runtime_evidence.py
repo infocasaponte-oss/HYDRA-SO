@@ -7,6 +7,8 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from hydra.runtime.paths import runtime_path
+
 
 @dataclass(frozen=True)
 class RuntimeEvidence:
@@ -21,7 +23,7 @@ class RuntimeEvidence:
 
 
 class RuntimeEvidenceStore:
-    def __init__(self, path: str | Path = "runtime/runtime-evidence.jsonl"):
+    def __init__(self, path: str | Path = runtime_path("runtime-evidence.jsonl")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
