@@ -1,77 +1,9 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+"""Re-export (F4c): spans recorded around runtime steps live in ``hydra.observability.spans``
+(``SpanRecorder``, kept here under its former name ``CognitiveTracer``)."""
 from __future__ import annotations
 
-import json
-from collections.abc import Iterator
-from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
-from pathlib import Path
-from time import perf_counter
-from uuid import UUID, uuid4
+from hydra.observability.spans import CognitiveSpan, TraceStore
+from hydra.observability.spans import SpanRecorder as CognitiveTracer
 
-from hydra.core.runtime_paths import runtime_path
-
-
-@dataclass
-class CognitiveSpan:
-    span_id: UUID = field(default_factory=uuid4)
-    trace_id: str = ""
-    task_id: UUID | None = None
-    name: str = ""
-    started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    duration_ms: float | None = None
-    status: str = "in_progress"
-    error_type: str | None = None
-    attributes: dict = field(default_factory=dict)
-
-
-class TraceStore:
-    def __init__(self, path: str | Path = runtime_path("traces.jsonl")):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-
-    def append(self, span: CognitiveSpan) -> None:
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(asdict(span), sort_keys=True, default=str) + "\n")
-
-    def recent(self, limit: int = 10_000) -> list[dict]:
-        """The last ``limit`` spans (operating metrics). On PostgreSQL
-        (``hydra.runtime.pg_stores.PostgresTraceStore``) they are the spans of the whole cluster."""
-        if not self.path.exists():
-            return []
-        lines = [line for line in self.path.read_text(encoding="utf-8").splitlines() if line]
-        return [json.loads(line) for line in lines[-limit:]]
-
-
-class CognitiveTracer:
-    def __init__(self, store: TraceStore | None = None):
-        self.store = store or TraceStore()
-
-    @contextmanager
-    def span(
-        self,
-        name: str,
-        *,
-        trace_id: str,
-        task_id: UUID | None = None,
-        attributes: dict | None = None,
-    ) -> Iterator[CognitiveSpan]:
-        span = CognitiveSpan(
-            trace_id=trace_id,
-            task_id=task_id,
-            name=name,
-            attributes=attributes or {},
-        )
-        started = perf_counter()
-        try:
-            yield span
-        except Exception as exc:
-            span.status = "error"
-            span.error_type = type(exc).__name__
-            raise
-        else:
-            span.status = "ok"
-        finally:
-            span.duration_ms = (perf_counter() - started) * 1000
-            self.store.append(span)
+__all__ = ["CognitiveSpan", "CognitiveTracer", "TraceStore"]

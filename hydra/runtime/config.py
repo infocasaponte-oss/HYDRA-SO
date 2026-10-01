@@ -43,6 +43,7 @@ class Settings:
     data_dir: str = "data"
     artifact_objects: str = ""
     s3_endpoint_url: str = ""
+    otel_endpoint: str = ""
 
     @classmethod
     def from_platform(cls, platform=None) -> Settings:
@@ -69,7 +70,7 @@ class Settings:
             workspace_max_bytes=p.workspace_max_bytes, max_input_chars=p.max_input_chars,
             max_output_tokens=p.max_output_tokens, max_translation_chunks=p.max_translation_chunks,
             runtime_backend=p.runtime_backend, postgres_url=p.postgres_url, data_dir=str(p.data_dir),
-            artifact_objects=p.artifact_objects, s3_endpoint_url=p.s3_endpoint_url)
+            artifact_objects=p.artifact_objects, s3_endpoint_url=p.s3_endpoint_url, otel_endpoint=p.otel_endpoint)
 
 
 settings = Settings.from_platform()

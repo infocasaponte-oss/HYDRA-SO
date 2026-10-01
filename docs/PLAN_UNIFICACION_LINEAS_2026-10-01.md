@@ -82,7 +82,7 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 | Verificador | `verification/verifier` | `runtime/verifier`, `code_verification` | ✅ F4a: `Verifier.verify_text` (+ `TextVerification`) reproduce la verificación estructural del runtime, comprobada idéntica contra el original; `runtime/verifier` reexporta. `code_verification` va con el sandbox (depende de `SandboxResult`) |
 | Planificador | `scheduler/planner` | `runtime/planner`, `planning/goals.ExecutionPlan` | tres `ExecutionPlan`: unificar a uno |
 | Policy | `governance/policy_dsl` | `runtime/policy` | |
-| Observabilidad | `observability/tracing` | `runtime/observability` | |
+| Observabilidad | `observability/tracing` | `runtime/observability` | ✅ F4c: homónimos. `observability/tracing.CognitiveTracer` sigue los eventos del bus (OTLP GenAI, Prometheus, flamegraph); el del runtime registra pasos con un context manager → `observability/spans.SpanRecorder` (más exportación OTLP opcional en segundo plano), `observability/operating` y `operating_store`; el runtime reexporta |
 | Registry y factoría de modelos | `registry/*`, `model_factory/*` | `runtime/model_registry`, `model_factory`, `autoquant`, `gguf`, `llama_factory` | `deploy_bridge` ya hace de puente |
 | Kernel y contratos | `core/kernel`, `core/task`, `core/contracts` | `runtime/kernel`, `runtime/contracts` | lo último (F5) |
 

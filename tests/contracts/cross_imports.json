@@ -1,30 +1,15 @@
 {
  "hydra/api/platform_routes.py": [
-  "hydra.runtime.outbox_metrics:collect_outbox_metrics",
   "hydra.runtime:api"
  ],
  "hydra/api/runtime_routes.py": [
   "hydra.runtime:api"
- ],
- "hydra/core/capture_outbox.py": [
-  "hydra.runtime.outbox:OutboxMessage",
-  "hydra.runtime.outbox:TransactionalOutbox",
-  "hydra.runtime.outbox_worker:OutboxWorker",
-  "hydra.runtime.outbox_worker:RetryPolicy",
-  "hydra.runtime.outbox_worker:WorkerResult"
- ],
- "hydra/core/capture_outbox_pg.py": [
-  "hydra.runtime.outbox:OutboxMessage",
-  "hydra.runtime.outbox:TransactionalOutbox"
  ],
  "hydra/edge/autobuild.py": [
   "hydra.runtime.gpu_telemetry:PeakVramMonitor"
  ],
  "hydra/model_factory/deploy_bridge.py": [
   "hydra.runtime.benchmarking:BenchmarkResult",
-  "hydra.runtime.model_factory:BuildState",
-  "hydra.runtime.model_factory:ModelLineage",
-  "hydra.runtime.model_factory:ModelVariant",
   "hydra.runtime.promotion_gate:PromotionPolicy",
   "hydra.runtime.promotion_gate:apply_promotion_gate"
  ],
