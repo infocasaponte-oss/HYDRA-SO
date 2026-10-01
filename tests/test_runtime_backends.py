@@ -253,3 +253,80 @@ def test_single_node_mutate_restores_memory_on_failure(tmp_path):
         store.mutate(registry, lambda r: r.deployments[str(item.variant_id)].transition(DeploymentState.ACTIVE))
     assert registry.deployments[str(item.variant_id)].state == DeploymentState.CANDIDATE
     assert store.load().deployments[str(item.variant_id)].state == DeploymentState.CANDIDATE
+
+
+# ------------------------------------------------------------------------------------------ F3d
+from hydra.artifacts.blobs import LocalBlobs  # noqa: E402
+from hydra.governance.recovery import backup  # noqa: E402
+from hydra.runtime.artifacts import ArtifactStore as RuntimeArtifacts  # noqa: E402
+from hydra.runtime.corpus import CorpusGate, CorpusRecord, CorpusStore as RuntimeCorpus  # noqa: E402
+from hydra.runtime.replay import ReplayManifest, ReplayStore  # noqa: E402
+from hydra.runtime.replay_executor import AuditReplayExecutor  # noqa: E402
+
+
+def _space(pg_url):
+    return LogSpace(pg_url, label="runtime")
+
+
+def test_runtime_corpus_keeps_a_record_once_across_nodes(pg_url, tmp_path):
+    nodes = [RuntimeCorpus(tmp_path / f"c{k}.jsonl", log=_space(pg_url).open(tmp_path / f"c{k}.jsonl",
+                                                                              RuntimeCorpus.STREAM)) for k in range(4)]
+    record = CorpusGate().evaluate(CorpusRecord(task_id=uuid4(), belief_id=uuid4(), artifact_hashes=["a" * 64]))
+    results = []
+    threads = [threading.Thread(target=lambda n=n: results.append(n.append_once(record))) for n in nodes]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(results) == [False, False, False, True]
+    assert len(nodes[0].log) == 1 and nodes[3].contains_hash(record.content_hash)
+
+
+def test_runtime_corpus_file_format_is_unchanged(tmp_path):
+    store = RuntimeCorpus(tmp_path / "corpus.jsonl")
+    record = CorpusGate().evaluate(CorpusRecord(task_id=uuid4(), belief_id=uuid4(), artifact_hashes=["b" * 64]))
+    assert store.append_once(record) and not store.append_once(record)
+    assert CorpusRecord.model_validate_json((tmp_path / "corpus.jsonl").read_text(encoding="utf-8")) == record
+
+
+def test_replay_manifests_are_visible_from_every_node(pg_url, tmp_path):
+    legacy = ReplayStore(tmp_path / "replay")
+    old = legacy.put(ReplayManifest(task_id=uuid4(), trace_id="t0", hydra_version="1"))
+    a = ReplayStore(tmp_path / "replay", log=_space(pg_url).open(tmp_path / "r.jsonl", ReplayStore.STREAM))
+    b = ReplayStore(tmp_path / "replay", log=_space(pg_url).open(tmp_path / "r.jsonl", ReplayStore.STREAM))
+    task = uuid4()
+    a.put(ReplayManifest(task_id=task, trace_id="t1", hydra_version="1"))
+    assert b.get(task).trace_id == "t1"
+    assert b.get(old.task_id).manifest_hash == old.manifest_hash  # written before the shared log
+    assert b.get(uuid4()) is None
+
+
+def test_runtime_artifacts_are_shared_and_audited_on_another_node(pg_url, tmp_path):
+    blobs = LocalBlobs(tmp_path / "shared-objects")  # a volume every node mounts (or an S3 bucket)
+    root_a = tmp_path / "a"
+    legacy = RuntimeArtifacts(root_a).put_text(task_id=uuid4(), kind="patch", text="written before")
+    a = RuntimeArtifacts(root_a, blobs=blobs, log=_space(pg_url).open(tmp_path / "x.jsonl", RuntimeArtifacts.STREAM))
+    b = RuntimeArtifacts(tmp_path / "b", blobs=blobs,
+                         log=_space(pg_url).open(tmp_path / "y.jsonl", RuntimeArtifacts.STREAM))
+    made = a.put_text(task_id=uuid4(), kind="patch", text="made on node a")
+    assert b.get_text(made.sha256) == "made on node a"
+    assert a.get_text(legacy.sha256) == "written before" and blobs.exists(legacy.sha256)  # copied on first read
+    assert b.get_text(legacy.sha256) == "written before"
+    events, provenance = _stores(None, tmp_path / "chains")
+    manifest = ReplayStore(tmp_path / "replay").put(ReplayManifest(task_id=uuid4(), trace_id="t", hydra_version="1",
+                                                                   artifact_hashes=[made.sha256]))
+    executor = AuditReplayExecutor(events=events, provenance=provenance, artifacts=b)
+    assert executor.audit(manifest).valid
+    blobs.overwrite(made.sha256, b"tampered")
+    assert executor.audit(manifest).error == f"artifact hash mismatch: {made.sha256}"
+
+
+def test_backup_exports_the_runtime_streams(pg_url, tmp_path):
+    space = _space(pg_url)
+    events = JsonlEventStore(tmp_path / "events.jsonl", log=space.open(tmp_path / "events.jsonl", JsonlEventStore.STREAM))
+    _event(events, uuid4(), 1)
+    data = tmp_path / "data"
+    data.mkdir()
+    manifest = backup(data, tmp_path / "b.tar.gz", logs=[space])
+    assert "runtime/events.jsonl" in manifest.files
+    space.close()

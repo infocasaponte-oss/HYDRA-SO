@@ -55,12 +55,12 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 | `deployments.json` | `runtime/deployment_store.py` | ✅ F3b: snapshots en `runtime/deployments.jsonl`; cada operación de admin es `mutate` sobre el último estado con el stream bloqueado; los nodos siguen el registro con `sync` cada segundo; un fallo a medias restaura la memoria; `deployments.json` se adopta una vez |
 | `hydra.db` → `outbox`, `task_commits` | `runtime/outbox.py`, `capture_uow.py` | ✅ F3c: `runtime_outbox` (el `PostgresOutbox` de captura, con reclamación por nodo) y `task_commits` en la misma transacción (`runtime/pg_stores.py`) |
 | `hydra.db` → métricas, salud, evidencia de despliegue | `metrics_store`, `runtime_health_store`, `deployment_evidence_store` | ✅ F3c: tablas `operating_metrics` (con el nodo), `runtime_health` (por nodo y variante: la salud de un runtime vista desde un nodo no vale para otro) y `deployment_evidence`; `hydra.db` se importa una vez |
-| `beliefs.jsonl` | `runtime/beliefs.py` | World Model (ya existe el puente `world/runtime_beliefs.py`) |
-| `corpus.jsonl` | `runtime/corpus.py` | `corpus.store.CorpusStore` |
-| `artifacts/` | `runtime/artifacts.py`, `replay_executor.py` | `artifacts.store.ArtifactStore`, con blobs en S3 o volumen |
-| `datasets/`, `optimization/`, `replay/` | `dataset_factory`, `optimization_report`, `replay` | artefactos (CAS) con su manifiesto |
-| `model_factory.jsonl` | `runtime/model_factory.py` | log `runtime/model_factory.jsonl` |
-| `glossaries/` | `runtime/translation.py` | almacén de glosarios de la plataforma, que ya sirve `PUT /v1/glossaries` |
+| `beliefs.jsonl` | `runtime/beliefs.py` | ✅ F3d: en el gateway van al World Model (`world/runtime_beliefs.py`); el runtime suelto las escribe en el stream `runtime/beliefs.jsonl` |
+| `corpus.jsonl` | `runtime/corpus.py` | ✅ F3d: stream `runtime/corpus.jsonl` con su modelo propio (puerta de derechos y privacidad); `append_once` comprueba el hash con el stream bloqueado. Fusionar con `corpus.store` cambia comportamiento: F4 |
+| `artifacts/` | `runtime/artifacts.py`, `replay_executor.py` | ✅ F3d: blobs en el almacén de la plataforma (`HYDRA_ARTIFACT_OBJECTS`: volumen o S3) y manifiestos en `runtime/artifacts.jsonl`; los blobs locales anteriores se siguen leyendo y se copian al almacén compartido la primera vez; la auditoría de replay re-hashea en el almacén compartido |
+| `datasets/`, `optimization/`, `replay/` | `dataset_factory`, `optimization_report`, `replay` | ✅ F3d `replay/`: stream `runtime/replay.jsonl` (los manifiestos anteriores se siguen leyendo). `DatasetFactory` y `OptimizationReportStore` del runtime no se instancian en producción (las funciones de la fábrica las sirve `corpus/factory` y `model_factory` de la plataforma): se fusionan en F4 |
+| `model_factory.jsonl` | `runtime/model_factory.py` | `ModelFactoryLedger` no tiene ningún uso (ni tests); `ModelVariant`/`BuildState` sí (despliegues, `deploy_bridge`). Se decide en F4 con la factoría de la plataforma |
+| `glossaries/` | `runtime/translation.py` | No alcanzable desde el gateway: la plataforma sirve `/v1/translate` y `/v1/glossaries` con su propio almacén. Se retira en F4 |
 | `workspaces/` | `runtime/workspaces.py` | `tools.workspace.WorkspaceManager`, por tarea y efímero, en volumen local por pod (no necesita compartirse) |
 | `traces.jsonl` | `observability.py`, `operating_metrics.py` | OTLP (`HYDRA_OTEL_ENDPOINT`) y métricas en PostgreSQL; el JSONL queda solo para desarrollo |
 
@@ -147,9 +147,9 @@ réplicas. F4–F5 necesitan revisión de comportamiento caso a caso.
 4. **Orden.** Propuesta: F0 → F1 → F3 → F2 → F4 → F5 → F6. F3 sube antes porque es lo que permite
    escalar réplicas.
 
-**Pendiente detectado en F3a:** `hydra backup` solo archiva `HYDRA_DATA_DIR`. El estado del runtime
-(`HYDRA_RUNTIME_DIR`) nunca ha entrado en los backups; con PostgreSQL queda cubierto por el volcado
-(`pg_dump`). Cuando F3 termine, el backup exportará los streams `runtime/*` como el resto de planos.
+**Backup del runtime (F3d):** con PostgreSQL, `hydra backup` exporta los streams `runtime/*` (cadenas,
+evidencia, despliegues, corpus, creencias, replay, artefactos) bajo `data/runtime/`, y las tablas de F3c
+quedan en el volcado (`pg_dump`). Con ficheros, `HYDRA_RUNTIME_DIR` sigue fuera del backup.
 
 ## 6. Riesgos y mitigación
 

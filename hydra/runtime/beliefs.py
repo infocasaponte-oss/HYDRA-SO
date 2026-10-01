@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.core.eventlog import FileLog
 from hydra.runtime.paths import runtime_path
 
 
@@ -35,11 +36,17 @@ class Belief(BaseModel):
 
 
 class BeliefStore:
-    def __init__(self, path: str | Path = runtime_path("beliefs.jsonl")):
+    """Runtime beliefs on a ``hydra.core.eventlog`` log (``beliefs.jsonl`` or the PostgreSQL stream
+    ``runtime/beliefs.jsonl``). In the gateway they go to the World Model instead
+    (``hydra.world.runtime_beliefs.WorldBeliefStore``)."""
+
+    STREAM = "runtime/beliefs.jsonl"
+
+    def __init__(self, path: str | Path = runtime_path("beliefs.jsonl"), log=None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.log = log if log is not None else FileLog(self.path, self.STREAM)
 
     def append(self, belief: Belief) -> Belief:
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(belief.model_dump_json() + "\n")
+        self.log.append(belief.model_dump_json())
         return belief

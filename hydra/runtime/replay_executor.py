@@ -37,10 +37,20 @@ class AuditReplayExecutor:
         events: JsonlEventStore,
         provenance: ProvenanceLedger,
         artifact_root: str | Path = runtime_path("artifacts"),
+        artifacts=None,
     ):
+        """``artifacts``: the runtime ``ArtifactStore`` (shared blobs included); without it, blobs are
+        read from ``artifact_root``."""
         self.events = events
         self.provenance = provenance
         self.artifact_root = Path(artifact_root)
+        self.artifacts = artifacts
+
+    def _digest_of(self, digest: str) -> str | None:
+        if self.artifacts is not None:
+            return self.artifacts.digest_of(digest)
+        blob = self.artifact_root / "sha256" / digest[:2] / digest
+        return hashlib.sha256(blob.read_bytes()).hexdigest() if blob.is_file() else None
 
     def audit(self, manifest: ReplayManifest) -> AuditReplayResult:
         if not verify_manifest_hash(manifest):
@@ -72,8 +82,8 @@ class AuditReplayExecutor:
                     provenance_records=sources.provenance_records,
                     error="invalid artifact digest",
                 )
-            blob = self.artifact_root / "sha256" / digest[:2] / digest
-            if not blob.is_file():
+            actual = self._digest_of(digest)
+            if actual is None:
                 return AuditReplayResult(
                     valid=False,
                     checked_artifacts=checked,
@@ -81,7 +91,6 @@ class AuditReplayExecutor:
                     provenance_records=sources.provenance_records,
                     error=f"artifact missing: {digest}",
                 )
-            actual = hashlib.sha256(blob.read_bytes()).hexdigest()
             if actual != digest:
                 return AuditReplayResult(
                     valid=False,

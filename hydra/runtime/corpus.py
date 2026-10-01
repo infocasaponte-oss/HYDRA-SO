@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from enum import StrEnum
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.core.eventlog import FileLog
 from hydra.runtime.paths import runtime_path
 from hydra.runtime.privacy import PrivacyScanResult, PrivacyScanStatus
 
@@ -97,32 +99,55 @@ class CorpusIndex:
         return True
 
 
+class _Duplicate(Exception):
+    pass
+
+
 class CorpusStore:
-    def __init__(self, path: str | Path = runtime_path("corpus.jsonl")):
+    """Runtime corpus candidates on a ``hydra.core.eventlog`` log: ``corpus.jsonl`` under the runtime
+    directory, or the PostgreSQL stream ``runtime/corpus.jsonl`` shared by every node. ``append_once``
+    checks the content hash while the stream is locked, so a record replayed by two nodes is kept once."""
+
+    STREAM = "runtime/corpus.jsonl"
+
+    def __init__(self, path: str | Path = runtime_path("corpus.jsonl"), log=None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.log = log if log is not None else FileLog(self.path, self.STREAM)
+        self._lock = threading.Lock()
+        self._seen = 0
+        self._hashes: set[str] = set()
+
+    def _catch_up(self) -> None:
+        for seq, line in self.log.read(self._seen):
+            self._seen = seq
+            content_hash = json.loads(line).get("content_hash")
+            if content_hash:
+                self._hashes.add(content_hash)
 
     def append(self, record: CorpusRecord) -> CorpusRecord:
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(record.model_dump_json() + "\n")
+        self.log.append(record.model_dump_json())
         return record
 
     def contains_hash(self, content_hash: str) -> bool:
-        if not self.path.exists():
-            return False
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                existing = CorpusRecord.model_validate_json(line)
-                if existing.content_hash == content_hash:
-                    return True
-        return False
+        with self._lock:
+            self._catch_up()
+            return content_hash in self._hashes
 
     def append_once(self, record: CorpusRecord) -> bool:
         if not record.content_hash:
             raise ValueError("Corpus record must have content_hash")
-        if self.contains_hash(record.content_hash):
-            return False
-        self.append(record)
-        return True
+
+        def build(seq: int, last: str | None) -> str:
+            self._catch_up()  # the stream is locked: every record written before this one
+            if record.content_hash in self._hashes:
+                raise _Duplicate
+            return record.model_dump_json()
+
+        with self._lock:
+            try:
+                self.log.append(build)
+            except _Duplicate:
+                return False
+            self._catch_up()
+            return True

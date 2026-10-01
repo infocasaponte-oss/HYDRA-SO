@@ -602,7 +602,8 @@ def run_without_runtime(args, settings) -> int:
         logs = [open_log_space(settings.corpus_backend, settings.postgres_url, "corpus"),
                 open_log_space(settings.world_backend, settings.postgres_url, "world"),
                 open_log_space(settings.ip_backend, settings.postgres_url, "ip"),
-                open_log_space(settings.artifacts_backend, settings.postgres_url, "artifacts")]
+                open_log_space(settings.artifacts_backend, settings.postgres_url, "artifacts"),
+                open_log_space(settings.runtime_backend, settings.postgres_url, "runtime")]
         _print(backup(settings.data_dir, Path(args.out), include_private_keys=args.include_private_keys,
                       postgres_url=settings.postgres_url or None, ledger=ledger, logs=logs,
                       keystore=KeyStore.from_settings(settings) if args.include_private_keys else None))

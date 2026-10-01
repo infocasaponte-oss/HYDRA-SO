@@ -22,9 +22,31 @@ class ArtifactRecord(BaseModel):
 
 
 class ArtifactStore:
-    def __init__(self, root: str | Path = runtime_path("artifacts")):
+    """Content-addressed runtime artifacts. On one node: ``sha256/ab/<digest>`` blobs and one manifest
+    file per artifact under the runtime directory. Shared (``blobs`` and ``log`` given): blobs in the
+    platform blob store (``hydra.artifacts.blobs``: a shared directory or an S3 bucket) and manifests in
+    the ``runtime/artifacts.jsonl`` stream; blobs already stored locally are still readable, and are
+    copied to the shared store the first time they are read."""
+
+    STREAM = "runtime/artifacts.jsonl"
+
+    def __init__(self, root: str | Path = runtime_path("artifacts"), *, blobs=None, log=None):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        if (blobs is None) != (log is None):
+            raise ValueError("shared artifacts need both a blob store and a manifest log")
+        self.blobs = blobs
+        self.log = log
+
+    def _local_blob(self, digest: str) -> Path:
+        return self.root / "sha256" / digest[:2] / digest
+
+    def digest_of(self, sha256: str) -> str | None:
+        """sha256 of what is stored under ``sha256`` (None when missing): audits re-hash with it."""
+        if self.blobs is not None and self.blobs.exists(sha256):
+            return self.blobs.digest_of(sha256)
+        blob = self._local_blob(sha256)
+        return hashlib.sha256(blob.read_bytes()).hexdigest() if blob.is_file() else None
 
     def put_bytes(
         self,
@@ -36,10 +58,13 @@ class ArtifactStore:
         metadata: dict | None = None,
     ) -> ArtifactRecord:
         digest = hashlib.sha256(data).hexdigest()
-        blob = self.root / "sha256" / digest[:2] / digest
-        blob.parent.mkdir(parents=True, exist_ok=True)
-        if not blob.exists():
-            blob.write_bytes(data)
+        if self.blobs is not None:
+            self.blobs.put(digest, data)
+        else:
+            blob = self._local_blob(digest)
+            blob.parent.mkdir(parents=True, exist_ok=True)
+            if not blob.exists():
+                blob.write_bytes(data)
         record = ArtifactRecord(
             task_id=task_id,
             kind=kind,
@@ -47,6 +72,9 @@ class ArtifactStore:
             sha256=digest,
             metadata=metadata or {},
         )
+        if self.log is not None:
+            self.log.append(record.model_dump_json())
+            return record
         manifest = self.root / "manifests"
         manifest.mkdir(parents=True, exist_ok=True)
         (manifest / f"{record.artifact_id}.json").write_text(
@@ -62,7 +90,16 @@ class ArtifactStore:
         except ValueError as exc:
             raise ValueError("Artifact SHA-256 must be hexadecimal") from exc
 
-        blob = self.root / "sha256" / sha256[:2] / sha256
+        blob = self._local_blob(sha256)
+        if self.blobs is not None:
+            if not self.blobs.exists(sha256) and blob.is_file():  # written before the shared store
+                if hashlib.sha256(blob.read_bytes()).hexdigest() == sha256:
+                    self.blobs.put_file(sha256, blob)
+            if self.blobs.exists(sha256):
+                data = self.blobs.get(sha256)
+                if max_bytes is not None and len(data) > max_bytes:
+                    raise ValueError("Artifact exceeds read limit")
+                return data
         if not blob.is_file():
             raise FileNotFoundError(f"Artifact blob not found: {sha256}")
         if max_bytes is not None and blob.stat().st_size > max_bytes:

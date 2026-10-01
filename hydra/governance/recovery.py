@@ -54,8 +54,10 @@ def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, pos
            keystore=None, ledger=None, logs: Iterable = ()) -> BackupManifest:
     """``ledger``: the node's ledger. A PostgreSQL ledger is exported into the archive as
     ``data/ledger/events.jsonl`` / ``anchors.jsonl`` (the portable format restore verifies).
-    ``logs``: ``hydra.core.eventlog.LogSpace`` of the planes (corpus, World Model); their PostgreSQL
-    streams are exported at their file paths (``data/corpus/log.jsonl``...).
+    ``logs``: ``hydra.core.eventlog.LogSpace`` of the planes (corpus, World Model, IP, artifacts, runtime
+    line); their PostgreSQL streams are exported at their stream paths (``data/corpus/log.jsonl``,
+    ``data/runtime/events.jsonl``...). The runtime line's own directory (HYDRA_RUNTIME_DIR) is not under
+    the data directory: on files it is not archived, on PostgreSQL its streams are.
     ``keystore``: with ``include_private_keys``, keys held outside the data directory are exported."""
     out.parent.mkdir(parents=True, exist_ok=True)
     manifest = BackupManifest(source=str(data_dir), include_private_keys=include_private_keys)

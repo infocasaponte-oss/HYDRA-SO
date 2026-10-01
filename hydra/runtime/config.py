@@ -48,6 +48,9 @@ class Settings:
     max_translation_chunks: int = 64
     runtime_backend: str = "file"
     postgres_url: str = ""
+    data_dir: str = "data"
+    artifact_objects: str = ""
+    s3_endpoint_url: str = ""
 
     @classmethod
     def from_platform(cls, platform=None) -> Settings:
@@ -73,7 +76,8 @@ class Settings:
             code_verification_mode=p.code_verification_mode, workspace_max_files=p.workspace_max_files,
             workspace_max_bytes=p.workspace_max_bytes, max_input_chars=p.max_input_chars,
             max_output_tokens=p.max_output_tokens, max_translation_chunks=p.max_translation_chunks,
-            runtime_backend=p.runtime_backend, postgres_url=p.postgres_url)
+            runtime_backend=p.runtime_backend, postgres_url=p.postgres_url, data_dir=str(p.data_dir),
+            artifact_objects=p.artifact_objects, s3_endpoint_url=p.s3_endpoint_url)
 
 
 settings = Settings.from_platform()
