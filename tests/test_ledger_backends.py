@@ -185,3 +185,36 @@ def test_backend_selection(tmp_path, monkeypatch, signer):
     assert open_ledger("auto", tmp_path / "e", signer, 10, "postgresql://x").backend == "file"
     with pytest.raises(RuntimeError, match="psycopg"):
         open_ledger("postgres", tmp_path / "f", signer, 10, "postgresql://x")
+
+
+@needs_pg
+def test_backup_carries_both_the_postgres_ledger_and_keyring_keys(pg_url, tmp_path):
+    from hydra.core.keystore import KeyStore
+    from hydra.ledger.pg import PostgresLedger
+
+    class MemoryKeyring:
+        priority = 5
+
+        def __init__(self):
+            self.items = {}
+
+        def get_password(self, service, user):
+            return self.items.get((service, user))
+
+        def set_password(self, service, user, value):
+            self.items[(service, user)] = value
+
+    data = tmp_path / "data"
+    store = KeyStore(data, keyring_backend=MemoryKeyring(), namespace="bk")
+    node_signer = Signer.load_or_create(data / "keys", keystore=store)
+    lg = PostgresLedger(pg_url, node_signer)
+    for i in range(3):
+        lg.append("TASK_EXECUTED", {"i": i})
+    backup(data, tmp_path / "full.tar.gz", include_private_keys=True, keystore=store, ledger=lg)
+    with tarfile.open(tmp_path / "full.tar.gz") as tar:
+        names = set(tar.getnames())
+        key_mode = tar.getmember("data/keys/hydra-ed25519.pem").mode
+    assert {"data/ledger/events.jsonl", "data/keys/hydra-ed25519.pem"} <= names and key_mode == 0o600
+    report = restore(tmp_path / "full.tar.gz", tmp_path / "restored")
+    assert report.ok and report.ledger["signatures_checked"] == 3
+    lg.close()
