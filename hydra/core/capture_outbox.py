@@ -19,7 +19,8 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from hydra.core.outbox import OutboxMessage, TransactionalOutbox
-from hydra.runtime.outbox_worker import OutboxWorker, RetryPolicy, WorkerResult
+from hydra.core.outbox_dispatch import TopicDispatcher
+from hydra.core.outbox_worker import OutboxWorker, RetryPolicy, WorkerResult
 
 log = logging.getLogger("hydra.capture")
 
@@ -27,28 +28,31 @@ LEDGER = "capture.ledger"
 CORPUS = "capture.corpus"
 
 
-class CaptureDispatcher:
+class CaptureDispatcher(TopicDispatcher):
     """Replays deferred capture writes (duck-typed ``OutboxDispatcher`` for ``OutboxWorker``)."""
 
     def __init__(self, ledger=None, corpus=None) -> None:
         self.ledger = ledger
         self.corpus = corpus
+        super().__init__(
+            {LEDGER: self._ledger, CORPUS: self._corpus},
+            unknown_topic_prefix="Unknown capture outbox topic",
+        )
 
-    def _dispatch(self, message: OutboxMessage) -> None:
+    def _ledger(self, message: OutboxMessage) -> None:
         payload = message.payload
-        if message.topic == LEDGER:
-            if self.ledger is None:
-                raise RuntimeError("ledger is not configured")
-            self.ledger.append(payload["event_type"], payload["payload"], **payload.get("options", {}))
-            return
-        if message.topic == CORPUS:
-            if self.corpus is None:
-                raise RuntimeError("corpus is not configured")
-            from hydra.corpus.records import CorpusRecord
+        if self.ledger is None:
+            raise RuntimeError("ledger is not configured")
+        self.ledger.append(payload["event_type"], payload["payload"], **payload.get("options", {}))
+        return
+    def _corpus(self, message: OutboxMessage) -> None:
+        payload = message.payload
+        if self.corpus is None:
+            raise RuntimeError("corpus is not configured")
+        from hydra.corpus.records import CorpusRecord
 
-            self.corpus.ingest(CorpusRecord.model_validate(payload["record"]))
-            return
-        raise ValueError(f"Unknown capture outbox topic: {message.topic}")
+        self.corpus.ingest(CorpusRecord.model_validate(payload["record"]))
+        return
 
 
 def _aggregate(task_id: str) -> UUID:

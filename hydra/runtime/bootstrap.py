@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hydra.runtime.outbox_worker import OutboxWorker
+from hydra.core.outbox_worker import OutboxWorker
 from hydra.runtime.startup_recovery import RecoveryResult, recover_pending
 
 

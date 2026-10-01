@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hydra.runtime.outbox_worker import OutboxWorker, WorkerResult
+from hydra.core.outbox_worker import OutboxWorker, WorkerResult
 
 
 @dataclass(frozen=True)

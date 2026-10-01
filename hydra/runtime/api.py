@@ -37,7 +37,7 @@ from hydra.model_factory.model_scout import HashCache, scan_models
 from hydra.runtime.observability import CognitiveTracer
 from hydra.runtime.operating_metrics import collect_operating_metrics
 from hydra.runtime.outbox_dispatcher import OutboxDispatcher
-from hydra.runtime.outbox_worker import OutboxWorker
+from hydra.core.outbox_worker import OutboxWorker
 from hydra.runtime.physical_inference import PhysicalInferenceClient
 from hydra.core.durable_events import JsonlEventStore
 from hydra.core.runtime_paths import runtime_path

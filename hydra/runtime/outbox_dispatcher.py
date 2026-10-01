@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from hydra.core.outbox_dispatch import TopicDispatcher
 from hydra.runtime.corpus import CorpusRecord, CorpusStore
 from hydra.core.durable_events import JsonlEventStore
 from hydra.core.outbox import OutboxMessage, TransactionalOutbox
@@ -15,7 +16,7 @@ class DispatchResult:
     failed: int
 
 
-class OutboxDispatcher:
+class OutboxDispatcher(TopicDispatcher):
     def __init__(
         self,
         outbox: TransactionalOutbox,
@@ -27,6 +28,11 @@ class OutboxDispatcher:
         self.events = events
         self.provenance = provenance
         self.corpus = corpus
+        super().__init__({
+            "event": self._event,
+            "provenance": self._provenance,
+            "corpus": self._corpus,
+        })
 
     def dispatch_once(self, limit: int = 100) -> DispatchResult:
         published = 0
@@ -41,35 +47,35 @@ class OutboxDispatcher:
             published += 1
         return DispatchResult(published=published, failed=failed)
 
-    def _dispatch(self, message: OutboxMessage) -> None:
-        if message.topic == "event":
-            payload = message.payload
-            self.events.append(
-                event_type=payload["event_type"],
-                aggregate_id=message.aggregate_id,
-                producer=payload.get("producer", "hydra.outbox"),
+    def _event(self, message: OutboxMessage) -> None:
+        payload = message.payload
+        self.events.append(
+            event_type=payload["event_type"],
+            aggregate_id=message.aggregate_id,
+            producer=payload.get("producer", "hydra.outbox"),
+            trace_id=message.trace_id,
+            payload=payload.get("payload", {}),
+            source_message_id=message.id,
+        )
+        return
+
+    def _provenance(self, message: OutboxMessage) -> None:
+        payload = message.payload
+        self.provenance.append(
+            ProvenanceRecord(
+                task_id=message.aggregate_id,
                 trace_id=message.trace_id,
-                payload=payload.get("payload", {}),
+                action=payload["action"],
+                inputs=payload.get("inputs", {}),
+                outputs=payload.get("outputs", {}),
                 source_message_id=message.id,
             )
-            return
-        if message.topic == "provenance":
-            payload = message.payload
-            self.provenance.append(
-                ProvenanceRecord(
-                    task_id=message.aggregate_id,
-                    trace_id=message.trace_id,
-                    action=payload["action"],
-                    inputs=payload.get("inputs", {}),
-                    outputs=payload.get("outputs", {}),
-                    source_message_id=message.id,
-                )
-            )
-            return
-        if message.topic == "corpus":
-            if self.corpus is None:
-                raise RuntimeError("Corpus store is not configured")
-            record = CorpusRecord.model_validate(message.payload)
-            self.corpus.append_once(record)
-            return
-        raise ValueError(f"Unknown outbox topic: {message.topic}")
+        )
+        return
+
+    def _corpus(self, message: OutboxMessage) -> None:
+        if self.corpus is None:
+            raise RuntimeError("Corpus store is not configured")
+        record = CorpusRecord.model_validate(message.payload)
+        self.corpus.append_once(record)
+        return
