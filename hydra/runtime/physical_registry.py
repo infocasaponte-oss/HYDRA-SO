@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from hydra.runtime.model_factory import BuildState, ModelVariant
+from hydra.model_factory.contracts import BuildState, ModelVariant
 
 
 @dataclass

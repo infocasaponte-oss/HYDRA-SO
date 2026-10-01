@@ -4,8 +4,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
-from hydra.runtime.deployment import Deployment, DeploymentState
-from hydra.runtime.deployment_registry import DeploymentRegistry
+from hydra.deploy.deployment import Deployment, DeploymentState
+from hydra.deploy.deployment_registry import DeploymentRegistry
 from hydra.runtime.runtime_health import RuntimeHealth
 
 

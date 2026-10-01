@@ -20,10 +20,10 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
 
-from hydra.runtime.deployment import Deployment, DeploymentState
-from hydra.runtime.deployment_registry import DeploymentRegistry
+from hydra.deploy.deployment import Deployment, DeploymentState
+from hydra.deploy.deployment_registry import DeploymentRegistry
 from hydra.runtime.deployment_validation import DeploymentArtifactValidator
-from hydra.runtime.model_factory import ModelVariant
+from hydra.model_factory.contracts import ModelVariant
 from hydra.runtime.paths import runtime_path
 
 log = logging.getLogger("hydra.runtime.deployments")

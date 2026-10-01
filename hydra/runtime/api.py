@@ -25,14 +25,14 @@ from hydra.runtime.code_verification import VerificationMode, VerificationPolicy
 from hydra.runtime.coding_request import CodingRequest, resolve_repository
 from hydra.runtime.config import settings
 from hydra.runtime.contracts import HydraTask
-from hydra.runtime.deployment import Deployment
+from hydra.deploy.deployment import Deployment
 from hydra.runtime.deployment_controller import DeploymentController
 from hydra.runtime.deployment_controller import LEGACY_OFFSETS, EvidenceRejected
 from hydra.runtime.deployment_store import DeploymentStore
 from hydra.runtime.deployment_validation import DeploymentArtifactValidator
 from hydra.runtime.kernel import HydraKernel
 from hydra.runtime.learning_capture import LearningCapture
-from hydra.runtime.model_factory import ModelVariant
+from hydra.model_factory.contracts import ModelVariant
 from hydra.runtime.model_scout import HashCache, scan_models
 from hydra.runtime.observability import CognitiveTracer
 from hydra.runtime.operating_metrics import collect_operating_metrics

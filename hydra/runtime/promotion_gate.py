@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hydra.runtime.benchmarking import BenchmarkResult
-from hydra.runtime.model_factory import ModelVariant
+from hydra.model_factory.contracts import ModelVariant
 from hydra.runtime.promotion import promote
 
 

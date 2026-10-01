@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from hydra.runtime.deployment import Deployment, DeploymentState
+from hydra.deploy.deployment import Deployment, DeploymentState
 from hydra.deploy.deployment_evidence import (
     CanaryEvidence,
     DeploymentPolicy,
@@ -19,7 +19,7 @@ from hydra.deploy.deployment_evidence import (
     shadow_passes,
 )
 from hydra.runtime.deployment_evidence_store import DeploymentEvidenceStore
-from hydra.runtime.deployment_registry import DeploymentRegistry
+from hydra.deploy.deployment_registry import DeploymentRegistry
 from hydra.runtime.runtime_evidence import RuntimeEvidenceStore
 
 log = logging.getLogger("hydra.runtime.deployments")

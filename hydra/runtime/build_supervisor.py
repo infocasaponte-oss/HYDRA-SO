@@ -5,7 +5,7 @@ import asyncio
 from dataclasses import dataclass
 
 from hydra.runtime.llama_factory import BuildCommand
-from hydra.runtime.model_factory import file_sha256
+from hydra.model_factory.contracts import file_sha256
 
 
 @dataclass(frozen=True)
