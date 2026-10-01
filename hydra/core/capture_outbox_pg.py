@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from hydra.runtime.outbox import OutboxMessage, TransactionalOutbox
+from hydra.core.outbox import OutboxMessage, TransactionalOutbox
 
 log = logging.getLogger("hydra.capture")
 

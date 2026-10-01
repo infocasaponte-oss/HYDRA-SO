@@ -1,27 +1,13 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-from __future__ import annotations
+"""Compatibility module alias for hydra.core.hash_chain."""
+import sys
+from hydra.core import hash_chain as _implementation
+from hydra.core.hash_chain import (
+    _PROCESS_LOCKS,
+    _PROCESS_LOCKS_GUARD,
+    lock_for,
+    canonical_hash,
+)
 
-import hashlib
-import json
-from pathlib import Path
-from threading import Lock
-from typing import Any
-
-_PROCESS_LOCKS: dict[str, Lock] = {}
-_PROCESS_LOCKS_GUARD = Lock()
-
-
-def lock_for(path: str | Path) -> Lock:
-    key = str(Path(path).resolve())
-    with _PROCESS_LOCKS_GUARD:
-        return _PROCESS_LOCKS.setdefault(key, Lock())
-
-
-def canonical_hash(body: dict[str, Any]) -> str:
-    raw = json.dumps(
-        body,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode()
-    return hashlib.sha256(raw).hexdigest()
+__all__ = ['_PROCESS_LOCKS', '_PROCESS_LOCKS_GUARD', 'lock_for', 'canonical_hash']
+sys.modules[__name__] = _implementation

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from hydra.runtime.outbox import TransactionalOutbox
+from hydra.core.outbox import TransactionalOutbox
 from hydra.core.runtime_paths import runtime_path
 
 

@@ -16,7 +16,7 @@ from hydra.runtime.code_verification import (
     changed_python_paths,
     extract_targeted_test,
 )
-from hydra.runtime.events import JsonlEventStore
+from hydra.core.durable_events import JsonlEventStore
 from hydra.runtime.patching import PatchTool
 from hydra.runtime.provider import LocalLLM
 from hydra.runtime.sandbox import OciSandbox

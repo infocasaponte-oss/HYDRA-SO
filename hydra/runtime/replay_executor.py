@@ -6,9 +6,9 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from hydra.runtime.events import JsonlEventStore
+from hydra.core.durable_events import JsonlEventStore
 from hydra.core.runtime_paths import runtime_path
-from hydra.runtime.provenance import ProvenanceLedger
+from hydra.provenance.ledger import ProvenanceLedger
 from hydra.runtime.replay import ReplayManifest
 from hydra.runtime.replay_integrity import verify_replay_sources
 

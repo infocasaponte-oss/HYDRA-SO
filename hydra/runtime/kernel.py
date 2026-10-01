@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from hydra.runtime.capture_uow import CaptureUnitOfWork, TaskCommit
 from hydra.runtime.contracts import HydraResult, HydraTask, Route, TaskStatus
-from hydra.runtime.events import JsonlEventStore
+from hydra.core.durable_events import JsonlEventStore
 from hydra.runtime.executor import ExecutionOutput, Executor
 from hydra.runtime.model_registry import ModelRegistry
 from hydra.runtime.observability import CognitiveTracer
