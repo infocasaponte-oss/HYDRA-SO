@@ -68,8 +68,8 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 
 | Concepto | Se queda | Se absorbe | Nota |
 |---|---|---|---|
-| Settings | `core/config.Settings` | `runtime/config` (dataclass + `os.getenv`) | `runtime/config` pasa a construirse desde `Settings`; `HYDRA_API_TOKEN` queda como alias de `HYDRA_API_KEY` |
-| Seguridad | `api/security` | `runtime/security` | |
+| Settings | `core/config.Settings` | `runtime/config` (dataclass + `os.getenv`) | F1: `runtime/config.Settings` es una vista congelada de la de plataforma (`from_platform`), con las mismas variables y valores por defecto; `HYDRA_API_TOKEN` sigue como alias de `HYDRA_API_KEY` |
+| Seguridad | `api/security` | `runtime/security` | F1: el acceso API del runtime usa `authenticate` del gateway (claves por cliente incluidas). El admin del runtime sigue más estricto a propósito: exige `HYDRA_ADMIN_TOKEN` configurado incluso en loopback |
 | `BudgetExceeded` / budgets | `core/budget` | `runtime/budgets` | hoy `platform_routes` importa el del runtime |
 | Hash e IO (5 funciones de hash de fichero) | `core/hashing` | `runtime/hash_chain`, helpers sueltos | |
 | Traducción | `edge/translation` | `runtime/translation` | la plataforma ya sirve `/v1/translate` |
@@ -123,7 +123,7 @@ Destino propuesto: `hydra/deploy/`, `hydra/replay/`, `hydra/coding/` y `hydra/mo
 | Fase | Contenido | PRs aprox. | Riesgo |
 |---|---|---|---|
 | **F0 Guardas** ✅ | `tests/test_contracts.py` y `tests/contracts/`: snapshot de las 140 operaciones HTTP (con las del runtime montadas) y sus esquemas; árbol completo del CLI `hydra` (motor y fábrica); ids de operación únicos; imports plataforma → runtime que solo pueden menguar; y comprobación estática de que todo símbolo `hydra.*` que importan el motor, la fábrica, el runtime y `scripts/` existe | 1 | Bajo |
-| **F1 Configuración y auth** | `runtime/config` derivado de `Settings`; alias de variables; las rutas del runtime usan `api/security.py` (claves por cliente incluidas) | 1–2 | Medio (tokens) |
+| **F1 Configuración y auth** ✅ | `runtime/config` derivado de `Settings`; alias de variables; las rutas del runtime usan `api/security.py` (claves por cliente incluidas) | 1–2 | Medio (tokens) |
 | **F2 Duplicados pequeños** | Budgets, hash/IO, contratos simples, traducción, `CognitiveBudget` ×2, `WorldEvent/WorldRelation` ×2, `HardwareProfile` ×2, `SimulationResult` ×2, `Procedure` ×2, helpers CLI | 2–3 | Bajo |
 | **F3 Estado del runtime a almacenes compartidos** | Según §2.2: events y provenance a `hydra_logs`; evidencia a stream con `seq` (los despliegues a mitad de fase convierten su offset de bytes a `seq` al migrar); `deployments.json` a log de versiones; `hydra.db` a tablas PG con reclamación por nodo; creencias, corpus y artefactos del runtime a los de plataforma | 4–5 | **Alto**: es el que cambia formatos en disco |
 | **F4 Comportamiento** | Verificador, planificador (un único `ExecutionPlan`), sandbox/workspaces, policy y observabilidad; antes de cada fusión, diff funcional y tests de caracterización de la versión que desaparece | 4–5 | Alto (semántica) |

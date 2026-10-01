@@ -78,7 +78,7 @@ def anchor_now(ledger) -> dict | None:
 
 @asynccontextmanager
 async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor_interval_s: float = 300.0,
-                           world=None, admin_token: str = ""):
+                           world=None, admin_token: str = "", client_keys_file=None):
     """Outbox recovery + worker of the runtime line, bound to the gateway lifespan.
 
     Gateway and admin tokens given in code (not only through HYDRA_API_KEY/HYDRA_API_TOKEN and
@@ -91,7 +91,8 @@ async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor
     runtime = runtime_module()
     previous = runtime.security_config
     previous_beliefs = runtime.learning.beliefs
-    overrides = {k: v for k, v in (("api_token", api_key), ("admin_token", admin_token)) if v}
+    overrides = {k: v for k, v in (("api_token", api_key), ("admin_token", admin_token),
+                                   ("client_keys_file", str(client_keys_file) if client_keys_file else "")) if v}
     if overrides:
         runtime.security_config = replace(previous, **overrides)
     if world is not None:
