@@ -128,3 +128,128 @@ def test_file_log_rereads_a_rewritten_file(tmp_path):
     path.write_text('{"i":   "rewritten history, longer than before"}\n', encoding="utf-8")
     assert len(log) == 1 and [line for _, line in log.read()] == ['{"i":   "rewritten history, longer than before"}']
     assert log.append('{"i": 9}')[0] == 2
+
+
+# ------------------------------------------------------------------------------------------ F3b
+import json  # noqa: E402
+
+from hydra.runtime.deployment import Deployment, DeploymentState  # noqa: E402
+from hydra.runtime.deployment_controller import (  # noqa: E402
+    CANARY_EVIDENCE_SEQ,
+    SHADOW_EVIDENCE_SEQ,
+    DeploymentController,
+)
+from hydra.runtime.deployment_registry import DeploymentRegistry  # noqa: E402
+from hydra.runtime.deployment_store import DeploymentStore  # noqa: E402
+from hydra.runtime.model_factory import BuildState, ModelLineage, ModelVariant  # noqa: E402
+from hydra.runtime.runtime_evidence import RuntimeEvidenceStore  # noqa: E402
+
+
+def _deployment(generation=1, state=DeploymentState.CANDIDATE):
+    variant = ModelVariant(lineage=ModelLineage(base_model="base", base_model_sha256="a" * 64), quantization="Q4_K_M",
+                           artifact_path="model.gguf", artifact_sha256="b" * 64, state=BuildState.PROMOTED)
+    return Deployment(variant=variant, capabilities={"reasoning.general"}, state=state, generation=generation)
+
+
+def _canary(store, vid, n, latency=10.0):
+    for i in range(n):
+        store.append(trace_id=f"c{i}", capability="reasoning.general", primary_variant_id="active",
+                     primary_output="a", canary_variant_id=vid, canary_error=False, canary_latency_ms=latency)
+
+
+def test_evidence_from_every_node_counts(pg_url, tmp_path):
+    a, b = (RuntimeEvidenceStore(tmp_path / f"{k}.jsonl", log=LogSpace(pg_url, label="runtime").open(
+        tmp_path / f"{k}.jsonl", RuntimeEvidenceStore.STREAM)) for k in "ab")
+    _canary(a, "v", 3)
+    start = b.position()
+    _canary(a, "v", 2)
+    _canary(b, "v", 5)
+    assert start == 3 and a.canary_evidence("v").requests == 10
+    assert b.canary_evidence("v", start).requests == 7
+
+
+def test_legacy_byte_offsets_become_sequence_numbers(tmp_path):
+    path = tmp_path / "runtime-evidence.jsonl"
+    store = RuntimeEvidenceStore(path)
+    item = _deployment(state=DeploymentState.CANARY)
+    _canary(store, str(item.variant_id), 4)
+    offset = len(b"".join(path.read_bytes().splitlines(keepends=True)[:3]))  # phase began after 3 records
+    _canary(store, str(item.variant_id), 2)
+    registry = DeploymentRegistry()
+    item.metadata["canary_evidence_offset"] = offset
+    registry.add(item)
+    controller = DeploymentController(registry, runtime_evidence=store)
+    assert controller.migrate_phase_starts() == 1
+    assert item.metadata[CANARY_EVIDENCE_SEQ] == 3 and "canary_evidence_offset" not in item.metadata
+    assert controller.measure_canary(item).requests == 3  # records 4..6 only
+    assert controller.migrate_phase_starts() == 0
+
+
+def test_a_legacy_offset_without_its_file_restarts_the_phase(tmp_path):
+    shared = RuntimeEvidenceStore(tmp_path / "gone.jsonl", log=FileLog(tmp_path / "elsewhere.jsonl"))
+    _canary(shared, "v", 5)
+    registry = DeploymentRegistry()
+    item = _deployment(state=DeploymentState.SHADOW)
+    item.metadata["shadow_evidence_offset"] = 1234
+    registry.add(item)
+    DeploymentController(registry, runtime_evidence=shared).migrate_phase_starts()
+    assert item.metadata[SHADOW_EVIDENCE_SEQ] == 5 and "evidence_restarted_at" in item.metadata
+
+
+def _shared_store(pg_url, tmp_path, name):
+    space = LogSpace(pg_url, label="runtime")
+    return DeploymentStore(tmp_path / f"{name}.json", log=space.open(tmp_path / f"{name}.jsonl", DeploymentStore.STREAM))
+
+
+def test_nodes_share_one_deployment_registry(pg_url, tmp_path):
+    store_a, store_b = _shared_store(pg_url, tmp_path, "a"), _shared_store(pg_url, tmp_path, "b")
+    reg_a, reg_b = store_a.load(), store_b.load()
+    one, two = _deployment(1), _deployment(2)
+    store_a.mutate(reg_a, lambda r: r.add(one))
+    store_b.mutate(reg_b, lambda r: r.add(two))  # b had not seen `one`: it is kept, not overwritten
+    assert set(reg_b.deployments) == {str(one.variant_id), str(two.variant_id)}
+    assert store_a.sync(reg_a) and set(reg_a.deployments) == set(reg_b.deployments)
+    assert not store_a.sync(reg_a)  # nothing new
+    with pytest.raises(ValueError):  # a failing operation leaves the stored state as it was
+        store_a.mutate(reg_a, lambda r: r.deployments[str(one.variant_id)].transition(DeploymentState.ACTIVE))
+    assert reg_a.deployments[str(one.variant_id)].state == DeploymentState.CANDIDATE
+    store_a.mutate(reg_a, lambda r: r.deployments[str(one.variant_id)].transition(DeploymentState.SHADOW))
+    assert store_b.sync(reg_b) and reg_b.deployments[str(one.variant_id)].state == DeploymentState.SHADOW
+
+
+def test_concurrent_admin_operations_are_all_kept(pg_url, tmp_path):
+    stores = [_shared_store(pg_url, tmp_path, f"n{k}") for k in range(4)]
+    registries = [s.load() for s in stores]
+    added = [[_deployment(10 * k + i) for i in range(5)] for k in range(4)]
+
+    def work(k):
+        for d in added[k]:
+            stores[k].mutate(registries[k], lambda r, d=d: r.add(d))
+
+    threads = [threading.Thread(target=work, args=(k,)) for k in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(_shared_store(pg_url, tmp_path, "fresh").load().deployments) == 20
+
+
+def test_existing_deployments_file_is_adopted(pg_url, tmp_path):
+    registry = DeploymentRegistry()
+    registry.add(_deployment(3, DeploymentState.ACTIVE))
+    DeploymentStore(tmp_path / "d.json").save(registry)
+    shared = DeploymentStore(tmp_path / "d.json", log=LogSpace(pg_url, label="runtime").open(
+        tmp_path / "d.jsonl", DeploymentStore.STREAM))
+    assert shared.load().active_for("reasoning.general").generation == 3
+    assert json.loads((tmp_path / "d.json").read_text(encoding="utf-8"))  # the file is kept
+
+
+def test_single_node_mutate_restores_memory_on_failure(tmp_path):
+    store = DeploymentStore(tmp_path / "d.json")
+    registry = DeploymentRegistry()
+    item = _deployment()
+    store.mutate(registry, lambda r: r.add(item))
+    with pytest.raises(ValueError):
+        store.mutate(registry, lambda r: r.deployments[str(item.variant_id)].transition(DeploymentState.ACTIVE))
+    assert registry.deployments[str(item.variant_id)].state == DeploymentState.CANDIDATE
+    assert store.load().deployments[str(item.variant_id)].state == DeploymentState.CANDIDATE

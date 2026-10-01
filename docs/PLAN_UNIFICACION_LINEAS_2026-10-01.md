@@ -51,8 +51,8 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 |---|---|---|
 | `events.jsonl` (cadena hash) | `runtime/events.py` | ✅ F3a: stream `runtime/events.jsonl` (`HYDRA_RUNTIME_BACKEND`); secuencia, hash previo e idempotencia resueltos con el stream bloqueado |
 | `provenance.jsonl` (cadena hash) | `runtime/provenance.py` | ✅ F3a: stream `runtime/provenance.jsonl`; el anclaje en el ledger (`ledger/runtime_anchor.py`) se mantiene |
-| `runtime-evidence.jsonl` | `runtime/runtime_evidence.py` | stream `runtime/evidence.jsonl`; los offsets en bytes pasan a `seq` (ver §4, F3) |
-| `deployments.json` | `runtime/deployment_store.py` | log de versiones `runtime/deployments.jsonl`, con lectura-modificación-escritura bloqueada, como en IP |
+| `runtime-evidence.jsonl` | `runtime/runtime_evidence.py` | ✅ F3b: stream `runtime/evidence.jsonl` (la evidencia de todos los nodos cuenta); fases por `seq`; los offsets en bytes de despliegues a mitad de fase se convierten al arrancar y, si el fichero ya no está, la fase vuelve a contar desde ese momento (`evidence_restarted_at`) |
+| `deployments.json` | `runtime/deployment_store.py` | ✅ F3b: snapshots en `runtime/deployments.jsonl`; cada operación de admin es `mutate` sobre el último estado con el stream bloqueado; los nodos siguen el registro con `sync` cada segundo; un fallo a medias restaura la memoria; `deployments.json` se adopta una vez |
 | `hydra.db` → `outbox` | `runtime/outbox.py`, `capture_uow.py` | tabla PostgreSQL (mismo patrón que `capture_outbox`, con reclamación por nodo) |
 | `hydra.db` → métricas, salud, evidencia de despliegue | `metrics_store`, `runtime_health_store`, `deployment_evidence_store` | tablas PostgreSQL |
 | `beliefs.jsonl` | `runtime/beliefs.py` | World Model (ya existe el puente `world/runtime_beliefs.py`) |

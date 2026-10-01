@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from pathlib import Path
@@ -24,7 +25,7 @@ from hydra.runtime.config import settings
 from hydra.runtime.contracts import HydraTask
 from hydra.runtime.deployment import Deployment
 from hydra.runtime.deployment_controller import DeploymentController
-from hydra.runtime.deployment_controller import EvidenceRejected
+from hydra.runtime.deployment_controller import LEGACY_OFFSETS, EvidenceRejected
 from hydra.runtime.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.runtime.deployment_store import DeploymentStore
 from hydra.runtime.deployment_validation import DeploymentArtifactValidator
@@ -80,16 +81,22 @@ deployment_artifact_validator = DeploymentArtifactValidator(settings.models_dir)
 deployment_store = DeploymentStore(
     settings.deployments_file,
     validator=deployment_artifact_validator,
+    log=runtime_logs.open(Path(settings.deployments_file).with_suffix(".jsonl"), DeploymentStore.STREAM)
+    if runtime_logs.backend == "postgres" else None,
 )
 deployment_registry = deployment_store.load()
 deployment_evidence_store = DeploymentEvidenceStore(settings.runtime_db)
 operating_metrics_store = OperatingMetricsStore(settings.runtime_db)
-runtime_evidence = RuntimeEvidenceStore()
+runtime_evidence = RuntimeEvidenceStore(
+    log=runtime_logs.open(runtime_path("runtime-evidence.jsonl"), RuntimeEvidenceStore.STREAM)
+)
 deployment_controller = DeploymentController(
     deployment_registry,
     evidence_store=deployment_evidence_store,
     runtime_evidence=runtime_evidence,
 )
+if any(LEGACY_OFFSETS[key] in d.metadata for d in deployment_registry.deployments.values() for key in LEGACY_OFFSETS):
+    deployment_store.mutate(deployment_registry, lambda _: deployment_controller.migrate_phase_starts())
 capture_uow = CaptureUnitOfWork(settings.runtime_db)
 kernel = HydraKernel(
     capture_uow=capture_uow,
@@ -140,12 +147,25 @@ async def lifespan(app: FastAPI):
     app.state.bootstrap = bootstrap_runtime(outbox_worker)
     worker_task = asyncio.create_task(outbox_worker.run_forever())
     app.state.outbox_worker_task = worker_task
+    sync_task = asyncio.create_task(_follow_deployments()) if deployment_store.log is not None else None
     try:
         yield
     finally:
-        worker_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await worker_task
+        for task in (worker_task, sync_task):
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+
+
+async def _follow_deployments(interval_s: float = 1.0) -> None:
+    """Shared deployment registry: adopt promotions and rollbacks made on other nodes."""
+    while True:
+        await asyncio.sleep(interval_s)
+        try:
+            await asyncio.to_thread(deployment_store.sync, deployment_registry)
+        except Exception:  # noqa: BLE001 - keep following; the next tick retries
+            logging.getLogger("hydra.runtime.deployments").exception("deployment registry sync failed")
 
 
 app = FastAPI(title="HYDRA-SO", version=__version__, lifespan=lifespan)
@@ -434,8 +454,7 @@ async def register_deployment(
                 ),
             },
         )
-        deployment_registry.add(deployment)
-        deployment_store.save(deployment_registry)
+        deployment_store.mutate(deployment_registry, lambda registry: registry.add(deployment))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     security_audit.record(
@@ -459,12 +478,16 @@ async def register_deployment(
 async def begin_deployment_shadow(variant_id: UUID, request: Request) -> dict:
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-deployment-shadow:{identity}", admin_rate_limit)
-    deployment = deployment_registry.deployments.get(str(variant_id))
-    if deployment is None:
+    if str(variant_id) not in deployment_registry.deployments:
         raise HTTPException(status_code=404, detail="Deployment not found")
-    try:
+
+    def shadow(registry):
+        deployment = registry.deployments[str(variant_id)]
         deployment_controller.begin_shadow(deployment)
-        deployment_store.save(deployment_registry)
+        return deployment
+
+    try:
+        deployment = await asyncio.to_thread(deployment_store.mutate, deployment_registry, shadow)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     security_audit.record(
@@ -482,13 +505,16 @@ async def approve_deployment_canary(variant_id: UUID, request: Request) -> dict:
     """Promote SHADOW -> CANARY on the shadow evidence the server measured from live traffic."""
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-deployment-canary:{identity}", admin_rate_limit)
-    deployment = deployment_registry.deployments.get(str(variant_id))
-    if deployment is None:
+    if str(variant_id) not in deployment_registry.deployments:
         raise HTTPException(status_code=404, detail="Deployment not found")
+
+    def canary(registry):
+        deployment = registry.deployments[str(variant_id)]
+        return deployment, deployment_controller.approve_canary(deployment)
+
     try:
         # Evidence aggregation reads the traffic log: keep it off the event loop.
-        evidence = await asyncio.to_thread(deployment_controller.approve_canary, deployment)
-        deployment_store.save(deployment_registry)
+        deployment, evidence = await asyncio.to_thread(deployment_store.mutate, deployment_registry, canary)
     except EvidenceRejected as exc:
         raise HTTPException(status_code=409, detail=_rejection(exc)) from exc
     except ValueError as exc:
@@ -508,13 +534,16 @@ async def activate_deployment(variant_id: UUID, request: Request) -> dict:
     """Promote CANARY -> ACTIVE on the canary evidence the server measured from live traffic."""
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-deployment-activate:{identity}", admin_rate_limit)
-    deployment = deployment_registry.deployments.get(str(variant_id))
-    if deployment is None:
+    if str(variant_id) not in deployment_registry.deployments:
         raise HTTPException(status_code=404, detail="Deployment not found")
+
+    def activate(registry):
+        deployment = registry.deployments[str(variant_id)]
+        evidence = deployment_controller.measure_canary(deployment)
+        return deployment_controller.activate(deployment, evidence), evidence
+
     try:
-        evidence = await asyncio.to_thread(deployment_controller.measure_canary, deployment)
-        active = deployment_controller.activate(deployment, evidence)
-        deployment_store.save(deployment_registry)
+        active, evidence = await asyncio.to_thread(deployment_store.mutate, deployment_registry, activate)
     except EvidenceRejected as exc:
         raise HTTPException(status_code=409, detail=_rejection(exc)) from exc
     except ValueError as exc:
@@ -563,8 +592,8 @@ async def rollback_deployment(capability: str, request: Request) -> dict:
     identity = require_admin_access(request, security_config)
     rate_limiter.check(f"admin-deployment-rollback:{identity}", admin_rate_limit)
     try:
-        restored = deployment_registry.rollback(capability)
-        deployment_store.save(deployment_registry)
+        restored = await asyncio.to_thread(deployment_store.mutate, deployment_registry,
+                                           lambda registry: registry.rollback(capability))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     security_audit.record(
