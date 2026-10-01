@@ -594,11 +594,13 @@ def run_without_runtime(args, settings) -> int:
     if cmd == "backup":
         from hydra.governance.recovery import backup
 
+        from hydra.core.keystore import KeyStore
         from hydra.ledger.pg import open_ledger
 
         ledger = open_ledger(settings.ledger_backend, settings.data_dir / "ledger", None, 0, settings.postgres_url)
         _print(backup(settings.data_dir, Path(args.out), include_private_keys=args.include_private_keys,
-                      postgres_url=settings.postgres_url or None, ledger=ledger))
+                      postgres_url=settings.postgres_url or None, ledger=ledger,
+                      keystore=KeyStore.from_settings(settings) if args.include_private_keys else None))
         return 0
     if cmd == "restore":
         from hydra.governance.recovery import restore
@@ -645,7 +647,9 @@ def run_without_runtime(args, settings) -> int:
         model = args.model or __import__("os").environ.get("HYDRA_MODEL")
         if not model:
             raise SystemExit("provide --model (an Ollama tag or a .gguf path) or set HYDRA_MODEL")
-        signer = Signer.load_or_create(settings.data_dir / "keys")
+        from hydra.core.keystore import KeyStore
+
+        signer = Signer.load_or_create(settings.data_dir / "keys", keystore=KeyStore.from_settings(settings))
         m = asyncio.run(autobuild(model=model, runtime=args.runtime, ollama_url=settings.ollama_base_url,
                                   llama_server=args.llama_server or settings.llama_server or None, signer=signer))
         for r in m.all_results:

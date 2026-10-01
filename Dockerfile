@@ -25,8 +25,8 @@ COPY sql ./sql
 RUN pip install --no-cache-dir ".[all]"
 
 # uvicorn imports hydra from /app (its app-dir), so the runtime subsystem keeps its state in /app/runtime.
-RUN useradd --create-home --uid 10001 hydra && mkdir -p /workspace /data /app/runtime \
-    && chown hydra /workspace /data /app/runtime
+RUN useradd --create-home --uid 10001 hydra && mkdir -p /workspace /data /keys /app/runtime \
+    && chown hydra /workspace /data /keys /app/runtime && chmod 700 /keys
 USER hydra
 
 EXPOSE 8080

@@ -32,19 +32,15 @@ class CredentialPolicy(BaseModel):
 
 
 class SecretsBroker:
-    def __init__(self, root: Path, audit: Callable[[str, dict], Any] | None = None) -> None:
+    def __init__(self, root: Path, audit: Callable[[str, dict], Any] | None = None, keystore=None) -> None:
         from cryptography.fernet import Fernet
+
+        from hydra.core.keystore import KeyStore
 
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
-        kp = root / ".broker.key"
-        if not kp.exists():
-            kp.write_bytes(Fernet.generate_key())
-            try:
-                os.chmod(kp, 0o600)
-            except OSError:
-                pass
-        self.fernet = Fernet(kp.read_bytes())
+        store = keystore or KeyStore(root.parent, backend="legacy")
+        self.fernet = Fernet(store.get_or_create("secrets-broker", root / ".broker.key", Fernet.generate_key))
         self.store = root / "secrets.enc"
         self.policies: dict[str, CredentialPolicy] = {}
         self.audit = audit

@@ -26,8 +26,9 @@ spec:
           resources: {requests: {cpu: 500m, memory: 1Gi}, limits: {cpu: "2", memory: 4Gi}}
           securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false,
                             capabilities: {drop: [ALL]}}
-          volumeMounts: [{name: data, mountPath: /data}]
-      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
+          volumeMounts: [{name: data, mountPath: /data}, {name: keys, mountPath: /keys}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}},
+                {name: keys, persistentVolumeClaim: {claimName: hydra-keys}}]
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -54,8 +55,9 @@ spec:
           resources: {requests: {cpu: "1", memory: 2Gi}, limits: {cpu: "8", memory: 32Gi}}
           securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false,
                             capabilities: {drop: [ALL]}}
-          volumeMounts: [{name: data, mountPath: /data}]
-      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
+          volumeMounts: [{name: data, mountPath: /data}, {name: keys, mountPath: /keys}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}},
+                {name: keys, persistentVolumeClaim: {claimName: hydra-keys}}]
 ---
 # GPU inference through the NVIDIA device plugin. Parallelism flags come from
 # hydra.cluster.scheduler.create_parallel_plan (e.g. --tensor-parallel-size 2).

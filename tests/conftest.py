@@ -12,6 +12,9 @@ os.environ.setdefault("HYDRA_RUNTIME_DIR", tempfile.mkdtemp(prefix="hydra-runtim
 # process environment wins, so empty values keep auth tests deterministic with or without .env.
 for _token in ("HYDRA_ADMIN_TOKEN", "HYDRA_API_TOKEN", "HYDRA_API_KEY"):
     os.environ[_token] = ""
+# Never write test keys into the developer's OS keyring: keep the legacy file layout in tests
+# (tests/test_keystore.py exercises the keyring and keys-dir backends with an in-memory keyring).
+os.environ["HYDRA_KEY_BACKEND"] = "legacy"
 
 import pytest  # noqa: E402
 

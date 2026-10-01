@@ -6,7 +6,9 @@
     restore = restore files -> verify ledger chain -> verify object hashes -> rebuild registries
               -> health check -> resume traffic
 
-Private keys are excluded unless explicitly requested (they belong in a KMS/HSM)."""
+Private keys are excluded unless explicitly requested. With ``include_private_keys`` and a
+``KeyStore``, keys held outside the data directory (OS keyring, HYDRA_KEYS_DIR) are exported at their
+legacy paths; after a restore, the next start migrates them back into the configured backend."""
 
 from __future__ import annotations
 
@@ -37,19 +39,24 @@ class BackupManifest(BaseModel):
     include_private_keys: bool = False
 
 
+# Key name -> legacy path inside the data directory (hydra.core.keystore).
+KEY_LEGACY_PATHS = {"ledger-ed25519": "keys/hydra-ed25519.pem", "secrets-broker": "secrets/.broker.key"}
+
+
 def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, postgres_url: str | None = None,
-           ledger=None) -> BackupManifest:
+           keystore=None, ledger=None) -> BackupManifest:
     """``ledger``: the node's ledger. A PostgreSQL ledger is exported into the archive as
-    ``data/ledger/events.jsonl`` / ``anchors.jsonl`` (the portable format restore verifies)."""
+    ``data/ledger/events.jsonl`` / ``anchors.jsonl`` (the portable format restore verifies).
+    ``keystore``: with ``include_private_keys``, keys held outside the data directory are exported."""
     out.parent.mkdir(parents=True, exist_ok=True)
     manifest = BackupManifest(source=str(data_dir), include_private_keys=include_private_keys)
     files = [p for p in data_dir.rglob("*") if p.is_file() and p.suffix not in EXCLUDE_ALWAYS
              and (include_private_keys or p.name not in PRIVATE_KEY_NAMES)]
-    exported: dict[str, str] = {}
+    ledger_export: dict[str, str] = {}
     if ledger is not None and getattr(ledger, "backend", "file") != "file":
-        exported["ledger/events.jsonl"], exported["ledger/anchors.jsonl"] = ledger.export_jsonl()
-        files = [p for p in files if p.relative_to(data_dir).as_posix() not in exported]
-    ledger_text = exported.get("ledger/events.jsonl")
+        ledger_export["ledger/events.jsonl"], ledger_export["ledger/anchors.jsonl"] = ledger.export_jsonl()
+        files = [p for p in files if p.relative_to(data_dir).as_posix() not in ledger_export]
+    ledger_text = ledger_export.get("ledger/events.jsonl")
     if ledger_text is None and (data_dir / "ledger" / "events.jsonl").exists():
         ledger_text = (data_dir / "ledger" / "events.jsonl").read_text(encoding="utf-8")
     if ledger_text is not None:
@@ -65,15 +72,23 @@ def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, pos
             manifest.postgres_dump = dump_path.name
     for p in files:
         manifest.files[p.relative_to(data_dir).as_posix()] = sha256_file(p)
-    for rel, text in exported.items():
-        manifest.files[rel] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    extra: dict[str, tuple[bytes, int]] = {
+        rel: (text.encode("utf-8"), 0o644) for rel, text in ledger_export.items()}
+    if include_private_keys and keystore is not None:
+        for name, rel in KEY_LEGACY_PATHS.items():
+            if rel in manifest.files:
+                continue  # still a legacy file: already in the archive
+            value = keystore.get(name, data_dir / rel)
+            if value is not None:
+                extra[rel] = (value, 0o600)
+    for rel, (raw, _) in extra.items():
+        manifest.files[rel] = hashlib.sha256(raw).hexdigest()
     with tarfile.open(out, "w:gz") as tar:
         for p in files:
             tar.add(p, arcname=f"data/{p.relative_to(data_dir).as_posix()}")
-        for rel, text in exported.items():
-            raw = text.encode("utf-8")
+        for rel, (raw, mode) in extra.items():
             info = tarfile.TarInfo(f"data/{rel}")
-            info.size = len(raw)
+            info.size, info.mode = len(raw), mode
             tar.addfile(info, io.BytesIO(raw))
         if dump_path is not None and dump_path.exists():
             tar.add(dump_path, arcname=dump_path.name)

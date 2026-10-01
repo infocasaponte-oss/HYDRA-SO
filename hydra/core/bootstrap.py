@@ -260,13 +260,15 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.ledger.pg import open_ledger
     from hydra.ledger.ip import IPRegistry
     from hydra.ledger.licenses import LicenseEngine
+    from hydra.core.keystore import KeyStore
     from hydra.ledger.signing import Signer
     from hydra.market import CapabilityMarket
     from hydra.world.knowledge import GraphRAG, KnowledgeCompiler
     from hydra.world.model import WorldModel
 
     data = settings.data_dir
-    signer = overrides.get("signer") or Signer.load_or_create(data / "keys")
+    keystore = overrides.get("keystore") or KeyStore.from_settings(settings)
+    signer = overrides.get("signer") or Signer.load_or_create(data / "keys", keystore=keystore)
     ledger = open_ledger(settings.ledger_backend, data / "ledger", signer, settings.ledger_anchor_every,
                          settings.postgres_url)
     artifact_store = ArtifactStore(data / "artifacts")
@@ -288,7 +290,8 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     configs = ConfigRegistry(data / "configs", ledger)
     flags = FeatureFlags(data / "flags.json")
     secrets = SecretsBroker(data / "secrets", audit=lambda et, p: ledger.append(et, p, object_type="secret",
-                                                                                 object_id=p.get("ref", "")))
+                                                                                 object_id=p.get("ref", "")),
+                            keystore=keystore)
     policy_dsl = PolicyEngine.from_yaml(settings.policy_rules_config)
     market = CapabilityMarket()
     executor = ToolExecutor(tools, ToolPolicyEngine(policy), bus, simulator=Simulator(), secrets=secrets,

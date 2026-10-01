@@ -91,14 +91,19 @@ class Settings(BaseSettings):
     """HYDRA_LEDGER_BACKEND: signed IP/provenance ledger: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
     psycopg is installed, else data/ledger files) | file | postgres (required). A PostgreSQL ledger adopts an
     existing file ledger once, after verifying it; the file is kept as a read-only copy."""
+    key_backend: str = "auto"
+    """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
+    keys_dir: Path | None = None
+    """HYDRA_KEYS_DIR: key files outside HYDRA_DATA_DIR (mounted secrets), used when no OS keyring."""
+    key_namespace: str = ""
+    """HYDRA_KEY_NAMESPACE: keyring namespace (default: derived from the data directory path)."""
 
-    @field_validator("sync_trusted_keys_dir", mode="before")
+    @field_validator("sync_trusted_keys_dir", "keys_dir", mode="before")
     @classmethod
     def _empty_path_is_unset(cls, value):
-        # HYDRA_SYNC_TRUSTED_KEYS_DIR= (as in .env.example) would otherwise become Path('.') and
-        # trust every *.pub.pem in the working directory.
+        # An empty variable (HYDRA_SYNC_TRUSTED_KEYS_DIR= / HYDRA_KEYS_DIR=, as in .env.example) would
+        # otherwise become Path('.'): the working directory would hold trusted or private keys.
         return None if isinstance(value, str) and not value.strip() else value
-
 
     api_rate_limit_per_minute: int = 60
     """Per-client limit for authenticated API routes. Set <= 0 to disable."""
