@@ -20,7 +20,7 @@ from hydra.core.durable_events import JsonlEventStore
 from hydra.runtime.patching import PatchTool
 from hydra.runtime.provider import LocalLLM
 from hydra.runtime.sandbox import OciSandbox
-from hydra.runtime.tools import Workspace
+from hydra.tools.task_workspace import ConfinedRoot as Workspace
 from hydra.runtime.workspace_hash import workspace_sha256
 from hydra.runtime.workspaces import TaskWorkspace, WorkspaceManager
 

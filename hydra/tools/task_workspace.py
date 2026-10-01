@@ -117,3 +117,17 @@ class TaskWorkspaceManager:
         root = workspace.root.resolve()
         if root.exists() and self.root in root.parents:
             shutil.rmtree(root)
+
+
+class ConfinedRoot:
+    """Paths relative to a task workspace, never outside it (the runtime line's ``Workspace``; not to
+    be confused with ``hydra.tools.workspace.Workspace``, the platform's working-copy model)."""
+
+    def __init__(self, root: str | Path):
+        self.root = Path(root).resolve()
+
+    def resolve(self, relative: str) -> Path:
+        candidate = (self.root / relative).resolve()
+        if candidate != self.root and self.root not in candidate.parents:
+            raise ValueError("Workspace path escape rejected")
+        return candidate
