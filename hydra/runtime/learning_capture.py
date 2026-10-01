@@ -5,7 +5,7 @@ from uuid import UUID
 
 from hydra.runtime.artifacts import ArtifactRecord, ArtifactStore
 from hydra.runtime.beliefs import Belief, BeliefStatus, BeliefStore, EvidenceRef
-from hydra.runtime.corpus import (
+from hydra.corpus.artifact_candidates import (
     CorpusGate,
     CorpusRecord,
     CorpusStore,
