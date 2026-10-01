@@ -4,7 +4,12 @@
 Every routed request appends one JSONL record: which variants served it (primary, shadow copy,
 canary), whether each call failed, how long it took and whether shadow and primary agreed. The
 deployment controller derives ``ShadowEvidence`` / ``CanaryEvidence`` from these records instead
-of trusting numbers sent by an operator."""
+of trusting numbers sent by an operator.
+
+The records live in a ``hydra.core.eventlog`` log: ``runtime-evidence.jsonl`` under the runtime
+directory, or the PostgreSQL stream ``runtime/evidence.jsonl`` that every node writes to, so a
+promotion is judged on the traffic of the whole cluster. Phases are delimited by log sequence
+numbers (``position``)."""
 
 from __future__ import annotations
 
@@ -18,6 +23,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from hydra.core.eventlog import FileLog
 from hydra.runtime.deployment_evidence import CanaryEvidence, ShadowEvidence
 from hydra.runtime.paths import runtime_path
 
@@ -54,9 +60,12 @@ def p95(values: list[float], presorted: bool = False) -> float:
 
 
 class RuntimeEvidenceStore:
-    def __init__(self, path: str | Path = runtime_path("runtime-evidence.jsonl")):
+    STREAM = "runtime/evidence.jsonl"
+
+    def __init__(self, path: str | Path = runtime_path("runtime-evidence.jsonl"), log=None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.log = log if log is not None else FileLog(self.path, self.STREAM)
         self._lock = threading.Lock()
         self._tallies: dict[tuple[str, str, int], _Tally] = {}
 
@@ -96,47 +105,51 @@ class RuntimeEvidenceStore:
             canary_latency_ms=canary_latency_ms,
             primary_error=primary_error,
         )
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(asdict(record), sort_keys=True) + "\n")
+        self.log.append(json.dumps(asdict(record), sort_keys=True))
         return record
 
     def position(self) -> int:
-        """Current end of the evidence log. A phase records it when it starts and only counts the
-        records written after it: exact, unlike timestamps that can tie at the transition."""
-        return self.path.stat().st_size if self.path.is_file() else 0
+        """Sequence number of the last evidence record. A phase records it when it starts and only
+        counts the records written after it: exact, unlike timestamps that can tie at the transition."""
+        return len(self.log)
 
     def records(self, start: int = 0) -> Iterator[dict]:
         for record, _ in self._complete_records(start):
             yield record
 
     def _complete_records(self, start: int) -> Iterator[tuple[dict, int]]:
-        """Records after byte ``start`` with the offset just past each one. A last line without its
-        newline is still being written (or torn by a crash): it is neither yielded nor consumed."""
+        """Records after sequence ``start`` with their sequence number. A line still being written is
+        not an entry yet (``FileLog``); a corrupt one is skipped."""
+        for seq, line in self.log.read(start):
+            try:
+                yield json.loads(line), seq
+            except ValueError:
+                continue  # a corrupt line is not evidence
+
+    def seq_at_byte_offset(self, offset: int) -> int | None:
+        """Translate a phase start recorded as a byte offset in ``runtime-evidence.jsonl`` (before the
+        evidence moved to sequence numbers) into the number of records before it. None when that file
+        is gone: the caller must not guess."""
         if not self.path.is_file():
-            return
+            return None
+        seq = 0
         with self.path.open("rb") as handle:
-            handle.seek(start)
-            offset = start
+            consumed = 0
             for raw in handle:
-                if not raw.endswith(b"\n"):
-                    return
-                offset += len(raw)
-                line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    yield json.loads(line), offset
-                except ValueError:
-                    continue  # a corrupt line is not evidence
+                if not raw.endswith(b"\n") or consumed + len(raw) > offset:
+                    break
+                consumed += len(raw)
+                if raw.strip():
+                    seq += 1
+        return seq
 
     def _advance(self, kind: str, variant_id: str, start: int) -> _Tally:
-        """Incremental aggregate for one phase: only the bytes written since the previous query are
+        """Incremental aggregate for one phase: only the records written since the previous query are
         read, so polling a long SHADOW/CANARY phase stays cheap."""
         with self._lock:
             key = (kind, variant_id, start)
             tally = self._tallies.get(key)
-            size = self.position()
-            if tally is None or size < tally.offset:  # first query, or the log was replaced
+            if tally is None or self.position() < tally.offset:  # first query, or the log was replaced
                 tally = self._tallies[key] = _Tally(offset=start)
             for record, offset in self._complete_records(tally.offset):
                 tally.offset = offset

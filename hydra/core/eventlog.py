@@ -143,12 +143,14 @@ class FileLog:
         with open(self.path, "rb") as f:
             f.seek(pos)
             for raw in f:
+                if not raw.endswith(b"\n"):
+                    return  # a line still being written (or torn by a crash) is not an entry yet
                 pos += len(raw)
                 line = raw.decode("utf-8").strip()
                 if not line:
                     continue
                 seq += 1
-                if raw.endswith(b"\n") and seq > self._tail[0]:
+                if seq > self._tail[0]:
                     self._tail = (seq, pos, raw)
                 if upto is not None and seq > upto:
                     return
