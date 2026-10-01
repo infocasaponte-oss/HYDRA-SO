@@ -1,13 +1,14 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Ed25519 signing for ledger events, release manifests, model artifacts and edge deltas.
 
-Private keys live in ``<data_dir>/keys`` (or an external KMS/HSM in production: pass a
-``Signer`` subclass). Workers only receive public keys."""
+Private keys are resolved through ``hydra.core.keystore`` (OS keyring, HYDRA_KEYS_DIR or container
+secrets; the plaintext ``<data_dir>/keys`` file is only a legacy fallback). The public key is always
+written to ``<data_dir>/keys/<name>.pub.pem`` so ledgers and backups can be verified. Workers only
+receive public keys."""
 
 from __future__ import annotations
 
 import base64
-import os
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
@@ -15,6 +16,8 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from hydra.core.hashing import sha256_hex
+
+LEDGER_KEY = "ledger-ed25519"
 
 
 class Signer:
@@ -31,22 +34,26 @@ class Signer:
         return cls(Ed25519PrivateKey.generate())
 
     @classmethod
-    def load_or_create(cls, directory: Path, name: str = "hydra-ed25519") -> Signer:
+    def load_or_create(cls, directory: Path, name: str = "hydra-ed25519", keystore=None) -> Signer:
+        """Load the node signing key (creating it once). ``keystore`` (hydra.core.keystore.KeyStore)
+        decides where the private part lives; without one the legacy file layout is used."""
+        from hydra.core.keystore import KeyStore
+
         directory.mkdir(parents=True, exist_ok=True)
-        path = directory / f"{name}.pem"
-        if path.exists():
-            key = serialization.load_pem_private_key(path.read_bytes(), password=None)
-            assert isinstance(key, Ed25519PrivateKey)
-            return cls(key)
-        key = Ed25519PrivateKey.generate()
-        path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                           serialization.NoEncryption()))
-        try:
-            os.chmod(path, 0o600)
-        except OSError:
-            pass
+        store = keystore or KeyStore(directory.parent, backend="legacy")
+
+        def generate() -> bytes:
+            return Ed25519PrivateKey.generate().private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+
+        pem = store.get_or_create(LEDGER_KEY, directory / f"{name}.pem", generate)
+        key = serialization.load_pem_private_key(pem, password=None)
+        if not isinstance(key, Ed25519PrivateKey):
+            raise ValueError("ledger signing key is not an Ed25519 private key")
         signer = cls(key)
-        (directory / f"{name}.pub.pem").write_text(signer.public_pem, encoding="utf-8")
+        public = directory / f"{name}.pub.pem"
+        if not public.is_file() or public.read_text(encoding="utf-8") != signer.public_pem:
+            public.write_text(signer.public_pem, encoding="utf-8")
         return signer
 
     def sign(self, data: bytes | str) -> str:

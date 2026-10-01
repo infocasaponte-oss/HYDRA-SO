@@ -6,10 +6,14 @@
     restore = restore files -> verify ledger chain -> verify object hashes -> rebuild registries
               -> health check -> resume traffic
 
-Private keys are excluded unless explicitly requested (they belong in a KMS/HSM)."""
+Private keys are excluded unless explicitly requested. With ``include_private_keys`` and a
+``KeyStore``, keys held outside the data directory (OS keyring, HYDRA_KEYS_DIR) are exported at their
+legacy paths; after a restore, the next start migrates them back into the configured backend."""
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import shutil
 import subprocess
@@ -35,8 +39,12 @@ class BackupManifest(BaseModel):
     include_private_keys: bool = False
 
 
-def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, postgres_url: str | None = None
-           ) -> BackupManifest:
+# Key name -> legacy path inside the data directory (hydra.core.keystore).
+KEY_LEGACY_PATHS = {"ledger-ed25519": "keys/hydra-ed25519.pem", "secrets-broker": "secrets/.broker.key"}
+
+
+def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, postgres_url: str | None = None,
+           keystore=None) -> BackupManifest:
     out.parent.mkdir(parents=True, exist_ok=True)
     manifest = BackupManifest(source=str(data_dir), include_private_keys=include_private_keys)
     files = [p for p in data_dir.rglob("*") if p.is_file() and p.suffix not in EXCLUDE_ALWAYS
@@ -55,9 +63,22 @@ def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, pos
             manifest.postgres_dump = dump_path.name
     for p in files:
         manifest.files[p.relative_to(data_dir).as_posix()] = sha256_file(p)
+    exported: dict[str, bytes] = {}
+    if include_private_keys and keystore is not None:
+        for name, rel in KEY_LEGACY_PATHS.items():
+            if rel in manifest.files:
+                continue  # still a legacy file: already in the archive
+            value = keystore.get(name, data_dir / rel)
+            if value is not None:
+                exported[rel] = value
+                manifest.files[rel] = hashlib.sha256(value).hexdigest()
     with tarfile.open(out, "w:gz") as tar:
         for p in files:
             tar.add(p, arcname=f"data/{p.relative_to(data_dir).as_posix()}")
+        for rel, value in exported.items():
+            info = tarfile.TarInfo(f"data/{rel}")
+            info.size, info.mode = len(value), 0o600
+            tar.addfile(info, io.BytesIO(value))
         if dump_path is not None and dump_path.exists():
             tar.add(dump_path, arcname=dump_path.name)
         mp = out.with_suffix(".manifest.json")

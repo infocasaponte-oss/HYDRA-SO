@@ -453,22 +453,16 @@ def ip_experiment(ledger: Ledger, name: str, *, invention: str | None = None, pa
 class TradeSecretVault:
     """Encrypted storage (Fernet/AES) with restricted ACL; every access is audited in the ledger."""
 
-    def __init__(self, root: Path, ledger: Ledger, key: bytes | None = None) -> None:
+    def __init__(self, root: Path, ledger: Ledger, key: bytes | None = None, keystore=None) -> None:
         from cryptography.fernet import Fernet
+
+        from hydra.core.keystore import KeyStore
 
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
-        key_path = root / ".vault.key"
         if key is None:
-            if key_path.exists():
-                key = key_path.read_bytes()
-            else:
-                key = Fernet.generate_key()
-                key_path.write_bytes(key)
-                try:
-                    os.chmod(key_path, 0o600)
-                except OSError:
-                    pass
+            store = keystore or KeyStore(root.parent, backend="legacy")
+            key = store.get_or_create("ip-vault", root / ".vault.key", Fernet.generate_key)
         self.fernet = Fernet(key)
         self.ledger = ledger
         self.acl_path = root / "acl.json"

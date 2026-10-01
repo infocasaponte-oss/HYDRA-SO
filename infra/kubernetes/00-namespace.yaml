@@ -9,6 +9,8 @@ metadata: {name: hydra-config, namespace: hydra}
 data:
   HYDRA_MODELS_CONFIG: /app/config/models.yaml
   HYDRA_DATA_DIR: /data
+  # Private keys: own volume (hydra-keys PVC), never inside /data.
+  HYDRA_KEYS_DIR: /keys
   HYDRA_WORKSPACE_DIR: /workspace
   HYDRA_NATS_URL: nats://nats.hydra.svc:4222
   HYDRA_REDIS_URL: redis://redis.hydra.svc:6379/0
