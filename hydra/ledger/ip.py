@@ -17,16 +17,18 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 from hydra.core.atomic import write_text_atomic
+from hydra.core.eventlog import LogSpace
 from hydra.core.hashing import hash_obj, now_iso, sha256_file
 from hydra.core.paths import confine, safe_id
 from hydra.ledger.chain import Ledger, LedgerEventType
@@ -172,21 +174,71 @@ class InventionRecord(BaseModel):
 
 
 class IPRegistry:
-    """Materialised invention state; every mutation is also an append-only ledger event."""
+    """Materialised invention state; every mutation is also an append-only ledger event.
 
-    def __init__(self, root: Path, ledger: Ledger) -> None:
+    The state is the replay of ``inventions.jsonl`` (one full record version per change, latest wins), a
+    ``hydra.core.eventlog`` log on files or on the PostgreSQL stream ``ip/inventions.jsonl``
+    (HYDRA_IP_BACKEND) shared by every node. Each change is a read-modify-write done while the stream is
+    locked, on the latest version: two nodes never mint the same ``INV-HYDRA-nnnn`` nor lose each
+    other's changes. A ``inventions.json`` snapshot of earlier versions is converted once and kept."""
+
+    def __init__(self, root: Path, ledger: Ledger, logs: LogSpace | None = None, refresh_s: float = 1.0) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
-        self.path = root / "inventions.json"
         self.ledger = ledger
-        self.inventions: dict[str, InventionRecord] = {}
-        if self.path.exists():
-            for k, v in json.loads(self.path.read_text(encoding="utf-8")).items():
-                self.inventions[k] = InventionRecord.model_validate(v)
+        self.refresh_s = refresh_s
+        log_path = root / "inventions.jsonl"
+        legacy = root / "inventions.json"
+        if legacy.exists() and not log_path.exists():
+            records = json.loads(legacy.read_text(encoding="utf-8")).values()
+            write_text_atomic(log_path, "".join(InventionRecord.model_validate(v).model_dump_json() + "\n"
+                                                for v in records))
+        self.logs = logs or LogSpace(label="ip")
+        self._log = self.logs.open(log_path, "ip/inventions.jsonl")
+        self._lock = threading.RLock()
+        self._inventions: dict[str, InventionRecord] = {}
+        self._seen = 0
+        self._synced_at = 0.0
+        self._catch_up()
 
-    def _save(self) -> None:
-        write_text_atomic(self.path, json.dumps({k: v.model_dump(mode="json") for k, v in self.inventions.items()},
-                                                indent=2, ensure_ascii=False))
+    # ------------------------------------------------------------------ state (replay of the log)
+    @property
+    def inventions(self) -> dict[str, InventionRecord]:
+        if self._log.shared and time.monotonic() - self._synced_at >= self.refresh_s:
+            self._catch_up()
+        return self._inventions
+
+    def _catch_up(self) -> None:
+        with self._lock:
+            for seq, line in self._log.read(self._seen):
+                inv = InventionRecord.model_validate_json(line)
+                self._inventions[inv.invention_id] = inv
+                self._seen = seq
+            self._synced_at = time.monotonic()
+
+    def _commit(self, make: Callable[[], InventionRecord]) -> InventionRecord:
+        """Append the record ``make`` builds from the latest state (read while the stream is locked)."""
+        with self._lock:
+            def build(seq: int, last: str | None) -> str:
+                if self._log.shared:
+                    self._catch_up()
+                return make().model_dump_json()
+
+            seq, body = self._log.append(build)
+            inv = InventionRecord.model_validate_json(body)
+            if self._log.shared:
+                self._catch_up()
+            else:
+                self._inventions[inv.invention_id], self._seen = inv, seq
+            return inv
+
+    def _change(self, invention_id: str, mutate: Callable[[InventionRecord], None]) -> InventionRecord:
+        def make() -> InventionRecord:
+            inv = self._inventions[invention_id].model_copy(deep=True)
+            mutate(inv)
+            return inv
+
+        return self._commit(make)
 
     def _event(self, et: LedgerEventType, inv: str, payload: dict, actor: str = "hydra") -> None:
         self.ledger.append(et, payload, object_type="invention", object_id=inv, actor_id=actor,
@@ -194,36 +246,40 @@ class IPRegistry:
                            else "INTERNAL_CONFIDENTIAL")
 
     def next_id(self) -> str:
+        """The next free id (``propose`` assigns it again while the stream is locked)."""
         return f"INV-HYDRA-{len(self.inventions) + 1:04d}"
 
+    # ------------------------------------------------------------------ write
     def propose(self, title: str, *, problem: str = "", solution: str = "", mechanism: str = "",
                 previous_approach: str = "", features: list[str] | None = None, contributors: list[str] | None = None,
                 status: InventionStatus = InventionStatus.CANDIDATE, actor: str = "hydra",
                 family: str | None = None) -> InventionRecord:
-        inv = InventionRecord(invention_id=self.next_id(), title=title, problem=problem, proposed_solution=solution,
-                              technical_mechanism=mechanism, previous_approach=previous_approach,
-                              features=features or [], contributors=contributors or [], status=status, family=family)
-        self.inventions[inv.invention_id] = inv
+        inv = self._commit(lambda: InventionRecord(
+            invention_id=f"INV-HYDRA-{len(self._inventions) + 1:04d}", title=title, problem=problem,
+            proposed_solution=solution, technical_mechanism=mechanism, previous_approach=previous_approach,
+            features=features or [], contributors=contributors or [], status=status, family=family))
         self._event(LedgerEventType.INVENTION_CANDIDATE_CREATED, inv.invention_id,
                     {"title": title, "problem": problem, "mechanism": mechanism, "features": inv.features,
                      "status": status.value}, actor)
-        self._save()
         return inv
 
     def get(self, invention_id: str) -> InventionRecord:
         return self.inventions[invention_id]
 
     def set_status(self, invention_id: str, status: InventionStatus, actor: str, reason: str = "") -> InventionRecord:
-        inv = self.inventions[invention_id]
-        old = inv.status
-        inv.status = status
-        if status == InventionStatus.TRADE_SECRET:
-            inv.strategy = IPStrategy.TRADE_SECRET
+        old: list[InventionStatus] = []
+
+        def mutate(inv: InventionRecord) -> None:
+            old[:] = [inv.status]
+            inv.status = status
+            if status == InventionStatus.TRADE_SECRET:
+                inv.strategy = IPStrategy.TRADE_SECRET
+
+        inv = self._change(invention_id, mutate)
         self._event(LedgerEventType.INVENTION_STATUS_CHANGED, invention_id,
-                    {"from": old.value, "to": status.value, "reason": reason}, actor)
+                    {"from": old[0].value, "to": status.value, "reason": reason}, actor)
         if status == InventionStatus.PATENT_REVIEW:
             self._event(LedgerEventType.PATENT_REVIEW_STARTED, invention_id, {"reason": reason}, actor)
-        self._save()
         return inv
 
     def add_effect(self, effect: TechnicalEffect) -> TechnicalEffect:
@@ -231,63 +287,62 @@ class IPRegistry:
         if not effect.lower_is_better:
             delta = -delta
         effect.improvement_pct = round(100 * delta / effect.baseline_value, 2) if effect.baseline_value else 0.0
-        self.inventions[effect.invention_id].measurable_effects.append(effect)
+        self._change(effect.invention_id, lambda inv: inv.measurable_effects.append(effect))
         self._event(LedgerEventType.TECHNICAL_EFFECT_OBSERVED, effect.invention_id, effect.model_dump())
-        self._save()
         return effect
 
     def add_contribution(self, c: ContributionRecord) -> ContributionRecord:
-        inv = self.inventions[c.invention_id]
-        inv.contributions.append(c)
-        if c.contributor_id not in inv.contributors and c.role != "ai_assistant":
-            inv.contributors.append(c.contributor_id)
+        def mutate(inv: InventionRecord) -> None:
+            inv.contributions.append(c)
+            if c.contributor_id not in inv.contributors and c.role != "ai_assistant":
+                inv.contributors.append(c.contributor_id)
+
+        self._change(c.invention_id, mutate)
         self._event(LedgerEventType.CONTRIBUTION_RECORDED, c.invention_id, c.model_dump(), c.contributor_id)
-        self._save()
         return c
 
     def add_model_assistance(self, invention_id: str, a: ModelAssistance) -> ModelAssistance:
-        self.inventions[invention_id].model_assistance.append(a)
+        self._change(invention_id, lambda inv: inv.model_assistance.append(a))
         self._event(LedgerEventType.MODEL_ASSISTANCE, invention_id, a.model_dump(), a.actor)
-        self._save()
         return a
 
     def add_prior_art(self, search: PriorArtSearch) -> PriorArtSearch:
-        self.inventions[search.invention_id].prior_art.append(search)
+        self._change(search.invention_id, lambda inv: inv.prior_art.append(search))
         self._event(LedgerEventType.PRIOR_ART_SEARCH, search.invention_id, search.model_dump(), search.searcher or "hydra")
-        self._save()
         return search
 
     def add_embodiment(self, invention_id: str, text: str) -> None:
-        self.inventions[invention_id].alternative_embodiments.append(text)
+        self._change(invention_id, lambda inv: inv.alternative_embodiments.append(text))
         self._event(LedgerEventType.DESIGN_CHANGED, invention_id, {"alternative_embodiment": text})
-        self._save()
 
     def link(self, invention_id: str, *, commit: str | None = None, experiment: str | None = None,
              artifact: str | None = None) -> None:
-        inv = self.inventions[invention_id]
+        def mutate(inv: InventionRecord) -> None:
+            if commit:
+                inv.related_commits.append(commit)
+            if experiment:
+                inv.experiments.append(experiment)
+            if artifact:
+                inv.related_artifacts.append(artifact)
+
+        self._change(invention_id, mutate)
         if commit:
-            inv.related_commits.append(commit)
             self._event(LedgerEventType.CODE_COMMIT_REGISTERED, invention_id, {"commit": commit})
-        if experiment:
-            inv.experiments.append(experiment)
-        if artifact:
-            inv.related_artifacts.append(artifact)
-        self._save()
 
     def record_disclosure(self, d: DisclosureRecord) -> DisclosureRecord:
         for i in d.invention_ids:
-            self.inventions[i].disclosures.append(d)
+            self._change(i, lambda inv: inv.disclosures.append(d))
             self._event(LedgerEventType.PUBLIC_DISCLOSURE if not d.confidential else LedgerEventType.DISCLOSURE_CREATED,
                         i, d.model_dump())
-        self._save()
         return d
 
     def record_filing(self, invention_id: str, filing: PatentFiling) -> None:
-        inv = self.inventions[invention_id]
-        inv.filings.append(filing)
-        inv.status = InventionStatus.FILED
+        def mutate(inv: InventionRecord) -> None:
+            inv.filings.append(filing)
+            inv.status = InventionStatus.FILED
+
+        self._change(invention_id, mutate)
         self._event(LedgerEventType.PATENT_FILED, invention_id, filing.model_dump())
-        self._save()
 
     # ------------------------------------------------------------------ analysis
     def feature_matrix(self, invention_id: str) -> dict[str, Any]:

@@ -140,7 +140,7 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev,postgres,redis]"
       - name: Fabric contract and infrastructure integration
-        run: pytest -q -rs tests/test_fabric_backends.py tests/test_ledger_backends.py tests/test_corpus_backends.py tests/test_world_backends.py tests/test_integration_infra.py
+        run: pytest -q -rs tests/test_fabric_backends.py tests/test_ledger_backends.py tests/test_corpus_backends.py tests/test_world_backends.py tests/test_ip_backends.py tests/test_integration_infra.py
 
   manifests:
     name: deployment manifests

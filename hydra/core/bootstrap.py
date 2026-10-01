@@ -285,7 +285,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         dedup=Deduplicator(), contamination=ContaminationGuard.from_suites(load_suites(settings.evals_dir))),
         ledger=ledger, logs=open_log_space(settings.corpus_backend, settings.postgres_url, "corpus"))
     datasets = DatasetFactory(corpus, ledger)
-    ip = IPRegistry(data / "ip", ledger)
+    ip = IPRegistry(data / "ip", ledger, logs=open_log_space(settings.ip_backend, settings.postgres_url, "ip"))
     licenses = LicenseEngine.from_yaml(settings.licenses_config)
     workspaces = WorkspaceManager(data / "workspaces")
     configs = ConfigRegistry(data / "configs", ledger)
