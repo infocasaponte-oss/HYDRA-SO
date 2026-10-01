@@ -31,6 +31,7 @@ fecha que llevan. Las evidencias en bruto (JSON) están en [`evidence/`](evidenc
 
 ## Integración y planes (históricos)
 
+[PLAN_UNIFICACION_LINEAS_2026-10-01.md](PLAN_UNIFICACION_LINEAS_2026-10-01.md) (unificación plataforma/runtime, fases F0–F6) ·
 [INTEGRATION_PLAN.md](INTEGRATION_PLAN.md) (fusión de la línea runtime) ·
 [MAIN_INTEGRATION_PLAN.md](MAIN_INTEGRATION_PLAN.md) (integración con `main`) ·
 [REVISION_INTEGRACION_CLAUDE.md](REVISION_INTEGRACION_CLAUDE.md) ·
