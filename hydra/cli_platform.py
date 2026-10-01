@@ -601,15 +601,20 @@ def run_without_runtime(args, settings) -> int:
         ledger = open_ledger(settings.ledger_backend, settings.data_dir / "ledger", None, 0, settings.postgres_url)
         logs = [open_log_space(settings.corpus_backend, settings.postgres_url, "corpus"),
                 open_log_space(settings.world_backend, settings.postgres_url, "world"),
-                open_log_space(settings.ip_backend, settings.postgres_url, "ip")]
+                open_log_space(settings.ip_backend, settings.postgres_url, "ip"),
+                open_log_space(settings.artifacts_backend, settings.postgres_url, "artifacts")]
         _print(backup(settings.data_dir, Path(args.out), include_private_keys=args.include_private_keys,
                       postgres_url=settings.postgres_url or None, ledger=ledger, logs=logs,
                       keystore=KeyStore.from_settings(settings) if args.include_private_keys else None))
         return 0
     if cmd == "restore":
+        from hydra.artifacts.blobs import open_blobs
         from hydra.governance.recovery import restore
 
-        rep = restore(Path(args.archive), Path(args.data_dir), overwrite=args.overwrite)
+        data_dir = Path(args.data_dir)
+        blobs = open_blobs(settings.artifact_objects, data_dir / "artifacts" / "objects",
+                           settings.s3_endpoint_url) if settings.artifact_objects else None
+        rep = restore(Path(args.archive), data_dir, overwrite=args.overwrite, blobs=blobs)
         _print(rep)
         return 0 if rep.ok else 4
     if cmd == "profile":

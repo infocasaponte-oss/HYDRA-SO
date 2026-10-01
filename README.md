@@ -128,10 +128,11 @@ Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN
   modelos, memoria, la cola del Execution Fabric (`fabric_*`, compartida por todos los nodos con
   `FOR UPDATE SKIP LOCKED`), el ledger firmado (`ip_events`/`ledger_anchors`: una sola cadena para todos
   los nodos, con triggers que impiden UPDATE/DELETE/TRUNCATE) y los logs del corpus (`hydra_logs`: registros,
-  linaje, tombstones y snapshots), del World Model (deltas y snapshots) y del registro de invenciones
-  (`hydra_logs`); cada nodo reproduce los logs en el mismo orden total. Requiere el extra `postgres`. Los
-  artefactos viven aún en ficheros bajo `HYDRA_DATA_DIR`: su tabla en `schema.sql` es esquema reservado,
-  por eso los manifiestos CLUSTER ejecutan una réplica por servicio.
+  linaje, tombstones y snapshots), del World Model (deltas y snapshots), del registro de invenciones y de
+  los manifiestos de artefactos (`hydra_logs`); cada nodo reproduce los logs en el mismo orden total.
+  Requiere el extra `postgres`. Los blobs de artefactos van a `HYDRA_ARTIFACT_OBJECTS`: un volumen
+  compartido o un bucket S3/MinIO (extra `s3`). Los manifiestos CLUSTER siguen con una réplica por
+  servicio mientras el outbox de captura siga en SQLite local.
 
 ## Pruebas
 
@@ -148,9 +149,9 @@ set HYDRA_IT_NATS=nats://localhost:4222
   herramientas externas (llama.cpp, llm-compressor, mlx-lm, optimum, torch/transformers/peft/trl) que
   HYDRA integra pero no incluye; sin ellas lo informa (`ToolMissing`) en vez de fingir.
 * El scheduler de clúster, la analítica federada y las colas están probados en una máquina y con
-  nodos simulados. Con PostgreSQL la cola del fabric, el ledger, el corpus, el World Model y el registro
-  de IP ya son compartidos entre nodos; escalar réplicas requiere además llevar outbox y artefactos a
-  almacenamiento compartido.
+  nodos simulados. Con PostgreSQL (y blobs en S3 o un volumen compartido) la cola del fabric, el ledger,
+  el corpus, el World Model, el registro de IP y los artefactos ya son compartidos entre nodos; escalar
+  réplicas requiere además llevar el outbox de captura a PostgreSQL.
 * En Ollama el tipo de caché KV es un ajuste del servidor (`OLLAMA_KV_CACHE_TYPE`): el AutoBuilder
   lo varía solo con llama-server.
 * HYDRA registra evidencia técnica y de autoría; no decide patentabilidad ni autoría legal.
