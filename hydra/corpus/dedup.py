@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import math
 import re
 
 from hydra.core.hashing import sha256_hex
+from hydra.core.vectors import cosine as _cos
 from hydra.corpus.records import CorpusRecord
 
 WORD = re.compile(r"\w+", re.U)
@@ -135,10 +135,6 @@ class Deduplicator:
             self.vectors.append((self.embed(rec.text()[:2000]), rec.id))
 
 
-def _cos(a: list[float], b: list[float]) -> float:
-    num = sum(x * y for x, y in zip(a, b))
-    da, db = math.sqrt(sum(x * x for x in a)), math.sqrt(sum(y * y for y in b))
-    return num / (da * db) if da and db else 0.0
 
 
 class ContaminationGuard:

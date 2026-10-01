@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from hydra.core.docstore import DocumentStore, KeyedModels
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message, ModelRequest, RoutingDecision, TaskType
 from hydra.language import LANGUAGE_NAMES, detect_language, normalize_language
-from hydra.runtime.budgets import RequestBudget
+from hydra.core.request_budget import RequestBudget
 
 CODE_FENCE = re.compile(r"```.*?```", re.S)
 INLINE_CODE = re.compile(r"`[^`\n]+`")
