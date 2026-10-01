@@ -78,11 +78,11 @@ def anchor_now(ledger) -> dict | None:
 
 @asynccontextmanager
 async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor_interval_s: float = 300.0,
-                           world=None):
+                           world=None, admin_token: str = ""):
     """Outbox recovery + worker of the runtime line, bound to the gateway lifespan.
 
-    A gateway token given in code (not only through HYDRA_API_KEY/HYDRA_API_TOKEN) also
-    protects the runtime routes while this app is running. With a ledger, the runtime
+    Gateway and admin tokens given in code (not only through HYDRA_API_KEY/HYDRA_API_TOKEN and
+    HYDRA_ADMIN_TOKEN) also protect the runtime routes while this app is running. With a ledger, the runtime
     evidence chains are anchored in it periodically and on shutdown; with a world model,
     runtime beliefs (verified patches) are recorded in it."""
     if not enabled:
@@ -91,8 +91,9 @@ async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor
     runtime = runtime_module()
     previous = runtime.security_config
     previous_beliefs = runtime.learning.beliefs
-    if api_key:
-        runtime.security_config = replace(previous, api_token=api_key)
+    overrides = {k: v for k, v in (("api_token", api_key), ("admin_token", admin_token)) if v}
+    if overrides:
+        runtime.security_config = replace(previous, **overrides)
     if world is not None:
         from hydra.world.runtime_beliefs import WorldBeliefStore
 
