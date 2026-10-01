@@ -12,8 +12,11 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from hydra import __version__
+from hydra.artifacts.blobs import open_blobs
 from hydra.core.eventlog import open_log_space
 from hydra.runtime.artifacts import ArtifactStore
+from hydra.runtime.beliefs import BeliefStore
+from hydra.runtime.corpus import CorpusStore
 from hydra.runtime.bootstrap import bootstrap_runtime
 from hydra.runtime.budgets import BudgetExceeded, RequestBudget
 from hydra.runtime.code_agent import CodeAgent
@@ -65,15 +68,26 @@ budget = RequestBudget(
 glossaries = GlossaryStore()
 model_hash_cache = HashCache(Path(settings.runtime_db).parent / "model-hashes.json")
 translations = TranslationService(llm, budget, glossaries)
-artifacts = ArtifactStore()
 runtime_logs = open_log_space(settings.runtime_backend, settings.postgres_url, "runtime")
+_shared = runtime_logs.backend == "postgres"
+artifacts = ArtifactStore(
+    blobs=open_blobs(settings.artifact_objects, Path(settings.data_dir) / "artifacts" / "objects",
+                     settings.s3_endpoint_url) if _shared else None,
+    log=runtime_logs.open(runtime_path("artifacts.jsonl"), ArtifactStore.STREAM) if _shared else None,
+)
 provenance = ProvenanceLedger(log=runtime_logs.open(runtime_path("provenance.jsonl"), ProvenanceLedger.STREAM))
 workspaces = WorkspaceManager(
     max_files=settings.workspace_max_files,
     max_bytes=settings.workspace_max_bytes,
 )
-learning = LearningCapture(artifacts_store=artifacts)
-replay_store = ReplayStore()
+learning = LearningCapture(
+    artifacts_store=artifacts,
+    beliefs=BeliefStore(log=runtime_logs.open(runtime_path("beliefs.jsonl"), BeliefStore.STREAM)),
+    corpus=CorpusStore(log=runtime_logs.open(runtime_path("corpus.jsonl"), CorpusStore.STREAM)),
+)
+replay_store = ReplayStore(
+    log=runtime_logs.open(runtime_path("replay.jsonl"), ReplayStore.STREAM) if _shared else None
+)
 deployment_artifact_validator = DeploymentArtifactValidator(settings.models_dir)
 deployment_store = DeploymentStore(
     settings.deployments_file,
@@ -341,6 +355,7 @@ async def audit_replay(task_id: UUID, request: Request) -> dict:
         events=kernel.events,
         provenance=provenance,
         artifact_root=artifacts.root,
+        artifacts=artifacts,
     ).audit(manifest)
     if not result.valid:
         return {
