@@ -276,3 +276,44 @@ def test_operating_metrics_cover_the_whole_cluster(pg_url, tmp_path):
     metrics = collect_operating_metrics(outbox=nodes[0].capture_uow.outbox, traces=nodes[1].traces)
     assert metrics.spans_total == 8 and metrics.spans_error == 2
     assert metrics.spans_by_name == {"inference": 2, "routing": 6}
+
+
+# ------------------------------------------------------------------------------------------ F6a
+from hydra.cli import main as hydra_main  # noqa: E402
+from hydra.core.bootstrap import build_runtime  # noqa: E402
+from hydra.core.config import Settings  # noqa: E402
+from hydra.core.keystore import KeyStore  # noqa: E402
+
+
+def _cluster_settings(tmp_path, url, **kw):
+    return Settings(offline=True, sandbox_backend="subprocess", workspace_dir=tmp_path / "ws",
+                    data_dir=tmp_path / "data", postgres_url=url, redis_url="", nats_url="", api_key="",
+                    admin_token="", client_keys_file=tmp_path / "clients.json", require_shared_state=True,
+                    runtime_api=False, **kw)
+
+
+async def test_shared_state_is_required_when_asked(tmp_path):
+    with pytest.raises(RuntimeError, match="local to this node: ledger"):
+        await build_runtime(_cluster_settings(tmp_path, ""))
+
+
+async def test_a_fully_shared_node_starts(pg_url, tmp_path, monkeypatch):
+    monkeypatch.setenv("HYDRA_KEYS_DIR", str(tmp_path / "keys"))
+    settings = _cluster_settings(tmp_path, pg_url, key_backend="file", keys_dir=tmp_path / "keys")
+    rt = await build_runtime(settings, keystore=KeyStore(tmp_path / "data", backend="file",
+                                                         keys_dir=tmp_path / "keys"))
+    try:
+        assert rt.ledger.backend == "postgres" and rt.documents.backend == "postgres"
+    finally:
+        await rt.close()
+
+
+def test_keys_export_writes_a_secret_ready_directory(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HYDRA_DATA_DIR", str(tmp_path / "data"))
+    assert hydra_main(["keys", "export", "--out", str(tmp_path / "out")]) == 0
+    files = sorted(p.name for p in (tmp_path / "out").iterdir())
+    assert files == ["ledger-ed25519.key", "secrets-broker.key"]
+    assert b"PRIVATE KEY" in (tmp_path / "out" / "ledger-ed25519.key").read_bytes()
+    again = (tmp_path / "out" / "secrets-broker.key").read_bytes()
+    hydra_main(["keys", "export", "--out", str(tmp_path / "out2")])
+    assert (tmp_path / "out2" / "secrets-broker.key").read_bytes() == again  # the same keys, not new ones

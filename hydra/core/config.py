@@ -111,6 +111,10 @@ class Settings(BaseSettings):
     volume every node mounts) or s3://bucket/prefix (needs the s3 extra; credentials from the AWS variables)."""
     s3_endpoint_url: str = ""
     """HYDRA_S3_ENDPOINT_URL: S3-compatible endpoint (MinIO, Ceph, R2...); empty for AWS S3."""
+    require_shared_state: bool = False
+    """HYDRA_REQUIRE_SHARED_STATE: refuse to start unless every plane is on shared storage (PostgreSQL) and
+    the private keys are outside the data directory. Set it wherever more than one replica runs: a
+    misconfigured node then fails fast instead of writing local files that the others never see."""
     documents_backend: str = "auto"
     """HYDRA_DOCUMENTS_BACKEND: small shared registries of the engine and the factory (feature flags,
     config sets, secret vault and policies, lab, glossaries, model lifecycle, factory registry and

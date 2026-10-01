@@ -151,6 +151,7 @@ runtime en PostgreSQL (`runtime_spans`, acotada): `/hydra/v1/admin/metrics` desc
 | **F3 Estado del runtime a almacenes compartidos** | Según §2.2: events y provenance a `hydra_logs`; evidencia a stream con `seq` (los despliegues a mitad de fase convierten su offset de bytes a `seq` al migrar); `deployments.json` a log de versiones; `hydra.db` a tablas PG con reclamación por nodo; creencias, corpus y artefactos del runtime a los de plataforma | 4–5 | **Alto**: es el que cambia formatos en disco |
 | **F4 Comportamiento** | Verificador, planificador (un único `ExecutionPlan`), sandbox/workspaces, policy y observabilidad; antes de cada fusión, diff funcional y tests de caracterización de la versión que desaparece | 4–5 | Alto (semántica) |
 | **F5 Kernel y contratos** | `/hydra/v1/tasks/route|execute` y `/v1/chat` servidos por el kernel de plataforma (`/v1/chat` como alias de `/v1/chat/completions`), conservando los esquemas | 2 | Alto |
+| **F6a Réplicas** ✅ | `hydra-api` ×2 (RollingUpdate, PDB, anti-afinidad preferente) y `hydra-fabric-worker` ×2 sin afinidad de pod; `/data` RWX; claves en el Secret `hydra-keys` (`hydra keys export`); `HYDRA_REQUIRE_SHARED_STATE` rechaza arrancar si algún plano queda local | 1 | Medio |
 | **F6 Cierre** | Borrar `hydra/runtime/` (salvo reexportaciones de una versión), `HYDRA_RUNTIME_DIR` opcional, manifiestos k8s a más de una réplica (quitar afinidad de pod y PVC RWO del runtime), documentación | 1–2 | Medio |
 
 Total aproximado: 15–19 PRs. F0–F2 se pueden hacer ya. F3 es el que más valor da, porque libera las

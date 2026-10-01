@@ -40,6 +40,33 @@ class KeyStoreError(RuntimeError):
     pass
 
 
+def export_keys(settings, out: Path) -> list[Path]:
+    """Write every private key HYDRA uses as ``<out>/<name>.key`` (created if missing), the layout of
+    ``HYDRA_KEYS_DIR``: load them into a Kubernetes Secret mounted at ``HYDRA_KEYS_DIR`` so every
+    replica signs and decrypts with the same keys. Files are written with mode 0600."""
+    from cryptography.fernet import Fernet
+
+    from hydra.governance.recovery import KEY_LEGACY_PATHS
+    from hydra.ledger.signing import LEDGER_KEY, Signer
+
+    store = KeyStore.from_settings(settings)
+    data = Path(settings.data_dir)
+    Signer.load_or_create(data / "keys", keystore=store)  # creates the ledger key once if needed
+    values = {
+        LEDGER_KEY: store.get(LEDGER_KEY, data / KEY_LEGACY_PATHS[LEDGER_KEY]),
+        "secrets-broker": store.get_or_create("secrets-broker", data / KEY_LEGACY_PATHS["secrets-broker"],
+                                              Fernet.generate_key),
+    }
+    out.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, value in values.items():
+        path = out / f"{name}.key"
+        write_bytes_atomic(path, value)
+        _restrict(path)
+        written.append(path)
+    return written
+
+
 def _env_name(name: str) -> str:
     return "HYDRA_KEY_" + name.upper().replace("-", "_")
 

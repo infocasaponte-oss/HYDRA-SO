@@ -199,6 +199,10 @@ def add_platform_parsers(sub) -> None:
     cf.add_argument("values", nargs="*")
     cf.add_argument("--version", type=int)
 
+    ks = sub.add_parser("keys", help="private keys: export them as files for a mounted secret")
+    ks.add_argument("action", choices=["export"])
+    ks.add_argument("--out", required=True, help="directory for <name>.key files (keep it private)")
+
     bk = sub.add_parser("backup", help="coherent backup of the data plane")
     bk.add_argument("out")
     bk.add_argument("--include-private-keys", action="store_true")
@@ -224,7 +228,7 @@ def argparse_remainder():
     return argparse.REMAINDER
 
 
-NO_RUNTIME = {"backup", "restore", "build", "edge", "profile", "release_verify"}
+NO_RUNTIME = {"backup", "restore", "build", "edge", "profile", "release_verify", "keys"}
 
 
 async def run_platform(args, rt) -> int:  # noqa: C901 - command table
@@ -610,6 +614,13 @@ def run_without_runtime(args, settings) -> int:
         _print(backup(settings.data_dir, Path(args.out), include_private_keys=args.include_private_keys,
                       postgres_url=settings.postgres_url or None, ledger=ledger, logs=logs,
                       keystore=KeyStore.from_settings(settings) if args.include_private_keys else None))
+        return 0
+    if cmd == "keys":
+        from hydra.core.keystore import export_keys
+
+        written = export_keys(settings, Path(args.out))
+        _print({"written": [str(p) for p in written],
+                "next": f"kubectl -n hydra create secret generic hydra-keys --from-file={args.out}"})
         return 0
     if cmd == "restore":
         from hydra.artifacts.blobs import open_blobs
