@@ -11,6 +11,7 @@ from hydra.runtime.deployment_store import DeploymentStore
 from hydra.runtime.deployment_validation import DeploymentArtifactValidator
 from hydra.runtime.model_factory import BuildState, ModelLineage, ModelVariant
 from hydra.runtime.rate_limit import RateLimit, SlidingWindowRateLimiter
+from hydra.runtime.runtime_evidence import RuntimeEvidenceStore
 from hydra.runtime.security import SecurityConfig
 
 
@@ -64,11 +65,13 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
     original_validator = api.deployment_artifact_validator
     original_limiter = api.rate_limiter
     original_limit = api.admin_rate_limit
+    original_runtime_evidence = api.runtime_evidence
 
     path = tmp_path / "deployments.json"
     temp_store = DeploymentStore(path)
     temp_registry = temp_store.load()
     temp_evidence = DeploymentEvidenceStore(tmp_path / "hydra.db")
+    traffic = RuntimeEvidenceStore(tmp_path / "runtime-evidence.jsonl")
     models_root = tmp_path / "models"
     models_root.mkdir()
 
@@ -76,9 +79,11 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
     api.deployment_store = temp_store
     api.deployment_registry = temp_registry
     api.deployment_evidence_store = temp_evidence
+    api.runtime_evidence = traffic
     api.deployment_controller = DeploymentController(
         temp_registry,
         evidence_store=temp_evidence,
+        runtime_evidence=traffic,
     )
     api.deployment_artifact_validator = DeploymentArtifactValidator(models_root)
     api.rate_limiter = SlidingWindowRateLimiter()
@@ -110,29 +115,36 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
                 assert shadow.status_code == 200
                 assert shadow.json()["state"] == "shadow"
 
-                canary = client.post(
-                    f"/hydra/v1/admin/deployments/{variant.variant_id}/canary",
+                vid = str(variant.variant_id)
+                # Client-supplied numbers are ignored: without live traffic the gate refuses.
+                refused = client.post(
+                    f"/hydra/v1/admin/deployments/{vid}/canary",
                     headers=headers,
-                    json={
-                        "samples": 20,
-                        "agreement_rate": 0.96,
-                        "error_rate": 0.0,
-                    },
+                    json={"samples": 1000, "agreement_rate": 1.0, "error_rate": 0.0},
                 )
+                assert refused.status_code == 409
+                assert refused.json()["detail"]["evidence"]["samples"] == 0
+
+                for i in range(20):  # mirrored live requests (what RuntimeExecutor records)
+                    traffic.append(trace_id=f"s{generation}-{i}", capability="reasoning.general",
+                                   primary_variant_id="active", primary_output="same",
+                                   shadow_variant_id=vid, shadow_output="same", shadow_latency_ms=40.0)
+                progress = client.get(f"/hydra/v1/admin/deployments/{vid}/evidence", headers=headers)
+                assert progress.json()["evidence"] == {"samples": 20, "agreement_rate": 1.0, "error_rate": 0.0}
+
+                canary = client.post(f"/hydra/v1/admin/deployments/{vid}/canary", headers=headers)
                 assert canary.status_code == 200
                 assert canary.json()["state"] == "canary"
+                assert canary.json()["evidence"]["samples"] == 20
 
-                active = client.post(
-                    f"/hydra/v1/admin/deployments/{variant.variant_id}/activate",
-                    headers=headers,
-                    json={
-                        "requests": 20,
-                        "error_rate": 0.0,
-                        "p95_latency_ms": 500.0,
-                    },
-                )
+                for i in range(20):
+                    traffic.append(trace_id=f"c{generation}-{i}", capability="reasoning.general",
+                                   primary_variant_id=vid, primary_output="answer",
+                                   canary_variant_id=vid, canary_error=False, canary_latency_ms=100.0 + i)
+                active = client.post(f"/hydra/v1/admin/deployments/{vid}/activate", headers=headers)
                 assert active.status_code == 200
                 assert active.json()["state"] == "active"
+                assert active.json()["evidence"] == {"requests": 20, "error_rate": 0.0, "p95_latency_ms": 118.0}
 
             listed = client.get(
                 "/hydra/v1/admin/deployments",
@@ -167,3 +179,4 @@ def test_admin_deployment_lifecycle_and_rollback(tmp_path):
         api.deployment_artifact_validator = original_validator
         api.rate_limiter = original_limiter
         api.admin_rate_limit = original_limit
+        api.runtime_evidence = original_runtime_evidence
