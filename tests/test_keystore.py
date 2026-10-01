@@ -130,3 +130,10 @@ def _load(pem: bytes):
     from cryptography.hazmat.primitives import serialization
 
     return serialization.load_pem_private_key(pem, password=None)
+
+
+def test_empty_keys_dir_setting_is_unset(monkeypatch, tmp_path):
+    from hydra.core.config import Settings
+
+    monkeypatch.setenv("HYDRA_KEYS_DIR", "")
+    assert Settings(data_dir=tmp_path).keys_dir is None
