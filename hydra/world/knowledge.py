@@ -141,10 +141,7 @@ class KnowledgeCompiler:
                                              properties={"task_type": task_type, "confidence": confidence,
                                                          "verified": verified}))
         # 2) per-task world state (text facts, perception, tool facts) as observations
-        interim = WorldModel(None)
-        interim.entities, interim.beliefs = dict(self.world.entities), dict(self.world.beliefs)
-        interim.evidence, interim.relations = dict(self.world.evidence), dict(self.world.relations)
-        interim.aliases = dict(self.world.aliases)
+        interim = self.world.scratch()
 
         def feed(obs: Observation) -> None:
             d = interim.observe(obs, visibility=vis)

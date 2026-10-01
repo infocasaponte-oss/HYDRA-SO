@@ -128,9 +128,10 @@ Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN
   modelos, memoria, la cola del Execution Fabric (`fabric_*`, compartida por todos los nodos con
   `FOR UPDATE SKIP LOCKED`), el ledger firmado (`ip_events`/`ledger_anchors`: una sola cadena para todos
   los nodos, con triggers que impiden UPDATE/DELETE/TRUNCATE) y los logs del corpus (`hydra_logs`: registros,
-  linaje, tombstones y snapshots en un orden total que cada nodo reproduce). Requiere el extra `postgres`.
-  IP, artefactos y World Model viven aún en ficheros bajo `HYDRA_DATA_DIR`: sus tablas en `schema.sql` son
-  esquema reservado, por eso los manifiestos CLUSTER ejecutan una réplica por servicio.
+  linaje, tombstones y snapshots) y del World Model (`hydra_logs`: deltas y snapshots); cada nodo
+  reproduce los logs en el mismo orden total. Requiere el extra `postgres`. IP y artefactos viven aún en
+  ficheros bajo `HYDRA_DATA_DIR`: sus tablas en `schema.sql` son esquema reservado, por eso los
+  manifiestos CLUSTER ejecutan una réplica por servicio.
 
 ## Pruebas
 
@@ -147,8 +148,8 @@ set HYDRA_IT_NATS=nats://localhost:4222
   herramientas externas (llama.cpp, llm-compressor, mlx-lm, optimum, torch/transformers/peft/trl) que
   HYDRA integra pero no incluye; sin ellas lo informa (`ToolMissing`) en vez de fingir.
 * El scheduler de clúster, la analítica federada y las colas están probados en una máquina y con
-  nodos simulados. Con PostgreSQL la cola del fabric, el ledger y el corpus ya son compartidos entre
-  nodos; escalar réplicas requiere además llevar outbox, IP, artefactos y World Model a PostgreSQL.
+  nodos simulados. Con PostgreSQL la cola del fabric, el ledger, el corpus y el World Model ya son
+  compartidos entre nodos; escalar réplicas requiere además llevar outbox, IP y artefactos a PostgreSQL.
 * En Ollama el tipo de caché KV es un ajuste del servidor (`OLLAMA_KV_CACHE_TYPE`): el AutoBuilder
   lo varía solo con llama-server.
 * HYDRA registra evidencia técnica y de autoría; no decide patentabilidad ni autoría legal.
