@@ -79,7 +79,7 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 | Creencias | `world/model` | `runtime/beliefs` | |
 | Outbox | `capture_outbox` (+ PG) | `runtime/outbox` | un solo outbox con topics |
 | Sandbox y workspaces | `tools/sandbox`, `tools/workspace` | `runtime/sandbox`, `runtime/workspaces` | |
-| Verificador | `verification/verifier` | `runtime/verifier`, `code_verification` | requiere comparar comportamiento (F4) |
+| Verificador | `verification/verifier` | `runtime/verifier`, `code_verification` | ✅ F4a: `Verifier.verify_text` (+ `TextVerification`) reproduce la verificación estructural del runtime, comprobada idéntica contra el original; `runtime/verifier` reexporta. `code_verification` va con el sandbox (depende de `SandboxResult`) |
 | Planificador | `scheduler/planner` | `runtime/planner`, `planning/goals.ExecutionPlan` | tres `ExecutionPlan`: unificar a uno |
 | Policy | `governance/policy_dsl` | `runtime/policy` | |
 | Observabilidad | `observability/tracing` | `runtime/observability` | |

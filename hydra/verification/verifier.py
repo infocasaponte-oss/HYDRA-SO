@@ -49,9 +49,28 @@ class VerificationResult(BaseModel):
         return self.score if self.independent else min(self.score, 0.65)
 
 
+class TextVerification(BaseModel):
+    """Result of ``Verifier.verify_text`` (the runtime line's ``VerificationResult``)."""
+
+    accepted: bool
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence: list[str] = Field(default_factory=list)
+    reason: str
+
+
 class Verifier:
     def __init__(self, pass_threshold: float = 0.6) -> None:
         self.pass_threshold = pass_threshold
+
+    def verify_text(self, answer: str) -> TextVerification:
+        """Structural verification of an answer without its request (runtime line ``/hydra/v1/tasks/*``):
+        empty is rejected; otherwise accepted with 0.60 confidence, 0.45 under 8 characters. The layered
+        ``verify`` below needs the request and the route."""
+        clean = answer.strip()
+        if not clean:
+            return TextVerification(accepted=False, confidence=0.0, reason="empty_answer")
+        return TextVerification(accepted=True, confidence=0.60 if len(clean) >= 8 else 0.45,
+                                evidence=["non_empty_output"], reason="structural_checks_passed")
 
     def deterministic(self, answer: str, request: HydraRequest, route: RoutingDecision) -> list[Check]:
         checks = [Check(layer="deterministic", name="non_empty", passed=bool(answer.strip()),
