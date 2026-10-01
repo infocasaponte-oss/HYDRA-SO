@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Compatibility export; implementation lives in hydra.deploy.health_gate."""
 import sys
 from hydra.deploy import health_gate as _implementation

@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # F4j: inventario e primeira migración
 
 Data: 2 de outubro de 2026. Base: integration/hydra-1.0, dc790343.

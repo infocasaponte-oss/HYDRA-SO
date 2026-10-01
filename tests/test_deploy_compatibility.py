@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Old deployment imports preserve type identity, schemas and probe patching."""
 from hydra.deploy import deployment_evidence, health_gate
 from hydra.runtime import deployment_evidence as legacy_evidence
