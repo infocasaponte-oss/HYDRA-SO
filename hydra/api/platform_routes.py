@@ -910,7 +910,8 @@ def register_platform_routes(app: FastAPI, rt, secured, admin_secured=None) -> N
 
         return GlossaryStore(rt(request).settings.data_dir / "glossaries.json").get(name)
 
-    @app.api_route("/v1/glossaries/{name}", methods=["POST", "PUT"], dependencies=secured)
+    @app.put("/v1/glossaries/{name}", dependencies=secured)
+    @app.post("/v1/glossaries/{name}", dependencies=secured)  # one route per method: unique operation ids
     async def glossary_put(name: str, body: GlossaryBody, request: Request):
         from hydra.edge.translation import GlossaryStore
 
