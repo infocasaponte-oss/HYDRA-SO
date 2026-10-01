@@ -30,6 +30,8 @@ class OutboxMessage:
 
 
 class TransactionalOutbox:
+    backend = "sqlite"
+
     def __init__(self, path: str | Path = runtime_path("hydra.db")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)

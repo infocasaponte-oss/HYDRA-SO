@@ -1495,6 +1495,59 @@
     }
    ]
   },
+  "keys": {
+   "arguments": [
+    {
+     "choices": null,
+     "default": false,
+     "dest": "offline",
+     "flags": [
+      "--offline"
+     ],
+     "kind": "_StoreTrueAction",
+     "nargs": 0,
+     "required": false
+    },
+    {
+     "choices": null,
+     "default": null,
+     "dest": "out",
+     "flags": [
+      "--out"
+     ],
+     "kind": "_StoreAction",
+     "nargs": null,
+     "required": true
+    },
+    {
+     "choices": [
+      "docker",
+      "subprocess"
+     ],
+     "default": null,
+     "dest": "sandbox",
+     "flags": [
+      "--sandbox"
+     ],
+     "kind": "_StoreAction",
+     "nargs": null,
+     "required": false
+    },
+    {
+     "choices": [
+      "export"
+     ],
+     "default": null,
+     "dest": "action",
+     "flags": [
+      "action"
+     ],
+     "kind": "_StoreAction",
+     "nargs": null,
+     "required": true
+    }
+   ]
+  },
   "lab": {
    "arguments": [
     {

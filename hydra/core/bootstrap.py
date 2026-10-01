@@ -472,4 +472,44 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     runtime.factory = ModelFactory.from_settings(settings, registry=registry, evaluator=evaluator,
                                                  telemetry=telemetry, bus=bus, lab=lab, docs=documents)
     runtime.documents = documents
+    if settings.require_shared_state:
+        check_shared_state(runtime, keystore)
     return runtime
+
+
+def _postgres_available(backend: str, postgres_url: str) -> bool:
+    if backend == "postgres":
+        return True
+    if backend != "auto" or not postgres_url:
+        return False
+    import importlib.util
+
+    return importlib.util.find_spec("psycopg") is not None
+
+
+def check_shared_state(runtime: HydraRuntime, keystore) -> None:
+    """HYDRA_REQUIRE_SHARED_STATE: every plane must resolve to PostgreSQL and the keys must not live in
+    the data directory; otherwise refuse to start, naming what is local."""
+    s = runtime.settings
+    planes = {
+        "ledger (HYDRA_LEDGER_BACKEND)": runtime.ledger.backend,
+        "corpus (HYDRA_CORPUS_BACKEND)": runtime.corpus.logs.backend,
+        "World Model (HYDRA_WORLD_BACKEND)": runtime.world.logs.backend,
+        "IP registry (HYDRA_IP_BACKEND)": runtime.ip.logs.backend,
+        "artifact manifests (HYDRA_ARTIFACTS_BACKEND)": runtime.artifact_store.logs.backend,
+        "fabric queue (HYDRA_FABRIC_BACKEND)": runtime.queue.backend,
+        "capture outbox (HYDRA_OUTBOX_BACKEND)": getattr(runtime.capture_outbox.outbox, "backend", "sqlite")
+        if runtime.capture_outbox is not None else "postgres",
+        "documents (HYDRA_DOCUMENTS_BACKEND)": runtime.documents.backend,
+        "config sets (HYDRA_DOCUMENTS_BACKEND)": runtime.configs.logs.backend,
+    }
+    if s.runtime_api:
+        planes["runtime line (HYDRA_RUNTIME_BACKEND)"] = (
+            "postgres" if _postgres_available(s.runtime_backend, s.postgres_url) else "file")
+    local = [name for name, backend in planes.items() if backend != "postgres"]
+    if keystore is not None and not keystore.secure():
+        local.append("private keys (set HYDRA_KEYS_DIR to a mounted secret, or HYDRA_KEY_<NAME>)")
+    if local:
+        raise RuntimeError("HYDRA_REQUIRE_SHARED_STATE is set but these are local to this node: "
+                           + "; ".join(local) + ". Set HYDRA_POSTGRES_URL (and install the postgres extra) "
+                           "or unset HYDRA_REQUIRE_SHARED_STATE for a single node.")

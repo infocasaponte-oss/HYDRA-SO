@@ -135,8 +135,13 @@ Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN
   También el outbox de captura (`capture_outbox`: cada nodo reclama lo que reintenta, sin duplicados).
   Requiere el extra `postgres`. Los blobs de artefactos van a `HYDRA_ARTIFACT_OBJECTS`: un volumen
   compartido o un bucket S3/MinIO (extra `s3`); los objetos locales existentes se copian una vez al cambiar.
-  Los manifiestos CLUSTER siguen con una réplica por
-  servicio porque la línea runtime (`HYDRA_RUNTIME_DIR`) aún guarda su estado en disco local.
+  También el estado de la línea runtime (cadenas, evidencia, despliegues, outbox, métricas, trazas) y los
+  registros pequeños del motor y la fábrica (`hydra_documents`: flags, config sets, secretos, lab,
+  glosarios, ciclo de vida, registro de la factoría, memoria de fallos, aprendizaje del planificador).
+* **Varias réplicas** (`infra/kubernetes/`): `hydra-api` ×2 y `hydra-fabric-worker` ×2 sobre PostgreSQL,
+  `/data` en un volumen ReadWriteMany (solo ficheros de nombre único: blobs, vuelos, releases, builds) y las
+  claves en el Secret `hydra-keys` (`hydra keys export --out <dir>`). `HYDRA_REQUIRE_SHARED_STATE=true`
+  hace que un pod con algún plano en ficheros locales se niegue a arrancar.
 
 ## Pruebas
 
@@ -152,11 +157,9 @@ set HYDRA_IT_NATS=nats://localhost:4222
 * Conversión/cuantización GGUF, AWQ/GPTQ/FP8, MLX, ONNX y entrenamiento LoRA/DPO dependen de
   herramientas externas (llama.cpp, llm-compressor, mlx-lm, optimum, torch/transformers/peft/trl) que
   HYDRA integra pero no incluye; sin ellas lo informa (`ToolMissing`) en vez de fingir.
-* El scheduler de clúster, la analítica federada y las colas están probados en una máquina y con
-  nodos simulados. Con PostgreSQL (y blobs en S3 o un volumen compartido) todo el estado de la línea de
-  plataforma es compartido entre nodos (fabric, ledger, corpus, World Model, IP, artefactos y outbox de
-  captura); escalar réplicas requiere además unificar la línea runtime, que guarda su estado en
-  `HYDRA_RUNTIME_DIR` (auditoría, §6).
+* El scheduler de clúster y la analítica federada están probados en una máquina y con nodos simulados;
+  el estado compartido entre réplicas está probado con varios nodos concurrentes contra PostgreSQL real.
+  Los experimentos del lab miden sus brazos en el nodo que sirve el tráfico.
 * En Ollama el tipo de caché KV es un ajuste del servidor (`OLLAMA_KV_CACHE_TYPE`): el AutoBuilder
   lo varía solo con llama-server.
 * HYDRA registra evidencia técnica y de autoría; no decide patentabilidad ni autoría legal.
