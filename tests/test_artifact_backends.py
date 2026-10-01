@@ -155,11 +155,17 @@ def test_real_bucket(tmp_path):
     boto3 = pytest.importorskip("boto3")
     endpoint = os.environ["HYDRA_IT_S3"]
     bucket = f"hydra-it-{uuid.uuid4().hex[:10]}"
-    boto3.client("s3", endpoint_url=endpoint).create_bucket(Bucket=bucket)
-    blobs = open_blobs(f"s3://{bucket}/cas", tmp_path / "unused", endpoint)
-    assert isinstance(blobs, S3Blobs)
-    store = ArtifactStore(tmp_path / "artifacts", blobs=blobs)
-    m = store.put("real bucket")
-    assert store.text(m.uri) == "real bucket" and store.verify()["ok"]
-    blobs.overwrite(m.sha256, b"x")
-    assert not store.verify()["ok"]
+    s3 = boto3.client("s3", endpoint_url=endpoint)
+    s3.create_bucket(Bucket=bucket)
+    try:
+        blobs = open_blobs(f"s3://{bucket}/cas", tmp_path / "unused", endpoint)
+        assert isinstance(blobs, S3Blobs)
+        store = ArtifactStore(tmp_path / "artifacts", blobs=blobs)
+        m = store.put("real bucket")
+        assert store.text(m.uri) == "real bucket" and store.verify()["ok"]
+        blobs.overwrite(m.sha256, b"x")
+        assert not store.verify()["ok"]
+    finally:  # leave the server as it was
+        for obj in s3.list_objects_v2(Bucket=bucket).get("Contents", []):
+            s3.delete_object(Bucket=bucket, Key=obj["Key"])
+        s3.delete_bucket(Bucket=bucket)
