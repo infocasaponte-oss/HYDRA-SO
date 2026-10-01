@@ -24,6 +24,39 @@ def test_repositories_resolve_inside_the_root_only(tmp_path):
         resolve_repository(root, "missing")
 
 
+def test_sibling_with_same_prefix_is_rejected(tmp_path):
+    root = tmp_path / "repos"
+    sibling = tmp_path / "repos-private"
+    root.mkdir()
+    sibling.mkdir()
+    with pytest.raises(ValueError, match="escape"):
+        resolve_repository(root, "../repos-private")
+
+
+def test_root_must_exist_and_be_a_directory(tmp_path):
+    missing = tmp_path / "missing"
+    with pytest.raises(ValueError, match="does not exist"):
+        resolve_repository(missing, ".")
+    file = tmp_path / "file"
+    file.write_text("content")
+    with pytest.raises(ValueError, match="does not exist"):
+        resolve_repository(file, ".")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX filesystem root")
+def test_filesystem_root_supports_nested_repository(tmp_path):
+    assert resolve_repository("/", str(tmp_path)) == tmp_path.resolve()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_link_to_nested_directory_inside_root_is_accepted(tmp_path):
+    root = tmp_path / "repos"
+    nested = root / "org" / "repo"
+    nested.mkdir(parents=True)
+    (root / "alias").symlink_to(nested, target_is_directory=True)
+    assert resolve_repository(root, "alias") == nested.resolve()
+
+
 @pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
 def test_a_link_out_of_the_root_is_rejected(tmp_path):
     root = tmp_path / "repos"

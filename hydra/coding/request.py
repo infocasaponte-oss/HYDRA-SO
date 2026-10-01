@@ -19,7 +19,13 @@ def resolve_repository(root: str | Path, repository: str) -> Path:
     are resolved first, so a link pointing outside ``root`` is rejected like ``../``."""
     base = os.path.realpath(root)
     candidate = os.path.realpath(os.path.join(base, repository))
-    if candidate != base and not candidate.startswith(base + os.sep):
+    if candidate == base:
+        # Return the trusted root, not the user-derived path. Keep the descendant
+        # branch's containment guard explicit for static data-flow analysis.
+        if not os.path.isdir(base):
+            raise ValueError("Repository does not exist")
+        return Path(base)
+    if not candidate.startswith(base.rstrip(os.sep) + os.sep):
         raise ValueError("Repository path escape rejected")
     if not os.path.isdir(candidate):
         raise ValueError("Repository does not exist")

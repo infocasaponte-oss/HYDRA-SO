@@ -65,7 +65,7 @@ class ReplayStore:
         stay inside ``root``."""
         base = os.path.realpath(self.root)
         path = os.path.realpath(os.path.join(base, f"{UUID(str(task_id))}.json"))
-        if not path.startswith(base + os.sep):
+        if not path.startswith(base.rstrip(os.sep) + os.sep):
             raise ValueError("Replay manifest path escape rejected")
         return Path(path)
 
