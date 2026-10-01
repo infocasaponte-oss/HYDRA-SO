@@ -13,14 +13,13 @@
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from hydra.core.atomic import write_text_atomic
+from hydra.core.docstore import DocumentStore, KeyedModels
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message, ModelRequest, RoutingDecision, TaskType
 from hydra.language import LANGUAGE_NAMES, detect_language, normalize_language
 from hydra.runtime.budgets import RequestBudget
@@ -61,18 +60,21 @@ class TranslationResult(BaseModel):
 
 
 class GlossaryStore:
-    def __init__(self, path: Path) -> None:
+    """Glossaries in the ``glossaries.json`` document (``hydra.core.docstore``)."""
+
+    def __init__(self, path: Path, docs: DocumentStore | None = None) -> None:
         self.path = path
-        self.data: dict[str, dict[str, str]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        self._registry = KeyedModels((docs or DocumentStore()).document("glossaries.json", path))
+
+    @property
+    def data(self) -> dict[str, dict[str, str]]:
+        return self._registry.all()
 
     def get(self, name: str) -> dict[str, str]:
         return dict(self.data.get(name, {}))
 
     def put(self, name: str, terms: dict[str, str]) -> dict[str, str]:
-        self.data.setdefault(name, {}).update(terms)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_atomic(self.path, json.dumps(self.data, indent=2, ensure_ascii=False))
-        return self.data[name]
+        return self._registry.change(name, lambda current: {**(current or {}), **terms})
 
     def names(self) -> list[str]:
         return sorted(self.data)
@@ -139,7 +141,8 @@ def glossary_check(source: str, output: str, glossary: dict[str, str]) -> tuple[
 class TranslationEngine:
     def __init__(self, runtime) -> None:
         self.rt = runtime
-        self.glossaries = GlossaryStore(runtime.settings.data_dir / "glossaries.json")
+        self.glossaries = GlossaryStore(runtime.settings.data_dir / "glossaries.json",
+                                        docs=getattr(runtime, "documents", None))
 
     def _model(self, preferred: str | None, private: bool = True):
         reg = self.rt.registry

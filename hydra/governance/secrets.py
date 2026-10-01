@@ -32,7 +32,8 @@ class CredentialPolicy(BaseModel):
 
 
 class SecretsBroker:
-    def __init__(self, root: Path, audit: Callable[[str, dict], Any] | None = None, keystore=None) -> None:
+    def __init__(self, root: Path, audit: Callable[[str, dict], Any] | None = None, keystore=None,
+                 docs=None) -> None:
         from cryptography.fernet import Fernet
 
         from hydra.core.keystore import KeyStore
@@ -42,26 +43,54 @@ class SecretsBroker:
         store = keystore or KeyStore(root.parent, backend="legacy")
         self.fernet = Fernet(store.get_or_create("secrets-broker", root / ".broker.key", Fernet.generate_key))
         self.store = root / "secrets.enc"
-        self.policies: dict[str, CredentialPolicy] = {}
         self.audit = audit
         self._uses: dict[tuple[str, str], int] = {}
-        pol = root / "policies.json"
-        if pol.exists():
-            for p in json.loads(pol.read_text()):
-                self.policies[p["ref"]] = CredentialPolicy(**p)
+        # Shared (PostgreSQL documents): the encrypted vault is one document holding the Fernet token
+        # (never the plaintext) and policies another; on files, secrets.enc and policies.json as before.
+        self._docs = docs if docs is not None and docs.backend == "postgres" else None
+        self._vault = self._policies = None
+        if self._docs is not None:
+            self._vault = self._docs.document("secrets/vault", self.root / "secrets.vault.json",
+                                              default=lambda: {"token": None})
+            if self._vault.get().get("token") is None and self.store.exists():
+                token = self.store.read_bytes().decode("ascii")
+                self._vault.update(lambda d: d if d.get("token") else {"token": token})
+            self._policies = self._docs.document("secrets/policies", self.root / "policies.json", default=list)
+
+    @property
+    def policies(self) -> dict[str, CredentialPolicy]:
+        if self._policies is not None:
+            raw = self._policies.get()
+        else:
+            pol = self.root / "policies.json"
+            raw = json.loads(pol.read_text()) if pol.exists() else []
+        return {p["ref"]: CredentialPolicy(**p) for p in raw}
 
     def _load(self) -> dict[str, str]:
+        if self._vault is not None:
+            token = self._vault.get().get("token")
+            return json.loads(self.fernet.decrypt(token.encode("ascii"))) if token else {}
         if not self.store.exists():
             return {}
         return json.loads(self.fernet.decrypt(self.store.read_bytes()))
 
     def put(self, ref: str, value: str, policy: CredentialPolicy | None = None) -> None:
+        if self._vault is not None:
+            def add(d: dict) -> dict:
+                data = json.loads(self.fernet.decrypt(d["token"].encode("ascii"))) if d.get("token") else {}
+                data[ref] = value
+                return {"token": self.fernet.encrypt(json.dumps(data).encode()).decode("ascii")}
+
+            self._vault.update(add)
+            if policy:
+                self._policies.update(lambda rows: [p for p in rows if p["ref"] != ref] + [policy.model_dump()])
+            return
         data = self._load()
         data[ref] = value
         write_bytes_atomic(self.store, self.fernet.encrypt(json.dumps(data).encode()))
         if policy:
-            self.policies[ref] = policy
-            write_text_atomic(self.root / "policies.json", json.dumps([p.model_dump() for p in self.policies.values()]))
+            policies = {**self.policies, ref: policy}
+            write_text_atomic(self.root / "policies.json", json.dumps([p.model_dump() for p in policies.values()]))
 
     def refs(self) -> list[str]:
         env = [f"secret://{k[13:].lower().replace('_', '/', 1)}" for k in os.environ if k.startswith("HYDRA_SECRET_")]

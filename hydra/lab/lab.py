@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -19,7 +18,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from hydra.core.atomic import write_text_atomic
 from hydra.core.contracts import HydraRequest, HydraResponse
 from hydra.core.events import EventType, HydraEvent
 
@@ -107,12 +105,20 @@ class Experiment(BaseModel):
 
 
 class HydraLab:
-    def __init__(self, kernel, evaluator=None, path: Path | None = None, bus=None) -> None:
+    def __init__(self, kernel, evaluator=None, path: Path | None = None, bus=None, docs=None) -> None:
+        """Experiments persist in the ``lab.json`` document (``hydra.core.docstore``). Live arm metrics
+        are measured by the node that serves the traffic; each save stores that node's view of the
+        experiment it changed."""
         self.kernel = kernel
         self.evaluator = evaluator
         self.path = path
         self.bus = bus
         self.experiments: dict[str, Experiment] = {}
+        self._registry = None
+        if path is not None:
+            from hydra.core.docstore import DocumentStore, KeyedModels
+
+            self._registry = KeyedModels((docs or DocumentStore()).document("lab.json", path), Experiment)
         self._background: set[asyncio.Task] = set()
         self._load()
 
@@ -124,7 +130,7 @@ class HydraLab:
                          gates=gates or Gates())
         exp.log("created")
         self.experiments[exp.id] = exp
-        self._save()
+        self._save(exp)
         return exp
 
     def candidate_kernel(self, exp: Experiment):
@@ -137,7 +143,7 @@ class HydraLab:
         if self.evaluator is None:
             exp.status = ExperimentStatus.SHADOW
             exp.log("benchmark skipped (no evaluator)")
-            self._save()
+            self._save(exp)
             return exp
         base = await self.evaluator.run_kernel(self.kernel, suites, label="baseline", shadow=True, learn=False)
         cand = await self.evaluator.run_kernel(self.candidate_kernel(exp), suites, label=exp.id,
@@ -152,7 +158,7 @@ class HydraLab:
             exp.status = ExperimentStatus.REJECTED
             exp.log("benchmark failed", **exp.benchmark)
         await self._notify(exp)
-        self._save()
+        self._save(exp)
         return exp
 
     # ------------------------------------------------------------------ serving
@@ -245,7 +251,7 @@ class HydraLab:
                 else:
                     self.promote(exp.id)
                 await self._notify(exp)
-        self._save()
+        self._save(exp)
         return exp
 
     def promote(self, exp_id: str) -> Experiment:
@@ -253,21 +259,21 @@ class HydraLab:
         self.kernel.apply_config(self.kernel.config.merged(exp.overrides))
         exp.status = ExperimentStatus.PROMOTED
         exp.log("promoted", overrides=exp.overrides)
-        self._save()
+        self._save(exp)
         return exp
 
     def rollback(self, exp_id: str, reason: str = "manual") -> Experiment:
         exp = self.experiments[exp_id]
         exp.status = ExperimentStatus.ROLLED_BACK
         exp.log("rolled back", reason=reason)
-        self._save()
+        self._save(exp)
         return exp
 
     def start_shadow(self, exp_id: str) -> Experiment:
         exp = self.experiments[exp_id]
         exp.status = ExperimentStatus.SHADOW
         exp.log("shadow started")
-        self._save()
+        self._save(exp)
         return exp
 
     # ------------------------------------------------------------------ persistence
@@ -276,18 +282,17 @@ class HydraLab:
             await self.bus.publish(HydraEvent(task_id=uuid.UUID(int=0), type=EventType.LAB_UPDATED, source="lab",
                                               payload={"experiment": exp.id, "status": exp.status.value}))
 
-    def _save(self) -> None:
-        if self.path is None:
+    def _save(self, exp: Experiment | None = None) -> None:
+        if self._registry is None:
             return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_atomic(self.path, json.dumps({k: e.model_dump(mode="json") for k, e in self.experiments.items()},
-                                                indent=1))
+        for e in ([exp] if exp is not None else list(self.experiments.values())):
+            self._registry.put(e.id, e)
 
     def _load(self) -> None:
-        if self.path is None or not self.path.exists():
+        if self._registry is None:
             return
-        for k, v in json.loads(self.path.read_text(encoding="utf-8")).items():
-            self.experiments[k] = Experiment.model_validate(v)
+        for k, v in self._registry.all().items():
+            self.experiments[k] = v.model_copy(deep=True)
         for exp in self.experiments.values():
             if exp.status == ExperimentStatus.PROMOTED:
                 self.kernel.apply_config(self.kernel.config.merged(exp.overrides))

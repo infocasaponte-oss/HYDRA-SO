@@ -676,7 +676,7 @@ def register_platform_routes(app: FastAPI, rt, secured, admin_secured=None) -> N
         from hydra.discovery import ModelLifecycle
 
         runtime = rt(request)
-        lc = ModelLifecycle(runtime.settings.data_dir / "model_lifecycle.json")
+        lc = ModelLifecycle(runtime.settings.data_dir / "model_lifecycle.json", docs=runtime.documents)
         st = lc.transition(model_id, body.to, body.reason, body.actor)
         if model_id in runtime.registry.models and body.to in ("RETIRED", "ARCHIVED", "DEPRECATED"):
             runtime.registry.get(model_id).enabled = body.to == "DEPRECATED"
@@ -908,7 +908,7 @@ def register_platform_routes(app: FastAPI, rt, secured, admin_secured=None) -> N
     async def glossary_get(name: str, request: Request):
         from hydra.edge.translation import GlossaryStore
 
-        return GlossaryStore(rt(request).settings.data_dir / "glossaries.json").get(name)
+        return GlossaryStore(rt(request).settings.data_dir / "glossaries.json", docs=rt(request).documents).get(name)
 
     @app.put("/v1/glossaries/{name}", dependencies=secured)
     @app.post("/v1/glossaries/{name}", dependencies=secured)  # one route per method: unique operation ids
@@ -916,7 +916,7 @@ def register_platform_routes(app: FastAPI, rt, secured, admin_secured=None) -> N
         from hydra.edge.translation import GlossaryStore
 
         runtime = rt(request)
-        store = GlossaryStore(runtime.settings.data_dir / "glossaries.json")
+        store = GlossaryStore(runtime.settings.data_dir / "glossaries.json", docs=runtime.documents)
         res = store.put(name, body.terms)
         if getattr(runtime, "_translator", None) is not None:
             runtime._translator.glossaries = store

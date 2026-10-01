@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -22,19 +21,20 @@ class AdapterSpec(BaseModel):
 
 
 class AdapterRegistry:
-    def __init__(self, path: Path) -> None:
+    """LoRA adapters by logical model, in the ``models/adapters.json`` document (``hydra.core.docstore``)."""
+
+    def __init__(self, path: Path, docs=None) -> None:
+        from hydra.core.docstore import DocumentStore, KeyedModels
+
         self.path = path
-        self.adapters: dict[str, AdapterSpec] = {}
-        if path.exists():
-            self.adapters = {k: AdapterSpec.model_validate(v)
-                             for k, v in json.loads(path.read_text(encoding="utf-8")).items()}
+        self._registry = KeyedModels((docs or DocumentStore()).document("models/adapters.json", path), AdapterSpec)
+
+    @property
+    def adapters(self) -> dict[str, AdapterSpec]:
+        return self._registry.all()
 
     def register(self, spec: AdapterSpec) -> AdapterSpec:
-        self.adapters[spec.logical_model] = spec
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({k: v.model_dump() for k, v in self.adapters.items()}, indent=1),
-                             encoding="utf-8")
-        return spec
+        return self._registry.put(spec.logical_model, spec)
 
     def for_base(self, base: str) -> list[AdapterSpec]:
         return [a for a in self.adapters.values() if a.base_model == base]

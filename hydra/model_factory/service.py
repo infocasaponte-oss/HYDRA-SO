@@ -91,14 +91,15 @@ class ModelFactory:
         self.gate = QualityGate(evaluator, thresholds=thresholds)
         self.datasets = DatasetBuilder(store.root / "datasets")
         self.trainer = LoRATrainer(self.runner, self.tools)
-        self.adapters = AdapterRegistry(store.root / "adapters.json")
+        self.adapters = AdapterRegistry(store.root / "adapters.json", docs=store.docs)
         self.jit = CognitiveJIT()
         self.eval_reports: dict[str, EvalReport] = {}
 
     @classmethod
-    def from_settings(cls, settings, *, registry, evaluator, telemetry=None, bus=None, lab=None) -> ModelFactory:
+    def from_settings(cls, settings, *, registry, evaluator, telemetry=None, bus=None, lab=None,
+                      docs=None) -> ModelFactory:
         tools = ToolLocator(Path(settings.llamacpp_dir) if settings.llamacpp_dir else None)
-        return cls(FactoryStore(settings.data_dir / "models"), registry, evaluator, telemetry, bus, lab,
+        return cls(FactoryStore(settings.data_dir / "models", docs=docs), registry, evaluator, telemetry, bus, lab,
                    tools=tools, ollama_url=settings.ollama_base_url)
 
     async def _event(self, what: str, **payload) -> None:

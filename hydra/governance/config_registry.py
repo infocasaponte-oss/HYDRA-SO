@@ -10,14 +10,13 @@ reproduce why it took a decision. Feature flags ship changes gradually:
 from __future__ import annotations
 
 import hashlib
-import json
 import threading
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-from hydra.core.atomic import write_text_atomic
+from hydra.core.docstore import DocumentStore, KeyedModels
 from hydra.core.hashing import hash_obj, now_iso
 from hydra.core.paths import safe_id
 
@@ -38,21 +37,41 @@ class ConfigSet(BaseModel):
 
 
 class ConfigRegistry:
-    def __init__(self, root: Path, ledger=None) -> None:
+    """Versioned config sets: one ``hydra.core.eventlog`` log per environment (``configs/<env>.jsonl``,
+    or the PostgreSQL stream of that name shared by every node). The next version is numbered while
+    the stream is locked, so two nodes never commit the same version."""
+
+    def __init__(self, root: Path, ledger=None, logs=None) -> None:
+        from hydra.core.eventlog import LogSpace
+
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
         self.ledger = ledger
+        self.logs = logs or LogSpace(label="configs")
         self._lock = threading.Lock()
+        self._opened: dict[str, Any] = {}
 
     def _path(self, env: str) -> Path:
         # The environment name becomes a file name: never let it carry separators or '..'.
         return self.root / f"{safe_id(env, 'config environment')}.jsonl"
 
+    def _log(self, env: str):
+        name = safe_id(env, "config environment")
+        if name not in self._opened:
+            self._opened[name] = self.logs.open(self._path(env), f"configs/{name}.jsonl")
+        return self._opened[name]
+
     def history(self, env: str) -> list[ConfigSet]:
-        p = self._path(env)
-        if not p.exists():
-            return []
-        return [ConfigSet.model_validate_json(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+        return [ConfigSet.model_validate_json(x) for _, x in self._log(env).read()]
+
+    def _append(self, env: str, make) -> ConfigSet:
+        """``make(current or None) -> ConfigSet``, with ``current`` read while the stream is locked."""
+        def build(seq: int, last: str | None) -> str:
+            return make(ConfigSet.model_validate_json(last) if last else None).model_dump_json()
+
+        with self._lock:
+            _, text = self._log(env).append(build)
+        return ConfigSet.model_validate_json(text)
 
     def current(self, env: str) -> ConfigSet | None:
         h = self.history(env)
@@ -62,13 +81,12 @@ class ConfigRegistry:
         return next(c for c in self.history(env) if c.version == version)
 
     def commit(self, env: str, values: dict[str, Any], author: str = "hydra", message: str = "") -> ConfigSet:
-        with self._lock:
-            cur = self.current(env)
+        def make(cur: ConfigSet | None) -> ConfigSet:
             merged = {**(cur.values if cur else {}), **values}
-            c = ConfigSet(environment=env, version=(cur.version + 1) if cur else 1, author=author, message=message,
-                          values=merged, content_hash=hash_obj(merged), parent=cur.version if cur else None)
-            with open(self._path(env), "a", encoding="utf-8") as f:
-                f.write(c.model_dump_json() + "\n")
+            return ConfigSet(environment=env, version=(cur.version + 1) if cur else 1, author=author, message=message,
+                             values=merged, content_hash=hash_obj(merged), parent=cur.version if cur else None)
+
+        c = self._append(env, make)
         if self.ledger is not None:
             self.ledger.append("CONFIG_CHANGED", {"ref": c.ref, "hash": c.content_hash, "author": author,
                                                   "message": message, "keys": sorted(values)},
@@ -81,13 +99,13 @@ class ConfigRegistry:
 
     def rollback(self, env: str, version: int, author: str) -> ConfigSet:
         target = self.get(env, version)
-        with self._lock:
-            cur = self.current(env)
-            c = ConfigSet(environment=env, version=cur.version + 1, author=author,
-                          message=f"rollback to {version}", values=target.values, content_hash=target.content_hash,
-                          parent=cur.version)
-            with open(self._path(env), "a", encoding="utf-8") as f:
-                f.write(c.model_dump_json() + "\n")
+
+        def make(cur: ConfigSet | None) -> ConfigSet:
+            return ConfigSet(environment=env, version=cur.version + 1, author=author,
+                             message=f"rollback to {version}", values=target.values, content_hash=target.content_hash,
+                             parent=cur.version)
+
+        c = self._append(env, make)
         return c
 
 
@@ -101,16 +119,16 @@ class FeatureFlag(BaseModel):
 
 
 class FeatureFlags:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.flags: dict[str, FeatureFlag] = {}
-        if path.exists():
-            for k, v in json.loads(path.read_text(encoding="utf-8")).items():
-                self.flags[k] = FeatureFlag(**v)
+    """Flags in the ``flags.json`` document (``hydra.core.docstore``: the file, or PostgreSQL shared by
+    every node)."""
 
-    def _save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        write_text_atomic(self.path, json.dumps({k: v.model_dump() for k, v in self.flags.items()}, indent=2))
+    def __init__(self, path: Path, docs: DocumentStore | None = None) -> None:
+        self.path = path
+        self._registry = KeyedModels((docs or DocumentStore()).document("flags.json", path), FeatureFlag)
+
+    @property
+    def flags(self) -> dict[str, FeatureFlag]:
+        return self._registry.all()
 
     def set(self, name: str, value: str | bool | float, description: str = "") -> FeatureFlag:
         if isinstance(value, bool):
@@ -126,9 +144,7 @@ class FeatureFlags:
         else:
             f = FeatureFlag(name=name, mode="off")
         f.description = description
-        self.flags[name] = f
-        self._save()
-        return f
+        return self._registry.put(name, f)
 
     def enabled(self, name: str, key: str = "") -> bool:
         f = self.flags.get(name)

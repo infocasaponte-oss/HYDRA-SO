@@ -235,6 +235,18 @@ CREATE TABLE IF NOT EXISTS runtime_health (
 );
 
 -- =====================================================================================
+-- Shared documents: hydra.core.docstore (HYDRA_DOCUMENTS_BACKEND), which also creates the table. One
+-- row per small registry (flags.json, models/jobs.json, secrets/vault...), changed by read-modify-write
+-- under a row lock (SELECT ... FOR UPDATE); version bumps tell nodes to refresh their cache.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hydra_documents (
+    name       TEXT PRIMARY KEY,
+    body       JSONB NOT NULL,
+    version    BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- =====================================================================================
 -- Tables of earlier schema versions that were reserved and never written (safe to drop).
 -- =====================================================================================
 -- Artifact manifests live in hydra_logs (stream artifacts/manifests.jsonl); blobs in HYDRA_ARTIFACT_OBJECTS.

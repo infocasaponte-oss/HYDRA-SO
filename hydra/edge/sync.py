@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from hydra.core.atomic import write_text_atomic
+from hydra.core.docstore import DocumentStore
 from hydra.core.hashing import canonical_json, now_iso, sha256_hex
 from hydra.ledger.signing import verify_envelope
 
@@ -94,16 +94,21 @@ def import_delta(runtime, bundle: SyncBundle, trusted_keys: set[str]) -> ImportR
 
     rep = ImportReport(ok=True)
     seen_path = runtime.settings.data_dir / "edge" / "applied_deltas.json"
-    seen: set[str] = set(json.loads(seen_path.read_text())) if seen_path.exists() else set()
-    for d in bundle.world_deltas:
-        h = sha256_hex(canonical_json(d))
-        if h in seen:
-            continue
-        runtime.world.apply(KnowledgeDelta.model_validate(d))
-        seen.add(h)
-        rep.world_deltas_applied += 1
-    seen_path.parent.mkdir(parents=True, exist_ok=True)
-    write_text_atomic(seen_path, json.dumps(sorted(seen)))
+    docs = getattr(runtime, "documents", None) or DocumentStore()
+
+    def apply_new(applied: list[str]) -> list[str]:
+        """Runs with the document locked: two nodes importing the same bundle apply each delta once."""
+        seen = set(applied)
+        for d in bundle.world_deltas:
+            h = sha256_hex(canonical_json(d))
+            if h in seen:
+                continue
+            runtime.world.apply(KnowledgeDelta.model_validate(d))
+            seen.add(h)
+            rep.world_deltas_applied += 1
+        return sorted(seen)
+
+    docs.document("edge/applied_deltas.json", seen_path, default=list).update(apply_new)
     for r in bundle.corpus_records:
         rec = CorpusRecord.model_validate(r)
         rec.residency = rec.residency or bundle.origin
