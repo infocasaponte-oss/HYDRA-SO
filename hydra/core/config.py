@@ -87,6 +87,10 @@ class Settings(BaseSettings):
     fabric_backend: str = "auto"
     """HYDRA_FABRIC_BACKEND: execution-fabric queue: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
     psycopg is installed, else local SQLite) | sqlite | postgres (required: fail if unavailable)."""
+    ledger_backend: str = "auto"
+    """HYDRA_LEDGER_BACKEND: signed IP/provenance ledger: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
+    psycopg is installed, else data/ledger files) | file | postgres (required). A PostgreSQL ledger adopts an
+    existing file ledger once, after verifying it; the file is kept as a read-only copy."""
     key_backend: str = "auto"
     """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
     keys_dir: Path | None = None

@@ -595,9 +595,11 @@ def run_without_runtime(args, settings) -> int:
         from hydra.governance.recovery import backup
 
         from hydra.core.keystore import KeyStore
+        from hydra.ledger.pg import open_ledger
 
+        ledger = open_ledger(settings.ledger_backend, settings.data_dir / "ledger", None, 0, settings.postgres_url)
         _print(backup(settings.data_dir, Path(args.out), include_private_keys=args.include_private_keys,
-                      postgres_url=settings.postgres_url or None,
+                      postgres_url=settings.postgres_url or None, ledger=ledger,
                       keystore=KeyStore.from_settings(settings) if args.include_private_keys else None))
         return 0
     if cmd == "restore":

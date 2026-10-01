@@ -17,7 +17,7 @@ BROKEN = "RUNTIME_CHAIN_INTEGRITY_FAILED"
 
 
 def _last(ledger, event_type: str) -> dict[str, Any] | None:
-    found = [e for e in ledger.events() if e.event_type == event_type]
+    found = list(ledger.events(event_type))  # filtered by the backend (SQL on PostgreSQL)
     return found[-1].payload if found else None
 
 
