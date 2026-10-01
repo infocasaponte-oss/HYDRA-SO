@@ -184,3 +184,29 @@ def test_model_artifacts_cannot_escape_the_models_root(tmp_path):
             inspect_model_artifact(root, bad)
     assert inspect_model_artifact(root, root / "ok.gguf").path == "ok.gguf"
     assert inspect_model_artifact(root, "ok.gguf").path == "ok.gguf"
+
+
+def test_websocket_accepts_any_key_through_the_base64url_subprotocol(settings):
+    import base64
+
+    key = "c2VjcmV0/with+symbols=="  # not an RFC 7230 token: '/', '+', '='
+    encoded = base64.urlsafe_b64encode(key.encode()).decode().rstrip("=")
+    app = create_app(settings.model_copy(update={"api_key": key}))
+    with TestClient(app, client=REMOTE) as client:
+        with client.websocket_connect("/v1/ws/tasks", subprotocols=["hydra.v1", f"hydra.token.b64.{encoded}"]) as ws:
+            assert _ws_kinds(ws)[-1] == "result"
+
+
+def test_programmatic_admin_token_also_protects_runtime_admin_routes(settings):
+    app = create_app(settings.model_copy(update={"admin_token": "adm-code"}))
+    with TestClient(app) as client:
+        assert client.get("/hydra/v1/admin/deployments").status_code == 401
+        ok = client.get("/hydra/v1/admin/deployments", headers={"x-hydra-admin-token": "adm-code"})
+        assert ok.status_code == 200
+
+
+def test_empty_sync_trusted_keys_dir_means_default(monkeypatch, tmp_path):
+    from hydra.core.config import Settings
+
+    monkeypatch.setenv("HYDRA_SYNC_TRUSTED_KEYS_DIR", "")
+    assert Settings(data_dir=tmp_path).sync_trusted_keys_dir is None
