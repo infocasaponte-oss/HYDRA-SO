@@ -32,8 +32,9 @@ spec:
           resources: {requests: {cpu: "1", memory: 2Gi}, limits: {cpu: "4", memory: 8Gi}}
           securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false,
                             capabilities: {drop: [ALL]}}
-          volumeMounts: [{name: data, mountPath: /data}]
-      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
+          volumeMounts: [{name: data, mountPath: /data}, {name: keys, mountPath: /keys}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}},
+                {name: keys, persistentVolumeClaim: {claimName: hydra-keys}}]
 ---
 apiVersion: v1
 kind: Service
@@ -46,3 +47,9 @@ metadata: {name: hydra-data, namespace: hydra}
 # ReadWriteOnce + pod affinity (data plane) keeps every HYDRA pod on one node: SQLite needs real
 # POSIX file locks, which network RWX filesystems do not reliably provide.
 spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 200Gi}}}
+---
+# Private keys (ledger signing key, Fernet keys): separate from the data volume and its backups.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: hydra-keys, namespace: hydra}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 10Mi}}}
