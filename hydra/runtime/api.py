@@ -26,8 +26,8 @@ from hydra.runtime.coding_request import CodingRequest, resolve_repository
 from hydra.runtime.config import settings
 from hydra.runtime.contracts import HydraTask
 from hydra.deploy.deployment import Deployment
-from hydra.runtime.deployment_controller import DeploymentController
-from hydra.runtime.deployment_controller import LEGACY_OFFSETS, EvidenceRejected
+from hydra.deploy.deployment_controller import DeploymentController
+from hydra.deploy.deployment_controller import LEGACY_OFFSETS, EvidenceRejected
 from hydra.runtime.deployment_store import DeploymentStore
 from hydra.runtime.deployment_validation import DeploymentArtifactValidator
 from hydra.runtime.kernel import HydraKernel
@@ -40,7 +40,7 @@ from hydra.runtime.outbox_dispatcher import OutboxDispatcher
 from hydra.runtime.outbox_worker import OutboxWorker
 from hydra.runtime.physical_inference import PhysicalInferenceClient
 from hydra.runtime.events import JsonlEventStore
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 from hydra.runtime.provenance import ProvenanceLedger, ProvenanceRecord
 from hydra.runtime.provider import LocalLLM
 from hydra.runtime.rate_limit import RateLimit, SlidingWindowRateLimiter
@@ -49,14 +49,14 @@ from hydra.runtime.replay import ReplayManifest, ReplayStore
 from hydra.runtime.replay_executor import AuditReplayExecutor
 from hydra.runtime.runtime_bridge import RuntimeBridge
 from hydra.runtime.runtime_events import RuntimeEventEmitter
-from hydra.runtime.runtime_evidence import RuntimeEvidenceStore
+from hydra.deploy.runtime_evidence import RuntimeEvidenceStore
 from hydra.runtime.runtime_executor import RuntimeExecutor
-from hydra.runtime.runtime_health import RuntimeHealth
+from hydra.deploy.runtime_health import RuntimeHealth
 from hydra.runtime.pg_stores import open_runtime_stores
 from hydra.runtime.sandbox import OciSandbox
 from hydra.runtime.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.runtime.security_audit import SecurityAudit
-from hydra.runtime.traffic_router import TrafficRouter
+from hydra.deploy.traffic_router import TrafficRouter
 from hydra.runtime.translation import GlossaryStore, TranslationService
 from hydra.runtime.workspaces import WorkspaceManager
 

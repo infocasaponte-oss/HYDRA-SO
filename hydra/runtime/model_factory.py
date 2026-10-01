@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 from hydra.model_factory.contracts import (BuildState, ModelLineage, ModelVariant, file_sha256, lineage_hash)
 
 __all__ = ["BuildState", "ModelLineage", "ModelVariant", "ModelFactoryLedger", "file_sha256", "lineage_hash"]

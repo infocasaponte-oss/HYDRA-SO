@@ -7,7 +7,7 @@ from uuid import UUID
 from hydra.runtime.circuit_breaker import CircuitState
 from hydra.runtime.runtime_events import RuntimeEventEmitter
 from hydra.runtime.runtime_executor import RuntimeExecution, RuntimeExecutor
-from hydra.runtime.runtime_health import RuntimeHealth
+from hydra.deploy.runtime_health import RuntimeHealth
 
 
 @dataclass

@@ -10,7 +10,7 @@ from pathlib import Path
 from time import perf_counter
 from uuid import UUID, uuid4
 
-from hydra.runtime.paths import runtime_path
+from hydra.core.runtime_paths import runtime_path
 
 
 @dataclass
