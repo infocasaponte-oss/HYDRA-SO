@@ -637,7 +637,7 @@ perfiles; kubeconform **18/18 recursos válidos**; `terraform validate` correcto
 | H-06 / H-07 | 📄 Documentado | Implementar los repositorios PostgreSQL de fabric, outbox, ledger, corpus y World Model es trabajo de varios sprints. `schema.sql` marca esas tablas como reservadas y sin conectar; README y manifiestos reflejan la limitación real |
 | M-01 | ✅ Corregido | `HYDRA_ADMIN_TOKEN` (`X-Hydra-Admin-Token`) en flags, config, corpus review/tombstone, datasets build, IP, releases build, lifecycle, training runs, red-team, belief confirm, edge autobuild/sync, heartbeats, lab, factory jobs, cache invalidate y `evals/run?apply`. Sin token configurado, solo loopback. El runtime admin acepta la misma cabecera. Studio tiene campo de token admin (solo `sessionStorage`) |
 | M-02 | ✅ Corregido | `safe_id` en `ConfigRegistry._path` (cubre API y CLI); 400 en la API |
-| M-03 | ⏳ Pendiente | Mover las claves a keyring/DPAPI/KMS cambia el arranque y la recuperación (`hydra backup/restore`): requiere decisión de operación |
+| M-03 | ✅ Corregido (PR propio) | `hydra.core.keystore`: env `HYDRA_KEY_*` → `HYDRA_KEYS_DIR` (fuera de data) → keyring del SO (extra `keys`); migración verificada de las claves heredadas; backup con `--include-private-keys` exporta las del keyring; Compose/k8s con volumen `/keys` propio |
 | M-04 | ✅ Corregido | CSP estricta (`connect-src 'self'`, `frame-ancestors 'none'`), `nosniff`, `no-referrer`; `esc()` escapa comillas; todos los campos de tablas escapados |
 | M-05 | ⏳ Pendiente | Calcular la evidencia canary/shadow en servidor es un rediseño del gate de promoción |
 | M-06 | ✅ Parcial | Prometheus y Grafana solo en 127.0.0.1, contraseña de Grafana por `.env`, comentarios corregidos |

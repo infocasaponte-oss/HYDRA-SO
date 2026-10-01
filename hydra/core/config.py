@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     sync_trusted_keys_dir: Path | None = None
     """Directory with ``*.pub.pem`` keys trusted for edge sync imports (default: <data_dir>/keys/trusted).
     This node's own public key is always trusted; clients can never supply keys."""
+    key_backend: str = "auto"
+    """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
+    keys_dir: Path | None = None
+    """HYDRA_KEYS_DIR: key files outside HYDRA_DATA_DIR (mounted secrets), used when no OS keyring."""
+    key_namespace: str = ""
+    """HYDRA_KEY_NAMESPACE: keyring namespace (default: derived from the data directory path)."""
     api_rate_limit_per_minute: int = 60
     """Per-client limit for authenticated API routes. Set <= 0 to disable."""
 
