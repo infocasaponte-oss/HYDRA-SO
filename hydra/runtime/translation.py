@@ -5,11 +5,12 @@ import json
 from pathlib import Path
 
 from hydra.runtime.budgets import RequestBudget
+from hydra.runtime.paths import runtime_path
 from hydra.runtime.provider import LocalLLM
 
 
 class GlossaryStore:
-    def __init__(self, root: str | Path = "runtime/glossaries"):
+    def __init__(self, root: str | Path = runtime_path("glossaries")):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

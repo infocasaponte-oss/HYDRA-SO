@@ -72,10 +72,39 @@ CREATE TABLE IF NOT EXISTS model_metrics (
 
 
 -- =====================================================================================
--- HYDRA 1.0 planes (multi-node deployments; the local file stores are the default).
+-- Execution Fabric (hydra.cluster.fabric_pg.PostgresWorkQueue, which also creates these tables).
+-- Shared by every gateway and worker: leases, retries, dead letters, idempotency, checkpoints.
 -- =====================================================================================
+CREATE TABLE IF NOT EXISTS fabric_work (
+    id            TEXT PRIMARY KEY,
+    capability    TEXT NOT NULL,
+    priority      INTEGER NOT NULL,
+    status        TEXT NOT NULL,
+    available_at  DOUBLE PRECISION NOT NULL,
+    lease_expires DOUBLE PRECISION,
+    idem          TEXT NOT NULL,
+    body          JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS fabric_work_claim ON fabric_work (status, capability, priority, available_at);
+CREATE INDEX IF NOT EXISTS fabric_work_open_idem ON fabric_work (idem) WHERE status IN ('queued', 'leased');
+CREATE TABLE IF NOT EXISTS fabric_idempotency (
+    key    TEXT PRIMARY KEY,
+    result JSONB NOT NULL,
+    at     DOUBLE PRECISION NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fabric_checkpoints (
+    task_id TEXT NOT NULL,
+    step    INTEGER NOT NULL,
+    state   JSONB NOT NULL,
+    at      DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (task_id, step)
+);
 
--- Append-only, hash-chained, signed provenance / IP ledger.
+
+-- =====================================================================================
+-- Signed IP / provenance ledger: hydra.ledger.pg.PostgresLedger (HYDRA_LEDGER_BACKEND), which
+-- also creates these tables. Append-only: triggers reject UPDATE, DELETE and TRUNCATE.
+-- =====================================================================================
 CREATE TABLE IF NOT EXISTS ip_events (
     sequence_id        BIGSERIAL PRIMARY KEY,
     event_id           UUID NOT NULL UNIQUE,
@@ -105,6 +134,12 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS ip_events_no_update ON ip_events;
 CREATE TRIGGER ip_events_no_update BEFORE UPDATE OR DELETE ON ip_events
     FOR EACH ROW EXECUTE FUNCTION hydra_ledger_immutable();
+DROP TRIGGER IF EXISTS ip_events_no_truncate ON ip_events;
+CREATE TRIGGER ip_events_no_truncate BEFORE TRUNCATE ON ip_events
+    FOR EACH STATEMENT EXECUTE FUNCTION hydra_ledger_immutable();
+-- Exact serialized event (what verification recomputes; TIMESTAMPTZ/JSONB are for querying).
+ALTER TABLE ip_events ADD COLUMN IF NOT EXISTS body TEXT;
+CREATE INDEX IF NOT EXISTS ip_events_type ON ip_events (event_type, sequence_id);
 
 CREATE TABLE IF NOT EXISTS ledger_anchors (
     first_sequence   BIGINT NOT NULL,
@@ -114,7 +149,14 @@ CREATE TABLE IF NOT EXISTS ledger_anchors (
     external_timestamp_ref TEXT,
     PRIMARY KEY (first_sequence, last_sequence)
 );
+ALTER TABLE ledger_anchors ADD COLUMN IF NOT EXISTS body TEXT;
 
+-- =====================================================================================
+-- HYDRA 1.0 planes: RESERVED SCHEMA, NOT WIRED YET.
+-- The IP registry, artifacts, corpus and World Model persist ONLY in the local file stores under
+-- HYDRA_DATA_DIR; no code reads or writes the tables below. They document the target multi-node
+-- layout (docs/AUDITORIA_INTEGRAL_REPO_2026-10-01.md, section 5).
+-- =====================================================================================
 CREATE TABLE IF NOT EXISTS inventions (
     invention_id     TEXT PRIMARY KEY,
     title            TEXT NOT NULL,

@@ -9,6 +9,7 @@ from pathlib import Path
 from hydra.runtime.deployment_registry import DeploymentRegistry
 from hydra.runtime.outbox import TransactionalOutbox
 from hydra.runtime.outbox_metrics import collect_outbox_metrics
+from hydra.runtime.paths import runtime_path
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,7 @@ class OperatingMetrics:
 def collect_operating_metrics(
     *,
     outbox: TransactionalOutbox,
-    trace_path: str | Path = "runtime/traces.jsonl",
+    trace_path: str | Path = runtime_path("traces.jsonl"),
     deployments: DeploymentRegistry | None = None,
     max_trace_records: int = 10_000,
 ) -> OperatingMetrics:

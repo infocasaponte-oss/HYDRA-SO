@@ -1,27 +1,40 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-# CONTROL PLANE: stateless gateway/kernel replicas; state lives in PostgreSQL / NATS / object storage.
+# CONTROL PLANE: gateway/kernel.
+#
+# One replica: the fabric queue, capture outbox, ledger, corpus and World Model are local files /
+# SQLite under /data (see docs/AUDITORIA_INTEGRAL_REPO_2026-10-01.md §5). SQLite on a shared RWX
+# volume with several writers corrupts data, so do not scale until those planes run on PostgreSQL.
 apiVersion: apps/v1
 kind: Deployment
 metadata: {name: hydra-api, namespace: hydra}
 spec:
-  replicas: 4
+  replicas: 1
+  strategy: {type: Recreate}
   selector: {matchLabels: {app: hydra-api}}
   template:
     metadata:
       labels: {app: hydra-api}
       annotations: {prometheus.io/scrape: "true", prometheus.io/port: "8080", prometheus.io/path: /metrics}
     spec:
+      securityContext: {fsGroup: 10001}
       containers:
         - name: api
           image: hydra-engine:1.1.0
+          # The image has no ENTRYPOINT (CMD runs uvicorn): name the program explicitly.
+          command: ["hydra"]
           args: ["serve", "--host", "0.0.0.0", "--port", "8080"]
           envFrom: [{configMapRef: {name: hydra-config}}, {secretRef: {name: hydra-secrets}}]
           ports: [{containerPort: 8080}]
+          # /ready also requires the runtime-line llama-server (HYDRA_LLM_URL); use it here only when
+          # that server is deployed next to the gateway. /health reflects the platform gateway.
           readinessProbe: {httpGet: {path: /health, port: 8080}, periodSeconds: 10}
-          livenessProbe: {httpGet: {path: /health, port: 8080}, periodSeconds: 30}
+          livenessProbe: {httpGet: {path: /health, port: 8080}, periodSeconds: 30, failureThreshold: 5}
           resources: {requests: {cpu: "1", memory: 2Gi}, limits: {cpu: "4", memory: 8Gi}}
-          volumeMounts: [{name: data, mountPath: /data}]
-      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}}]
+          securityContext: {runAsNonRoot: true, runAsUser: 10001, allowPrivilegeEscalation: false,
+                            capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: data, mountPath: /data}, {name: keys, mountPath: /keys}]
+      volumes: [{name: data, persistentVolumeClaim: {claimName: hydra-data}},
+                {name: keys, persistentVolumeClaim: {claimName: hydra-keys}}]
 ---
 apiVersion: v1
 kind: Service
@@ -31,4 +44,12 @@ spec: {selector: {app: hydra-api}, ports: [{port: 80, targetPort: 8080}]}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata: {name: hydra-data, namespace: hydra}
-spec: {accessModes: [ReadWriteMany], resources: {requests: {storage: 200Gi}}}
+# ReadWriteOnce + pod affinity (data plane) keeps every HYDRA pod on one node: SQLite needs real
+# POSIX file locks, which network RWX filesystems do not reliably provide.
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 200Gi}}}
+---
+# Private keys (ledger signing key, Fernet keys): separate from the data volume and its backups.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: hydra-keys, namespace: hydra}
+spec: {accessModes: [ReadWriteOnce], resources: {requests: {storage: 10Mi}}}

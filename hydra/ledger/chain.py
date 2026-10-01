@@ -8,8 +8,9 @@ Changing any past event breaks every later hash. Corrections are new events
 Every ``anchor_every`` events a Merkle root over the batch is stored as an anchor, so the
 existence of a batch can be proven without revealing its contents.
 
-The file backend is the local source of truth; ``sql/schema.sql`` has the equivalent
-PostgreSQL table with triggers that reject UPDATE/DELETE for multi-node deployments.
+Two backends share this contract: ``Ledger`` (JSONL files, one host) and
+``hydra.ledger.pg.PostgresLedger`` (``ip_events`` / ``ledger_anchors`` in PostgreSQL, whose trigger
+rejects UPDATE/DELETE; shared by every node). ``open_ledger`` picks one (``HYDRA_LEDGER_BACKEND``).
 """
 
 from __future__ import annotations
@@ -129,6 +130,8 @@ class ChainReport(BaseModel):
 class Ledger:
     """File-backed append-only ledger (thread-safe within a process)."""
 
+    backend = "file"
+
     def __init__(self, root: Path, signer: Signer | None = None, anchor_every: int = 1000) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
@@ -216,45 +219,62 @@ class Ledger:
 
     def proof(self, sequence: int) -> dict[str, Any] | None:
         """Merkle inclusion proof of one event inside its anchor."""
-        for a in self.anchors():
-            if a.first_sequence <= sequence <= a.last_sequence:
-                hashes = [e.event_hash for e in self._events if a.first_sequence <= e.sequence <= a.last_sequence]
-                idx = sequence - a.first_sequence
-                return {"leaf": hashes[idx], "proof": merkle_proof(hashes, idx), "root": a.merkle_root,
-                        "anchor": a.model_dump()}
-        return None
+        return inclusion_proof(self.anchors(), sequence,
+                               lambda first, last: [e.event_hash for e in self._events if first <= e.sequence <= last])
 
     # ------------------------------------------------------------------ verify
     def verify(self, public_keys: dict[str, str] | None = None) -> ChainReport:
         """Recompute the whole chain from disk (not from the in-memory index)."""
-        prev, n, checked = GENESIS, 0, 0
-        keys = dict(public_keys or {})
-        if self.signer is not None:
-            keys.setdefault(self.signer.key_id, self.signer.public_pem)
         events: list[LedgerEvent] = []
         if self.path.exists():
             for line in self.path.read_text(encoding="utf-8").splitlines():
                 if line.strip():
                     events.append(LedgerEvent.model_validate_json(line))
-        for e in events:
-            n += 1
-            if e.sequence != n:
-                return ChainReport(ok=False, events=len(events), broken_at=e.sequence, reason="sequence gap")
-            if e.previous_hash != prev:
-                return ChainReport(ok=False, events=len(events), broken_at=e.sequence, reason="previous_hash mismatch")
-            expected = event_hash(prev, e.event_type, e.created_at, f"{e.actor_type}:{e.actor_id}", e.payload)
-            if expected != e.event_hash:
-                return ChainReport(ok=False, events=len(events), broken_at=e.sequence, reason="event_hash mismatch")
-            if e.signature and e.signing_key_id in keys:
-                checked += 1
-                if not verify_signature(keys[e.signing_key_id], e.event_hash, e.signature):
-                    return ChainReport(ok=False, events=len(events), broken_at=e.sequence, reason="bad signature")
-            prev = e.event_hash
-        anchors_ok = True
-        by_seq = {e.sequence: e.event_hash for e in events}
-        for a in self.anchors():
-            hashes = [by_seq.get(s, "") for s in range(a.first_sequence, a.last_sequence + 1)]
-            if "" in hashes or merkle_root(hashes) != a.merkle_root:
-                anchors_ok = False
-        return ChainReport(ok=anchors_ok, events=len(events), anchors_ok=anchors_ok, signatures_checked=checked,
-                           reason="" if anchors_ok else "anchor mismatch")
+        return verify_chain(events, self.anchors(), self.signer, public_keys)
+
+    def export_jsonl(self) -> tuple[str, str]:
+        """``events.jsonl`` and ``anchors.jsonl`` contents (the portable backup format)."""
+        events = self.path.read_text(encoding="utf-8") if self.path.exists() else ""
+        anchors = self.anchor_path.read_text(encoding="utf-8") if self.anchor_path.exists() else ""
+        return events, anchors
+
+
+def inclusion_proof(anchors: list[LedgerAnchor], sequence: int, hashes_between) -> dict[str, Any] | None:
+    for a in anchors:
+        if a.first_sequence <= sequence <= a.last_sequence:
+            hashes = hashes_between(a.first_sequence, a.last_sequence)
+            idx = sequence - a.first_sequence
+            return {"leaf": hashes[idx], "proof": merkle_proof(hashes, idx), "root": a.merkle_root,
+                    "anchor": a.model_dump()}
+    return None
+
+
+def verify_chain(events: list[LedgerEvent], anchors: list[LedgerAnchor], signer: Signer | None = None,
+                 public_keys: dict[str, str] | None = None) -> ChainReport:
+    """Recompute sequence, hash chain, signatures and Merkle anchors (shared by every backend)."""
+    prev, n, checked = GENESIS, 0, 0
+    keys = dict(public_keys or {})
+    if signer is not None:
+        keys.setdefault(signer.key_id, signer.public_pem)
+    for e in events:
+        n += 1
+        if e.sequence != n:
+            return ChainReport(ok=False, events=len(events), broken_at=e.sequence, reason="sequence gap")
+        if e.previous_hash != prev:
+            return ChainReport(ok=False, events=len(events), broken_at=e.sequence, reason="previous_hash mismatch")
+        expected = event_hash(prev, e.event_type, e.created_at, f"{e.actor_type}:{e.actor_id}", e.payload)
+        if expected != e.event_hash:
+            return ChainReport(ok=False, events=len(events), broken_at=e.sequence, reason="event_hash mismatch")
+        if e.signature and e.signing_key_id in keys:
+            checked += 1
+            if not verify_signature(keys[e.signing_key_id], e.event_hash, e.signature):
+                return ChainReport(ok=False, events=len(events), broken_at=e.sequence, reason="bad signature")
+        prev = e.event_hash
+    anchors_ok = True
+    by_seq = {e.sequence: e.event_hash for e in events}
+    for a in anchors:
+        hashes = [by_seq.get(s, "") for s in range(a.first_sequence, a.last_sequence + 1)]
+        if "" in hashes or merkle_root(hashes) != a.merkle_root:
+            anchors_ok = False
+    return ChainReport(ok=anchors_ok, events=len(events), anchors_ok=anchors_ok, signatures_checked=checked,
+                       reason="" if anchors_ok else "anchor mismatch")

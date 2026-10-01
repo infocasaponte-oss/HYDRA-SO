@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from hydra.api.security import authorize_admin
 from hydra.blackboard.projector import replay
 from hydra.evals.engine import apply_to_registry
 from hydra.lab.lab import Gates
@@ -43,7 +44,8 @@ class JobBody(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
-def register_os_routes(app: FastAPI, rt, secured) -> None:
+def register_os_routes(app: FastAPI, rt, secured, admin_secured=None) -> None:
+    admin_secured = admin_secured if admin_secured is not None else secured
     async def _state(request: Request, task_id: UUID):
         runtime = rt(request)
         events = (await runtime.event_sink.history(task_id) if runtime.event_sink is not None
@@ -85,7 +87,7 @@ def register_os_routes(app: FastAPI, rt, secured) -> None:
                          for m, s in runtime.registry.breaker.models.items()},
         }
 
-    @app.post("/v1/os/cache/invalidate", dependencies=secured)
+    @app.post("/v1/os/cache/invalidate", dependencies=admin_secured)
     async def invalidate(request: Request):
         return {"invalidated": rt(request).cache.invalidate()}
 
@@ -109,6 +111,9 @@ def register_os_routes(app: FastAPI, rt, secured) -> None:
     @app.post("/v1/evals/run", dependencies=secured)
     async def run_eval(body: EvalBody, request: Request):
         runtime = rt(request)
+        if body.apply:  # applying scores changes routing for everyone: operator decision
+            authorize_admin(runtime.settings, request.client.host if request.client else "",
+                            request.headers.get("x-hydra-admin-token"))
         if body.model_id not in runtime.registry.models:
             raise HTTPException(404, "unknown model")
         report = await runtime.evaluator.run_model(runtime.registry.get(body.model_id), body.suites)
@@ -121,14 +126,14 @@ def register_os_routes(app: FastAPI, rt, secured) -> None:
     async def experiments(request: Request):
         return list(rt(request).lab.experiments.values())
 
-    @app.post("/v1/lab/experiments", dependencies=secured)
+    @app.post("/v1/lab/experiments", dependencies=admin_secured)
     async def create_experiment(body: ExperimentBody, request: Request):
         try:
             return rt(request).lab.create(body.name, body.kind, body.overrides, body.description, body.gates)
         except Exception as exc:
             raise HTTPException(400, f"invalid overrides: {exc}") from exc
 
-    @app.post("/v1/lab/experiments/{exp_id}/{action}", dependencies=secured)
+    @app.post("/v1/lab/experiments/{exp_id}/{action}", dependencies=admin_secured)
     async def experiment_action(exp_id: str, action: str, request: Request):
         lab = rt(request).lab
         if exp_id not in lab.experiments:
@@ -174,7 +179,7 @@ def register_os_routes(app: FastAPI, rt, secured) -> None:
             raise HTTPException(404, "no variant satisfies the constraints")
         return v
 
-    @app.post("/v1/factory/jobs", dependencies=secured, status_code=202)
+    @app.post("/v1/factory/jobs", dependencies=admin_secured, status_code=202)
     async def submit_job(body: JobBody, request: Request):
         if body.kind not in FACTORY_JOBS:
             raise HTTPException(400, f"kind must be one of {sorted(FACTORY_JOBS)}")

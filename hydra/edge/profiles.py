@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from hydra.core.atomic import write_text_atomic
+
 CUDA_ARCH = [  # (substring in GPU name, compute arch)
     ("rtx 50", "120"), ("b200", "100"), ("h100", "90"), ("h200", "90"), ("gh200", "90"), ("l40", "89"),
     ("rtx 40", "89"), ("rtx 4", "89"), ("l4", "89"), ("ada", "89"), ("a100", "80"), ("a30", "80"),
@@ -118,7 +120,7 @@ def detect_profile() -> HardwareProfile:
 def write_hardware_manifest(path: Path) -> dict[str, Any]:
     p = detect_profile().as_dict()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(p, indent=2), encoding="utf-8")
+    write_text_atomic(path, json.dumps(p, indent=2))
     return p
 
 

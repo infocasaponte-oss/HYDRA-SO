@@ -8,6 +8,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.runtime.paths import runtime_path
+
 
 class ArtifactRecord(BaseModel):
     artifact_id: UUID = Field(default_factory=uuid4)
@@ -20,7 +22,7 @@ class ArtifactRecord(BaseModel):
 
 
 class ArtifactStore:
-    def __init__(self, root: str | Path = "runtime/artifacts"):
+    def __init__(self, root: str | Path = runtime_path("artifacts")):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
 

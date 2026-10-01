@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_text_atomic
 from hydra.core.hashing import hash_obj, now_iso
 from hydra.evals.suites import EvalCase
 
@@ -148,8 +149,8 @@ class CapabilityDiscovery:
                                                     upper=round(hi, 4), sample_size=n,
                                                     eval_suite=cases[0].suite, hardware_ref=hardware_ref)
         prof.latency_ms = round(sum(lat) / len(lat), 1) if lat else None
-        (self.root / f"{model.id.replace('/', '_').replace(':', '_')}.json").write_text(
-            prof.model_dump_json(indent=2), encoding="utf-8")
+        write_text_atomic(self.root / f"{model.id.replace('/', '_').replace(':', '_')}.json",
+                          prof.model_dump_json(indent=2))
         return prof
 
     def load(self, model_id: str) -> CapabilityProfile | None:
@@ -262,7 +263,7 @@ class ModelLifecycle:
         cur["history"].append({"from": cur["status"], "to": to, "reason": reason, "by": actor, "at": now_iso()})
         cur["status"] = to
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.state, indent=2), encoding="utf-8")
+        write_text_atomic(self.path, json.dumps(self.state, indent=2))
         return cur
 
 

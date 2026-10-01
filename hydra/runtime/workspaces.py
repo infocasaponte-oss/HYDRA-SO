@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
+from hydra.runtime.paths import runtime_path
 from hydra.tools.workspace import scan_source, validate_no_symlinks
 
 _BLOCKED_NAMES = {".git", ".venv", "__pycache__", ".pytest_cache", "runtime"}
@@ -32,7 +33,7 @@ class WorkspaceManager:
 
     def __init__(
         self,
-        root: str | Path = "runtime/workspaces",
+        root: str | Path = runtime_path("workspaces"),
         *,
         max_files: int = 20_000,
         max_bytes: int = 256 * 1024 * 1024,

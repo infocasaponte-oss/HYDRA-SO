@@ -19,6 +19,8 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_bytes_atomic, write_text_atomic
+
 REF = re.compile(r"secret://([\w.-]+)/([\w.-]+)")
 
 
@@ -30,19 +32,15 @@ class CredentialPolicy(BaseModel):
 
 
 class SecretsBroker:
-    def __init__(self, root: Path, audit: Callable[[str, dict], Any] | None = None) -> None:
+    def __init__(self, root: Path, audit: Callable[[str, dict], Any] | None = None, keystore=None) -> None:
         from cryptography.fernet import Fernet
+
+        from hydra.core.keystore import KeyStore
 
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
-        kp = root / ".broker.key"
-        if not kp.exists():
-            kp.write_bytes(Fernet.generate_key())
-            try:
-                os.chmod(kp, 0o600)
-            except OSError:
-                pass
-        self.fernet = Fernet(kp.read_bytes())
+        store = keystore or KeyStore(root.parent, backend="legacy")
+        self.fernet = Fernet(store.get_or_create("secrets-broker", root / ".broker.key", Fernet.generate_key))
         self.store = root / "secrets.enc"
         self.policies: dict[str, CredentialPolicy] = {}
         self.audit = audit
@@ -60,10 +58,10 @@ class SecretsBroker:
     def put(self, ref: str, value: str, policy: CredentialPolicy | None = None) -> None:
         data = self._load()
         data[ref] = value
-        self.store.write_bytes(self.fernet.encrypt(json.dumps(data).encode()))
+        write_bytes_atomic(self.store, self.fernet.encrypt(json.dumps(data).encode()))
         if policy:
             self.policies[ref] = policy
-            (self.root / "policies.json").write_text(json.dumps([p.model_dump() for p in self.policies.values()]))
+            write_text_atomic(self.root / "policies.json", json.dumps([p.model_dump() for p in self.policies.values()]))
 
     def refs(self) -> list[str]:
         env = [f"secret://{k[13:].lower().replace('_', '/', 1)}" for k in os.environ if k.startswith("HYDRA_SECRET_")]

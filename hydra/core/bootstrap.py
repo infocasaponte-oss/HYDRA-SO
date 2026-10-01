@@ -257,17 +257,20 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.governance.config_registry import ConfigRegistry, FeatureFlags
     from hydra.governance.policy_dsl import PolicyEngine
     from hydra.governance.secrets import SecretsBroker
-    from hydra.ledger.chain import Ledger
+    from hydra.ledger.pg import open_ledger
     from hydra.ledger.ip import IPRegistry
     from hydra.ledger.licenses import LicenseEngine
+    from hydra.core.keystore import KeyStore
     from hydra.ledger.signing import Signer
     from hydra.market import CapabilityMarket
     from hydra.world.knowledge import GraphRAG, KnowledgeCompiler
     from hydra.world.model import WorldModel
 
     data = settings.data_dir
-    signer = overrides.get("signer") or Signer.load_or_create(data / "keys")
-    ledger = Ledger(data / "ledger", signer, anchor_every=settings.ledger_anchor_every)
+    keystore = overrides.get("keystore") or KeyStore.from_settings(settings)
+    signer = overrides.get("signer") or Signer.load_or_create(data / "keys", keystore=keystore)
+    ledger = open_ledger(settings.ledger_backend, data / "ledger", signer, settings.ledger_anchor_every,
+                         settings.postgres_url)
     artifact_store = ArtifactStore(data / "artifacts")
     world = WorldModel(data / "world")
     world_rag = GraphRAG(world)
@@ -287,19 +290,20 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     configs = ConfigRegistry(data / "configs", ledger)
     flags = FeatureFlags(data / "flags.json")
     secrets = SecretsBroker(data / "secrets", audit=lambda et, p: ledger.append(et, p, object_type="secret",
-                                                                                 object_id=p.get("ref", "")))
+                                                                                 object_id=p.get("ref", "")),
+                            keystore=keystore)
     policy_dsl = PolicyEngine.from_yaml(settings.policy_rules_config)
     market = CapabilityMarket()
     executor = ToolExecutor(tools, ToolPolicyEngine(policy), bus, simulator=Simulator(), secrets=secrets,
                             policy_dsl=policy_dsl)
     from hydra.cluster.capacity import TenantRegistry
-    from hydra.cluster.fabric import WorkQueue
+    from hydra.cluster.fabric import open_work_queue
     from hydra.cluster.nodes import NodeRegistry
     from hydra.cluster.scheduler import GlobalScheduler
 
     nodes = NodeRegistry(heartbeat_ttl_s=max(30.0, settings.heartbeat_interval_s * 3))
     scheduler = GlobalScheduler(nodes)
-    queue = WorkQueue(data / "fabric" / "queue.db")
+    queue = open_work_queue(settings.fabric_backend, data / "fabric" / "queue.db", settings.postgres_url)
 
     def config_ref():
         cur = configs.current("production")

@@ -8,12 +8,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from hydra.runtime.operating_metrics import OperatingMetrics
+from hydra.runtime.paths import runtime_path
 
 
 class OperatingMetricsStore:
     def __init__(
         self,
-        path: str | Path = "runtime/hydra.db",
+        path: str | Path = runtime_path("hydra.db"),
         *,
         max_snapshots: int = 10_000,
     ):

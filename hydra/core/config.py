@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from hydra.tools.sandbox import DEFAULT_SANDBOX_IMAGE
@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     llamacpp_base_url: str = "http://localhost:8081/v1"
     cloud_base_url: str = "https://api.openai.com/v1"
     cloud_api_key: str = ""
-    internal_api_key: str = "internal"
+    internal_api_key: str = ""
+    """Bearer token for internal OpenAI-compatible runtimes (vLLM/llama.cpp). Empty -> no header."""
 
     # Use deterministic offline models (no runtime needed). Great for dev/tests.
     offline: bool = False
@@ -76,6 +77,34 @@ class Settings(BaseSettings):
     # Gateway protection. Empty -> no auth (development).
     api_key: str = Field(default="", validation_alias=AliasChoices("api_key", "HYDRA_API_KEY", "HYDRA_API_TOKEN"))
     """Gateway token (HYDRA_API_KEY, or HYDRA_API_TOKEN as used by the runtime line)."""
+    admin_token: str = ""
+    client_keys_file: Path = Path("data/keys/api-clients.json")
+    """HYDRA_ADMIN_TOKEN: required (header ``X-Hydra-Admin-Token``) by routes that change governance,
+    IP, corpus approval, releases, models or sync state. Empty -> those routes accept loopback only."""
+    sync_trusted_keys_dir: Path | None = None
+    """Directory with ``*.pub.pem`` keys trusted for edge sync imports (default: <data_dir>/keys/trusted).
+    This node's own public key is always trusted; clients can never supply keys."""
+    fabric_backend: str = "auto"
+    """HYDRA_FABRIC_BACKEND: execution-fabric queue: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
+    psycopg is installed, else local SQLite) | sqlite | postgres (required: fail if unavailable)."""
+    ledger_backend: str = "auto"
+    """HYDRA_LEDGER_BACKEND: signed IP/provenance ledger: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
+    psycopg is installed, else data/ledger files) | file | postgres (required). A PostgreSQL ledger adopts an
+    existing file ledger once, after verifying it; the file is kept as a read-only copy."""
+    key_backend: str = "auto"
+    """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
+    keys_dir: Path | None = None
+    """HYDRA_KEYS_DIR: key files outside HYDRA_DATA_DIR (mounted secrets), used when no OS keyring."""
+    key_namespace: str = ""
+    """HYDRA_KEY_NAMESPACE: keyring namespace (default: derived from the data directory path)."""
+
+    @field_validator("sync_trusted_keys_dir", "keys_dir", mode="before")
+    @classmethod
+    def _empty_path_is_unset(cls, value):
+        # An empty variable (HYDRA_SYNC_TRUSTED_KEYS_DIR= / HYDRA_KEYS_DIR=, as in .env.example) would
+        # otherwise become Path('.'): the working directory would hold trusted or private keys.
+        return None if isinstance(value, str) and not value.strip() else value
+
     api_rate_limit_per_minute: int = 60
     """Per-client limit for authenticated API routes. Set <= 0 to disable."""
 

@@ -17,7 +17,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_text_atomic
 from hydra.core.hashing import hash_obj, now_iso
+from hydra.core.paths import safe_id
 
 
 class ConfigSet(BaseModel):
@@ -43,7 +45,8 @@ class ConfigRegistry:
         self._lock = threading.Lock()
 
     def _path(self, env: str) -> Path:
-        return self.root / f"{env}.jsonl"
+        # The environment name becomes a file name: never let it carry separators or '..'.
+        return self.root / f"{safe_id(env, 'config environment')}.jsonl"
 
     def history(self, env: str) -> list[ConfigSet]:
         p = self._path(env)
@@ -107,7 +110,7 @@ class FeatureFlags:
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps({k: v.model_dump() for k, v in self.flags.items()}, indent=2), encoding="utf-8")
+        write_text_atomic(self.path, json.dumps({k: v.model_dump() for k, v in self.flags.items()}, indent=2))
 
     def set(self, name: str, value: str | bool | float, description: str = "") -> FeatureFlag:
         if isinstance(value, bool):

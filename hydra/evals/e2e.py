@@ -12,6 +12,7 @@ Offline (mock provider) it validates the machinery; against real models it measu
 from __future__ import annotations
 
 import json
+import operator
 import random
 import re
 import tempfile
@@ -66,13 +67,16 @@ class E2EReport(BaseModel):
     by_category: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
+_OPS = {"+": operator.add, "-": operator.sub, "*": operator.mul}
+
+
 def build_cases(seed: int = 7) -> list[E2ECase]:
     rng = random.Random(seed)
     out: list[E2ECase] = []
     for i in range(20):
         a, b, op = rng.randint(3, 400), rng.randint(2, 60), rng.choice(["+", "-", "*"])
         out.append(E2ECase(id=f"reason-{i}", category="reasoning",
-                           payload={"q": f"¿Cuánto es {a} {op} {b}?", "expected": eval(f"{a}{op}{b}")}))
+                           payload={"q": f"¿Cuánto es {a} {op} {b}?", "expected": _OPS[op](a, b)}))
     for i in range(20):
         fname, src, test = BUGS[i % len(BUGS)]
         out.append(E2ECase(id=f"debug-{i}", category="python_debugging",

@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 from hydra.runtime.hash_chain import canonical_hash, lock_for
+from hydra.runtime.paths import runtime_path
 
 
 class EventEnvelope(BaseModel):
@@ -44,7 +45,7 @@ def _event_body(event: EventEnvelope) -> dict[str, Any]:
 class JsonlEventStore:
     """Append-only development event store with a verifiable hash chain."""
 
-    def __init__(self, path: str | Path = "runtime/events.jsonl"):
+    def __init__(self, path: str | Path = runtime_path("events.jsonl")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = lock_for(self.path)

@@ -40,7 +40,7 @@ en producción.
 ```bash
 pip install -e ".[all,dev]"
 hydra ask "¿Cuánto es 17 × 23?" --offline --sandbox subprocess     # sin GPU ni runtimes
-pytest                                                              # 136 pruebas + integración opcional
+pytest                                                              # ~600 pruebas + integración opcional
 hydra serve                                                         # API: /docs · Studio: /studio
 ```
 
@@ -109,7 +109,12 @@ fallos distribuidos limpios, sin auto-modificación) y la **Definition of Done**
 El gateway sirve también la línea HYDRA-SO (`hydra.runtime`, con su historia completa): `/ready`, `/v1/chat`,
 `/hydra/v1/tasks/route|execute`, `/hydra/v1/admin/*` (despliegues shadow/canary/rollback, métricas, dead
 letters, auditoría de replay) y `/hydra/v1/coding/verify-fix`. Un único token (`HYDRA_API_KEY` o
-`HYDRA_API_TOKEN`) protege ambas líneas; las rutas admin exigen `HYDRA_ADMIN_TOKEN` y fallan cerradas sin él.
+`HYDRA_API_TOKEN`) protege ambas líneas (HTTP y WebSocket; sin token, solo clientes loopback).
+`HYDRA_ADMIN_TOKEN` (cabecera `X-Hydra-Admin-Token`) protege además toda operación de operador: rutas
+admin del runtime (fallan cerradas sin él) y, en la plataforma, flags, config sets, aprobación de corpus,
+IP, releases, ciclo de vida de modelos, sync edge, heartbeats de nodos y autorizaciones explícitas de
+`/hydra/v1/goals` (sin token configurado, solo loopback). El Studio tiene un campo para él (se guarda solo
+en la pestaña).
 Imagen de sandbox endurecida: `docker build -t hydra-sandbox:py312-v3 -f infra/sandbox/Dockerfile .`
 Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN.md](docs/INTEGRATION_PLAN.md).
 
@@ -119,7 +124,12 @@ Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN
   `--profile gpu` añade vLLM, `--profile nats` NATS JetStream y `--profile observability` Prometheus + Grafana.
 * **CLUSTER**: `infra/kubernetes/` (plano de control/datos, GPUs vía device plugin o DRA) y `infra/terraform/`.
 * **EDGE**: una máquina, Ollama/llama.cpp, políticas offline y `hydra sync export|import` firmado.
-* Esquema PostgreSQL multi-nodo en `sql/schema.sql` (ledger con triggers que impiden UPDATE/DELETE).
+* PostgreSQL (`sql/schema.sql`) persiste hoy tareas, eventos, ejecuciones de inferencia, métricas de
+  modelos, memoria, la cola del Execution Fabric (`fabric_*`, compartida por todos los nodos con
+  `FOR UPDATE SKIP LOCKED`) y el ledger firmado (`ip_events`/`ledger_anchors`: una sola cadena para todos
+  los nodos, con triggers que impiden UPDATE/DELETE/TRUNCATE). Requiere el extra `postgres`. IP, artefactos,
+  corpus y World Model viven aún en ficheros bajo `HYDRA_DATA_DIR`: sus tablas en `schema.sql` son esquema
+  reservado, por eso los manifiestos CLUSTER ejecutan una réplica por servicio.
 
 ## Pruebas
 
@@ -136,7 +146,8 @@ set HYDRA_IT_NATS=nats://localhost:4222
   herramientas externas (llama.cpp, llm-compressor, mlx-lm, optimum, torch/transformers/peft/trl) que
   HYDRA integra pero no incluye; sin ellas lo informa (`ToolMissing`) en vez de fingir.
 * El scheduler de clúster, la analítica federada y las colas están probados en una máquina y con
-  nodos simulados; la operación multi-nodo real requiere desplegar el perfil CLUSTER.
+  nodos simulados. Con PostgreSQL la cola del fabric y el ledger ya son compartidos entre nodos;
+  escalar réplicas requiere además llevar outbox, IP, artefactos, corpus y World Model a PostgreSQL.
 * En Ollama el tipo de caché KV es un ajuste del servidor (`OLLAMA_KV_CACHE_TYPE`): el AutoBuilder
   lo varía solo con llama-server.
 * HYDRA registra evidencia técnica y de autoría; no decide patentabilidad ni autoría legal.

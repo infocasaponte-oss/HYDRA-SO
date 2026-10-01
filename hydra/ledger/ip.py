@@ -26,6 +26,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_text_atomic
 from hydra.core.hashing import hash_obj, now_iso, sha256_file
 from hydra.core.paths import confine, safe_id
 from hydra.ledger.chain import Ledger, LedgerEventType
@@ -184,8 +185,8 @@ class IPRegistry:
                 self.inventions[k] = InventionRecord.model_validate(v)
 
     def _save(self) -> None:
-        self.path.write_text(json.dumps({k: v.model_dump(mode="json") for k, v in self.inventions.items()},
-                                        indent=2, ensure_ascii=False), encoding="utf-8")
+        write_text_atomic(self.path, json.dumps({k: v.model_dump(mode="json") for k, v in self.inventions.items()},
+                                                indent=2, ensure_ascii=False))
 
     def _event(self, et: LedgerEventType, inv: str, payload: dict, actor: str = "hydra") -> None:
         self.ledger.append(et, payload, object_type="invention", object_id=inv, actor_id=actor,
@@ -452,22 +453,16 @@ def ip_experiment(ledger: Ledger, name: str, *, invention: str | None = None, pa
 class TradeSecretVault:
     """Encrypted storage (Fernet/AES) with restricted ACL; every access is audited in the ledger."""
 
-    def __init__(self, root: Path, ledger: Ledger, key: bytes | None = None) -> None:
+    def __init__(self, root: Path, ledger: Ledger, key: bytes | None = None, keystore=None) -> None:
         from cryptography.fernet import Fernet
+
+        from hydra.core.keystore import KeyStore
 
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
-        key_path = root / ".vault.key"
         if key is None:
-            if key_path.exists():
-                key = key_path.read_bytes()
-            else:
-                key = Fernet.generate_key()
-                key_path.write_bytes(key)
-                try:
-                    os.chmod(key_path, 0o600)
-                except OSError:
-                    pass
+            store = keystore or KeyStore(root.parent, backend="legacy")
+            key = store.get_or_create("ip-vault", root / ".vault.key", Fernet.generate_key)
         self.fernet = Fernet(key)
         self.ledger = ledger
         self.acl_path = root / "acl.json"
@@ -476,7 +471,7 @@ class TradeSecretVault:
     def put(self, name: str, content: str, allowed: list[str], actor: str) -> None:
         (self.root / f"{name}.enc").write_bytes(self.fernet.encrypt(content.encode()))
         self.acl[name] = sorted(set(allowed) | {actor})
-        self.acl_path.write_text(json.dumps(self.acl, indent=2))
+        write_text_atomic(self.acl_path, json.dumps(self.acl, indent=2))
         self.ledger.append(LedgerEventType.TRADE_SECRET_ACCESSED, {"secret": name, "action": "write",
                                                                    "allowed": self.acl[name]},
                            actor_id=actor, object_type="trade_secret", object_id=name,

@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_text_atomic
 from hydra.core.hashing import canonical_json, now_iso, sha256_hex
 from hydra.ledger.signing import verify_envelope
 
@@ -78,6 +79,17 @@ class ImportReport(BaseModel):
     manifests: int = 0
 
 
+def trusted_sync_keys(runtime) -> set[str]:
+    """Public keys allowed to sign imported bundles: this node's own key plus the operator-installed
+    ``*.pub.pem`` files in ``HYDRA_SYNC_TRUSTED_KEYS_DIR`` (default ``<data_dir>/keys/trusted``)."""
+    settings = runtime.settings
+    directory = settings.sync_trusted_keys_dir or settings.data_dir / "keys" / "trusted"
+    keys = {runtime.signer.public_pem}
+    if Path(directory).is_dir():
+        keys |= {p.read_text(encoding="utf-8") for p in sorted(Path(directory).glob("*.pub.pem"))}
+    return keys
+
+
 def import_delta(runtime, bundle: SyncBundle, trusted_keys: set[str]) -> ImportReport:
     if bundle.signature is None or bundle.signature.get("digest") != bundle.digest() \
             or not verify_envelope(bundle.signature, trusted_keys):
@@ -96,7 +108,7 @@ def import_delta(runtime, bundle: SyncBundle, trusted_keys: set[str]) -> ImportR
         seen.add(h)
         rep.world_deltas_applied += 1
     seen_path.parent.mkdir(parents=True, exist_ok=True)
-    seen_path.write_text(json.dumps(sorted(seen)))
+    write_text_atomic(seen_path, json.dumps(sorted(seen)))
     for r in bundle.corpus_records:
         rec = CorpusRecord.model_validate(r)
         rec.residency = rec.residency or bundle.origin

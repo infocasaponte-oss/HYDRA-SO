@@ -20,6 +20,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_text_atomic
 from hydra.core.contracts import ExecutionMode, HydraRequest, Message, ModelRequest, RoutingDecision, TaskType
 from hydra.language import LANGUAGE_NAMES, detect_language, normalize_language
 from hydra.runtime.budgets import RequestBudget
@@ -70,7 +71,7 @@ class GlossaryStore:
     def put(self, name: str, terms: dict[str, str]) -> dict[str, str]:
         self.data.setdefault(name, {}).update(terms)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.data, indent=2, ensure_ascii=False), encoding="utf-8")
+        write_text_atomic(self.path, json.dumps(self.data, indent=2, ensure_ascii=False))
         return self.data[name]
 
     def names(self) -> list[str]:

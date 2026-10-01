@@ -10,6 +10,8 @@ from pathlib import Path
 from time import perf_counter
 from uuid import UUID, uuid4
 
+from hydra.runtime.paths import runtime_path
+
 
 @dataclass
 class CognitiveSpan:
@@ -25,7 +27,7 @@ class CognitiveSpan:
 
 
 class TraceStore:
-    def __init__(self, path: str | Path = "runtime/traces.jsonl"):
+    def __init__(self, path: str | Path = runtime_path("traces.jsonl")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 

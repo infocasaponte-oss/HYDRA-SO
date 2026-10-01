@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from hydra.runtime.paths import runtime_path
+
 
 @dataclass(frozen=True)
 class OutboxMessage:
@@ -28,7 +30,7 @@ class OutboxMessage:
 
 
 class TransactionalOutbox:
-    def __init__(self, path: str | Path = "runtime/hydra.db"):
+    def __init__(self, path: str | Path = runtime_path("hydra.db")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 from hydra.training.verified_corpus import sha256
@@ -129,6 +130,12 @@ def train(cfg_path: str) -> None:
         eval_dataset=valid,
         data_collator=DataCollatorForSeq2Seq(tok, label_pad_token_id=-100),
         args=TrainingArguments(output_dir=job["output_dir"], num_train_epochs=job["epochs"],
+                               max_steps=job.get("max_steps", -1),
+                               warmup_steps=job.get("warmup_steps", math.ceil(job.get("warmup_ratio", 0.0) *
+                                   (job["max_steps"] if job.get("max_steps", -1) > 0 else
+                                    math.ceil(len(data) / job["batch_size"] / job["gradient_accumulation"]) * job["epochs"]))),
+                               max_grad_norm=job.get("max_grad_norm", 1.0),
+                               lr_scheduler_type=job.get("lr_scheduler_type", "linear"),
                                per_device_train_batch_size=job["batch_size"],
                                per_device_eval_batch_size=job.get("eval_batch_size", job["batch_size"]),
                                gradient_accumulation_steps=job["gradient_accumulation"],

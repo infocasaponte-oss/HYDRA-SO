@@ -13,3 +13,11 @@ transformers, peft, datasets, TRL, PyTorch, cryptography,
 NumPy, SymPy, pytest, OpenTelemetry (semantic conventions), CycloneDX (specification),
 Flower (flwr), Kubernetes, Terraform, Prometheus and Grafana. Those components are not part of
 this product and remain the property of their respective owners.
+
+Third-party code and weights used by HYDRA builds:
+* kev (https://github.com/jaredpalmer/kev), Apache License 2.0. HYDRA keeps a local
+  reliability patch (patches/kev/) applied on top of upstream revision
+  0c142becde423a0c68ec857f7831dac0315588a1; the patched files remain under Apache-2.0.
+* Qwen base model weights (Alibaba Cloud / Qwen team), used to build the HYDRA GGUF
+  candidates, are distributed under their own model licenses (Apache-2.0 or the Qwen
+  License, depending on the model). Check the license of the exact base before any release.

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hydra.runtime.events import JsonlEventStore
+from hydra.runtime.paths import runtime_path
 from hydra.runtime.provenance import ProvenanceLedger
 from hydra.runtime.replay import ReplayManifest
 from hydra.runtime.replay_integrity import verify_replay_sources
@@ -35,7 +36,7 @@ class AuditReplayExecutor:
         *,
         events: JsonlEventStore,
         provenance: ProvenanceLedger,
-        artifact_root: str | Path = "runtime/artifacts",
+        artifact_root: str | Path = runtime_path("artifacts"),
     ):
         self.events = events
         self.provenance = provenance

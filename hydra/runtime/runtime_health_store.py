@@ -7,10 +7,11 @@ from pathlib import Path
 from time import monotonic
 
 from hydra.runtime.circuit_breaker import CircuitBreaker, CircuitState
+from hydra.runtime.paths import runtime_path
 
 
 class RuntimeHealthStore:
-    def __init__(self, path: str | Path = "runtime/hydra.db"):
+    def __init__(self, path: str | Path = runtime_path("hydra.db")):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._init_schema()
