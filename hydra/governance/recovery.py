@@ -6,7 +6,7 @@
     restore = restore files -> verify ledger chain -> verify object hashes -> rebuild registries
               -> health check -> resume traffic
 
-Private keys are excluded unless explicitly requested. With ``include_private_keys`` and a
+Private keys and ``*.env`` credential files are excluded unless explicitly requested. With ``include_private_keys`` and a
 ``KeyStore``, keys held outside the data directory (OS keyring, HYDRA_KEYS_DIR) are exported at their
 legacy paths; after a restore, the next start migrates them back into the configured backend."""
 
@@ -27,6 +27,13 @@ from hydra.core.hashing import now_iso, sha256_file
 
 EXCLUDE_ALWAYS = {".tmp"}
 PRIVATE_KEY_NAMES = {"hydra-ed25519.pem", ".vault.key", ".broker.key", "token.key"}
+
+
+def is_secret_file(path: Path) -> bool:
+    """Private keys and ``.env``-style credential files (``.env``, ``minio.env``...): left out of a
+    backup unless ``include_private_keys`` is set, because the archive is not encrypted."""
+    return path.name in PRIVATE_KEY_NAMES or path.name == ".env" or path.suffix == ".env" \
+        or path.name.startswith(".env.")
 
 
 class BackupManifest(BaseModel):
@@ -53,7 +60,7 @@ def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, pos
     out.parent.mkdir(parents=True, exist_ok=True)
     manifest = BackupManifest(source=str(data_dir), include_private_keys=include_private_keys)
     files = [p for p in data_dir.rglob("*") if p.is_file() and p.suffix not in EXCLUDE_ALWAYS
-             and (include_private_keys or p.name not in PRIVATE_KEY_NAMES)]
+             and (include_private_keys or not is_secret_file(p))]
     exported: dict[str, str] = {}
     if ledger is not None and getattr(ledger, "backend", "file") != "file":
         exported["ledger/events.jsonl"], exported["ledger/anchors.jsonl"] = ledger.export_jsonl()
