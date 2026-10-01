@@ -72,6 +72,36 @@ CREATE TABLE IF NOT EXISTS model_metrics (
 
 
 -- =====================================================================================
+-- Execution Fabric (hydra.cluster.fabric_pg.PostgresWorkQueue, which also creates these tables).
+-- Shared by every gateway and worker: leases, retries, dead letters, idempotency, checkpoints.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS fabric_work (
+    id            TEXT PRIMARY KEY,
+    capability    TEXT NOT NULL,
+    priority      INTEGER NOT NULL,
+    status        TEXT NOT NULL,
+    available_at  DOUBLE PRECISION NOT NULL,
+    lease_expires DOUBLE PRECISION,
+    idem          TEXT NOT NULL,
+    body          JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS fabric_work_claim ON fabric_work (status, capability, priority, available_at);
+CREATE INDEX IF NOT EXISTS fabric_work_open_idem ON fabric_work (idem) WHERE status IN ('queued', 'leased');
+CREATE TABLE IF NOT EXISTS fabric_idempotency (
+    key    TEXT PRIMARY KEY,
+    result JSONB NOT NULL,
+    at     DOUBLE PRECISION NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fabric_checkpoints (
+    task_id TEXT NOT NULL,
+    step    INTEGER NOT NULL,
+    state   JSONB NOT NULL,
+    at      DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (task_id, step)
+);
+
+
+-- =====================================================================================
 -- HYDRA 1.0 planes: RESERVED SCHEMA, NOT WIRED YET.
 -- As of 1.1 the ledger, IP registry, artifacts, corpus and World Model persist ONLY in the local
 -- file stores under HYDRA_DATA_DIR; no code reads or writes the tables below. They document the
