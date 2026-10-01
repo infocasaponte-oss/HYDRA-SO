@@ -44,11 +44,7 @@ class SyncBundle(BaseModel):
 
 
 def export_delta(runtime, since: SyncCursor, origin: str) -> SyncBundle:
-    world_deltas = []
-    log = runtime.world.root / "deltas.jsonl" if runtime.world.root else None
-    if log and log.exists():
-        lines = [x for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]
-        world_deltas = [json.loads(x) for x in lines[since.world_version:]]
+    world_deltas = runtime.world.history(since.world_version)
     corpus = []
     corpus_offset = since.corpus_offset
     for corpus_offset, line in runtime.corpus.history(since.corpus_offset):

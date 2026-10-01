@@ -174,7 +174,7 @@ async def definition_of_done(rt, *, run_recovery: bool = True) -> list[Check]:
 
         tmp = Path(tempfile.mkdtemp(prefix="hydra-dr-"))
         try:
-            man = backup(s.data_dir, tmp / "b.tar.gz", ledger=rt.ledger, logs=[rt.corpus.logs])
+            man = backup(s.data_dir, tmp / "b.tar.gz", ledger=rt.ledger, logs=[rt.corpus.logs, rt.world.logs])
             rep = restore(tmp / "b.tar.gz", tmp / "restored")
             row("Recovery: restore probado", rep.ok, files=man.files.__len__(), ledger=rep.ledger.get("ok"),
                 artifacts=rep.artifacts.get("ok"))

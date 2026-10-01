@@ -273,7 +273,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     ledger = open_ledger(settings.ledger_backend, data / "ledger", signer, settings.ledger_anchor_every,
                          settings.postgres_url)
     artifact_store = ArtifactStore(data / "artifacts")
-    world = WorldModel(data / "world")
+    world = WorldModel(data / "world", logs=open_log_space(settings.world_backend, settings.postgres_url, "world"))
     world_rag = GraphRAG(world)
 
     def family_of(model_id: str) -> str:

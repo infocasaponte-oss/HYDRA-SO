@@ -152,8 +152,9 @@ CREATE TABLE IF NOT EXISTS ledger_anchors (
 ALTER TABLE ledger_anchors ADD COLUMN IF NOT EXISTS body TEXT;
 
 -- =====================================================================================
--- Event logs of the event-sourced planes: hydra.core.eventlog (HYDRA_CORPUS_BACKEND), which also
--- creates this table. One stream per log file (``corpus/log.jsonl``...), gap-free ``seq`` per stream,
+-- Event logs of the event-sourced planes: hydra.core.eventlog (HYDRA_CORPUS_BACKEND, HYDRA_WORLD_BACKEND),
+-- which also creates this table. One stream per log file (``corpus/log.jsonl``, ``world/deltas.jsonl``...),
+-- gap-free ``seq`` per stream,
 -- exact JSON line in ``body``. Append-only: triggers reject UPDATE, DELETE and TRUNCATE.
 -- =====================================================================================
 CREATE TABLE IF NOT EXISTS hydra_logs (
@@ -177,7 +178,7 @@ CREATE TRIGGER hydra_logs_no_truncate BEFORE TRUNCATE ON hydra_logs
 
 -- =====================================================================================
 -- HYDRA 1.0 planes: RESERVED SCHEMA, NOT WIRED YET.
--- The IP registry, artifacts and World Model persist ONLY in the local file stores under
+-- The IP registry and artifacts persist ONLY in the local file stores under
 -- HYDRA_DATA_DIR; no code reads or writes the tables below. They document the target multi-node
 -- layout (docs/AUDITORIA_INTEGRAL_REPO_2026-10-01.md, section 5).
 -- =====================================================================================
@@ -211,23 +212,5 @@ CREATE INDEX IF NOT EXISTS artifacts_sha ON artifacts (sha256);
 -- The corpus lives in hydra_logs (streams corpus/*). The reserved corpus_records/corpus_lineage tables
 -- of earlier schema versions were never written; databases that created them may drop them.
 
--- World Model (bitemporal relations, beliefs with evidence).
-CREATE TABLE IF NOT EXISTS world_entities (
-    id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, canonical_name TEXT, attributes JSONB NOT NULL DEFAULT '{}',
-    aliases JSONB NOT NULL DEFAULT '[]', visibility TEXT NOT NULL, confidence DOUBLE PRECISION,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS world_relations (
-    id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, predicate TEXT NOT NULL, object_id TEXT NOT NULL,
-    valid_from TIMESTAMPTZ, valid_until TIMESTAMPTZ, recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    confidence DOUBLE PRECISION, evidence_ids JSONB NOT NULL DEFAULT '[]'
-);
-CREATE INDEX IF NOT EXISTS world_rel_subject ON world_relations (subject_id, predicate);
-CREATE TABLE IF NOT EXISTS beliefs (
-    id TEXT PRIMARY KEY, proposition TEXT NOT NULL, subject_id TEXT, predicate TEXT, object_value JSONB,
-    confidence DOUBLE PRECISION, status TEXT NOT NULL, supporting JSONB NOT NULL DEFAULT '[]',
-    contradicting JSONB NOT NULL DEFAULT '[]', valid_from TIMESTAMPTZ, valid_until TIMESTAMPTZ
-);
-CREATE TABLE IF NOT EXISTS world_deltas (
-    world_version BIGSERIAL PRIMARY KEY, delta JSONB NOT NULL, source TEXT, applied_at TIMESTAMPTZ DEFAULT now()
-);
+-- The World Model lives in hydra_logs (streams world/*). The reserved world_entities, world_relations,
+-- beliefs and world_deltas tables of earlier schema versions were never written; they may be dropped.

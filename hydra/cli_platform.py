@@ -599,7 +599,8 @@ def run_without_runtime(args, settings) -> int:
         from hydra.ledger.pg import open_ledger
 
         ledger = open_ledger(settings.ledger_backend, settings.data_dir / "ledger", None, 0, settings.postgres_url)
-        logs = [open_log_space(settings.corpus_backend, settings.postgres_url, "corpus")]
+        logs = [open_log_space(settings.corpus_backend, settings.postgres_url, "corpus"),
+                open_log_space(settings.world_backend, settings.postgres_url, "world")]
         _print(backup(settings.data_dir, Path(args.out), include_private_keys=args.include_private_keys,
                       postgres_url=settings.postgres_url or None, ledger=ledger, logs=logs,
                       keystore=KeyStore.from_settings(settings) if args.include_private_keys else None))
