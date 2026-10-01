@@ -5,7 +5,7 @@ import asyncio
 from contextlib import suppress
 
 from hydra.runtime.gpu_telemetry import PeakVramMonitor
-from hydra.runtime.health_gate import wait_for_health
+from hydra.deploy.health_gate import wait_for_health
 from hydra.runtime.process_supervisor import ProcessSupervisor
 
 

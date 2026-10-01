@@ -33,7 +33,7 @@ from uuid import UUID
 from hydra.core.capture_outbox_pg import PostgresOutbox
 from hydra.runtime.capture_uow import CaptureUnitOfWork, TaskCommit
 from hydra.runtime.circuit_breaker import CircuitBreaker, CircuitState
-from hydra.runtime.deployment_evidence import CanaryEvidence, ShadowEvidence
+from hydra.deploy.deployment_evidence import CanaryEvidence, ShadowEvidence
 from hydra.runtime.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.runtime.metrics_store import OperatingMetricsStore
 from hydra.runtime.observability import TraceStore
