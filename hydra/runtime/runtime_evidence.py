@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from hydra.core.eventlog import FileLog
-from hydra.runtime.deployment_evidence import CanaryEvidence, ShadowEvidence
+from hydra.deploy.deployment_evidence import CanaryEvidence, ShadowEvidence
 from hydra.runtime.paths import runtime_path
 
 

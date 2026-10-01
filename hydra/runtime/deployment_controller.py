@@ -11,7 +11,7 @@ import logging
 from datetime import UTC, datetime
 
 from hydra.runtime.deployment import Deployment, DeploymentState
-from hydra.runtime.deployment_evidence import (
+from hydra.deploy.deployment_evidence import (
     CanaryEvidence,
     DeploymentPolicy,
     ShadowEvidence,
