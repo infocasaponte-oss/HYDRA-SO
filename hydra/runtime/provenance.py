@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.core.eventlog import FileLog
 from hydra.runtime.hash_chain import canonical_hash, lock_for
 from hydra.runtime.paths import runtime_path
 
@@ -35,97 +36,104 @@ def _record_body(record: ProvenanceRecord) -> dict:
     return record.model_dump(mode="json", exclude={"record_hash"})
 
 
+class _Duplicate(Exception):
+    def __init__(self, existing) -> None:
+        self.existing = existing
+
+
 class ProvenanceLedger:
-    def __init__(self, path: str | Path = runtime_path("provenance.jsonl")):
+    """Hash-chained provenance records on a ``hydra.core.eventlog`` log (``runtime/provenance.jsonl``,
+    a file or the PostgreSQL stream shared by every node). The previous hash and the idempotency check
+    are resolved while the stream is locked."""
+
+    STREAM = "runtime/provenance.jsonl"
+
+    def __init__(self, path: str | Path = runtime_path("provenance.jsonl"), log=None):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.log = log if log is not None else FileLog(self.path, self.STREAM)
         self._lock = lock_for(self.path)
-        self._last_hash = self._load_last_hash()
+        self._seen = 0
+        self._last_hash: str | None = None
+        self._by_source: dict[UUID, ProvenanceRecord] = {}
+        with self._lock:
+            self._catch_up()
+
+    def _catch_up(self) -> None:
+        for seq, line in self.log.read(self._seen):
+            record = ProvenanceRecord.model_validate_json(line)
+            self._seen = seq
+            self._last_hash = record.record_hash or self._last_hash
+            if record.source_message_id is not None:
+                self._by_source.setdefault(record.source_message_id, record)
 
     @property
     def head(self) -> str | None:
         """Hash of the last chained record (anchored in the signed platform ledger)."""
-        return self._last_hash
-
-    def _load_last_hash(self) -> str | None:
-        if not self.path.exists():
-            return None
-        last_hash = None
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                record = ProvenanceRecord.model_validate_json(line)
-                last_hash = record.record_hash or last_hash
-        return last_hash
+        with self._lock:
+            self._catch_up()
+            return self._last_hash
 
     def append(self, record: ProvenanceRecord) -> ProvenanceRecord:
+        def build(seq: int, last: str | None) -> str:
+            self._catch_up()
+            if record.source_message_id is not None and record.source_message_id in self._by_source:
+                raise _Duplicate(self._by_source[record.source_message_id])
+            chained = record.model_copy(update={"previous_hash": self._last_hash, "record_hash": ""})
+            chained.record_hash = canonical_hash(_record_body(chained))
+            return chained.model_dump_json()
+
         with self._lock:
-            if record.source_message_id is not None:
-                existing = self.by_source_message_id(record.source_message_id)
-                if existing is not None:
-                    return existing
-            record.previous_hash = self._last_hash
-            record.record_hash = canonical_hash(_record_body(record))
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(record.model_dump_json() + "\n")
-                handle.flush()
-            self._last_hash = record.record_hash
+            try:
+                _, text = self.log.append(build)
+            except _Duplicate as duplicate:
+                return duplicate.existing
+            self._catch_up()
+            stored = ProvenanceRecord.model_validate_json(text)
+            record.previous_hash, record.record_hash = stored.previous_hash, stored.record_hash
             return record
 
     def by_source_message_id(
         self, source_message_id: UUID
     ) -> ProvenanceRecord | None:
-        if not self.path.exists():
-            return None
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                record = ProvenanceRecord.model_validate_json(line)
-                if record.source_message_id == source_message_id:
-                    return record
-        return None
+        with self._lock:
+            self._catch_up()
+            return self._by_source.get(source_message_id)
 
     def verify_integrity(self) -> ProvenanceIntegrity:
-        if not self.path.exists():
-            return ProvenanceIntegrity(valid=True, records=0)
         previous_hash = None
         records = 0
         legacy = 0
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, start=1):
-                if not line.strip():
-                    continue
-                try:
-                    record = ProvenanceRecord.model_validate_json(line)
-                except Exception as exc:  # noqa: BLE001
-                    return ProvenanceIntegrity(
-                        valid=False,
-                        records=records,
-                        legacy_records=legacy,
-                        error=f"line {line_number}: invalid record: {exc}",
-                    )
-                records += 1
-                if not record.record_hash:
-                    legacy += 1
-                    previous_hash = None
-                    continue
-                if record.previous_hash != previous_hash:
-                    return ProvenanceIntegrity(
-                        valid=False,
-                        records=records,
-                        legacy_records=legacy,
-                        error=f"line {line_number}: previous hash mismatch",
-                    )
-                if canonical_hash(_record_body(record)) != record.record_hash:
-                    return ProvenanceIntegrity(
-                        valid=False,
-                        records=records,
-                        legacy_records=legacy,
-                        error=f"line {line_number}: record hash mismatch",
-                    )
-                previous_hash = record.record_hash
+        # one log entry per chained record; "line" is its position in the chain
+        for line_number, line in self.log.read():
+            try:
+                record = ProvenanceRecord.model_validate_json(line)
+            except Exception as exc:  # noqa: BLE001
+                return ProvenanceIntegrity(
+                    valid=False,
+                    records=records,
+                    legacy_records=legacy,
+                    error=f"line {line_number}: invalid record: {exc}",
+                )
+            records += 1
+            if not record.record_hash:
+                legacy += 1
+                previous_hash = None
+                continue
+            if record.previous_hash != previous_hash:
+                return ProvenanceIntegrity(
+                    valid=False,
+                    records=records,
+                    legacy_records=legacy,
+                    error=f"line {line_number}: previous hash mismatch",
+                )
+            if canonical_hash(_record_body(record)) != record.record_hash:
+                return ProvenanceIntegrity(
+                    valid=False,
+                    records=records,
+                    legacy_records=legacy,
+                    error=f"line {line_number}: record hash mismatch",
+                )
+            previous_hash = record.record_hash
         return ProvenanceIntegrity(
             valid=True,
             records=records,

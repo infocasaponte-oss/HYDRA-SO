@@ -49,8 +49,8 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 
 | Fichero o carpeta | Módulo | Destino propuesto |
 |---|---|---|
-| `events.jsonl` (cadena hash) | `runtime/events.py` | stream `runtime/events.jsonl` de `hydra_logs`; el cuerpo exacto conserva la cadena |
-| `provenance.jsonl` (cadena hash) | `runtime/provenance.py` | stream `runtime/provenance.jsonl`; el anclaje en el ledger (`ledger/runtime_anchor.py`) se mantiene |
+| `events.jsonl` (cadena hash) | `runtime/events.py` | ✅ F3a: stream `runtime/events.jsonl` (`HYDRA_RUNTIME_BACKEND`); secuencia, hash previo e idempotencia resueltos con el stream bloqueado |
+| `provenance.jsonl` (cadena hash) | `runtime/provenance.py` | ✅ F3a: stream `runtime/provenance.jsonl`; el anclaje en el ledger (`ledger/runtime_anchor.py`) se mantiene |
 | `runtime-evidence.jsonl` | `runtime/runtime_evidence.py` | stream `runtime/evidence.jsonl`; los offsets en bytes pasan a `seq` (ver §4, F3) |
 | `deployments.json` | `runtime/deployment_store.py` | log de versiones `runtime/deployments.jsonl`, con lectura-modificación-escritura bloqueada, como en IP |
 | `hydra.db` → `outbox` | `runtime/outbox.py`, `capture_uow.py` | tabla PostgreSQL (mismo patrón que `capture_outbox`, con reclamación por nodo) |
@@ -146,6 +146,10 @@ réplicas. F4–F5 necesitan revisión de comportamiento caso a caso.
    producción?
 4. **Orden.** Propuesta: F0 → F1 → F3 → F2 → F4 → F5 → F6. F3 sube antes porque es lo que permite
    escalar réplicas.
+
+**Pendiente detectado en F3a:** `hydra backup` solo archiva `HYDRA_DATA_DIR`. El estado del runtime
+(`HYDRA_RUNTIME_DIR`) nunca ha entrado en los backups; con PostgreSQL queda cubierto por el volcado
+(`pg_dump`). Cuando F3 termine, el backup exportará los streams `runtime/*` como el resto de planos.
 
 ## 6. Riesgos y mitigación
 

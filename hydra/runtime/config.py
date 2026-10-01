@@ -46,6 +46,8 @@ class Settings:
     max_input_chars: int = 50000
     max_output_tokens: int = 4096
     max_translation_chunks: int = 64
+    runtime_backend: str = "file"
+    postgres_url: str = ""
 
     @classmethod
     def from_platform(cls, platform=None) -> Settings:
@@ -70,7 +72,8 @@ class Settings:
             sandbox_image=p.sandbox_image, sandbox_runtime=p.sandbox_runtime,
             code_verification_mode=p.code_verification_mode, workspace_max_files=p.workspace_max_files,
             workspace_max_bytes=p.workspace_max_bytes, max_input_chars=p.max_input_chars,
-            max_output_tokens=p.max_output_tokens, max_translation_chunks=p.max_translation_chunks)
+            max_output_tokens=p.max_output_tokens, max_translation_chunks=p.max_translation_chunks,
+            runtime_backend=p.runtime_backend, postgres_url=p.postgres_url)
 
 
 settings = Settings.from_platform()

@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.core.eventlog import FileLog
 from hydra.runtime.hash_chain import canonical_hash, lock_for
 from hydra.runtime.paths import runtime_path
 
@@ -42,33 +43,51 @@ def _event_body(event: EventEnvelope) -> dict[str, Any]:
     )
 
 
-class JsonlEventStore:
-    """Append-only development event store with a verifiable hash chain."""
+class _Duplicate(Exception):
+    def __init__(self, existing) -> None:
+        self.existing = existing
 
-    def __init__(self, path: str | Path = runtime_path("events.jsonl")):
+
+class JsonlEventStore:
+    """Append-only event store with a verifiable hash chain.
+
+    The chain lives in a ``hydra.core.eventlog`` log: ``runtime/events.jsonl`` under the runtime
+    directory, or the PostgreSQL stream of the same name shared by every node (HYDRA_RUNTIME_BACKEND).
+    Sequence, previous hash and the ``source_message_id`` idempotency check are computed while the
+    stream is locked, so concurrent writers still produce one valid chain without duplicates."""
+
+    STREAM = "runtime/events.jsonl"
+
+    def __init__(self, path: str | Path = runtime_path("events.jsonl"), log=None):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.log = log if log is not None else FileLog(self.path, self.STREAM)
         self._lock = lock_for(self.path)
-        self._sequence, self._last_hash = self._load_tail()
+        self._seen = 0
+        self._sequence = 0
+        self._last_hash: str | None = None
+        self._by_source: dict[UUID, EventEnvelope] = {}
+        with self._lock:
+            self._catch_up()
+
+    def _catch_up(self) -> None:
+        for seq, line in self.log.read(self._seen):
+            event = EventEnvelope.model_validate_json(line)
+            self._seen = seq
+            self._sequence = max(self._sequence, event.sequence)
+            self._last_hash = event.event_hash or self._last_hash
+            if event.source_message_id is not None:
+                self._by_source.setdefault(event.source_message_id, event)
+
+    def _events(self):
+        for _, line in self.log.read():
+            yield EventEnvelope.model_validate_json(line)
 
     @property
     def head(self) -> str | None:
         """Hash of the last chained event (anchored in the signed platform ledger)."""
-        return self._last_hash
-
-    def _load_tail(self) -> tuple[int, str | None]:
-        if not self.path.exists():
-            return 0, None
-        sequence = 0
-        last_hash = None
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                event = EventEnvelope.model_validate_json(line)
-                sequence = max(sequence, event.sequence)
-                last_hash = event.event_hash or last_hash
-        return sequence, last_hash
+        with self._lock:
+            self._catch_up()
+            return self._last_hash
 
     def append(
         self,
@@ -81,16 +100,15 @@ class JsonlEventStore:
         source_message_id: UUID | None = None,
     ) -> EventEnvelope:
         body = payload or {}
-        with self._lock:
-            if source_message_id is not None:
-                existing = self.by_source_message_id(source_message_id)
-                if existing is not None:
-                    return existing
-            self._sequence += 1
+
+        def build(seq: int, last: str | None) -> str:
+            self._catch_up()  # the stream is locked: this is everything written before this entry
+            if source_message_id is not None and source_message_id in self._by_source:
+                raise _Duplicate(self._by_source[source_message_id])
             event = EventEnvelope(
                 event_type=event_type,
                 aggregate_id=aggregate_id,
-                sequence=self._sequence,
+                sequence=self._sequence + 1,
                 producer=producer,
                 trace_id=trace_id,
                 payload=body,
@@ -99,91 +117,74 @@ class JsonlEventStore:
                 source_message_id=source_message_id,
             )
             event.event_hash = canonical_hash(_event_body(event))
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(event.model_dump_json() + "\n")
-                handle.flush()
-            self._last_hash = event.event_hash
-            return event
+            return event.model_dump_json()
+
+        with self._lock:
+            try:
+                _, text = self.log.append(build)
+            except _Duplicate as duplicate:
+                return duplicate.existing
+            self._catch_up()
+            return EventEnvelope.model_validate_json(text)
 
     def by_source_message_id(self, source_message_id: UUID) -> EventEnvelope | None:
-        if not self.path.exists():
-            return None
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                event = EventEnvelope.model_validate_json(line)
-                if event.source_message_id == source_message_id:
-                    return event
-        return None
+        with self._lock:
+            self._catch_up()
+            return self._by_source.get(source_message_id)
 
     def for_aggregate(self, aggregate_id: UUID) -> list[EventEnvelope]:
-        if not self.path.exists():
-            return []
-        events = []
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                event = EventEnvelope.model_validate_json(line)
-                if event.aggregate_id == aggregate_id:
-                    events.append(event)
-        return events
+        return [event for event in self._events() if event.aggregate_id == aggregate_id]
 
     def verify_integrity(self) -> IntegrityReport:
-        if not self.path.exists():
-            return IntegrityReport(valid=True, records=0)
         previous_hash = None
         previous_sequence = 0
         records = 0
         legacy = 0
-        with self.path.open("r", encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, start=1):
-                if not line.strip():
-                    continue
-                try:
-                    event = EventEnvelope.model_validate_json(line)
-                except Exception as exc:  # noqa: BLE001
-                    return IntegrityReport(
-                        valid=False,
-                        records=records,
-                        legacy_records=legacy,
-                        error=f"line {line_number}: invalid event: {exc}",
-                    )
-                records += 1
-                if canonical_hash(event.payload) != event.payload_hash:
-                    return IntegrityReport(
-                        valid=False,
-                        records=records,
-                        legacy_records=legacy,
-                        error=f"line {line_number}: payload hash mismatch",
-                    )
-                if event.sequence <= previous_sequence:
-                    return IntegrityReport(
-                        valid=False,
-                        records=records,
-                        legacy_records=legacy,
-                        error=f"line {line_number}: non-monotonic sequence",
-                    )
-                if not event.event_hash:
-                    legacy += 1
-                    previous_sequence = event.sequence
-                    previous_hash = None
-                    continue
-                if event.previous_hash != previous_hash:
-                    return IntegrityReport(
-                        valid=False,
-                        records=records,
-                        legacy_records=legacy,
-                        error=f"line {line_number}: previous hash mismatch",
-                    )
-                if canonical_hash(_event_body(event)) != event.event_hash:
-                    return IntegrityReport(
-                        valid=False,
-                        records=records,
-                        legacy_records=legacy,
-                        error=f"line {line_number}: event hash mismatch",
-                    )
+        # one log entry per chained record; "line" is its position in the chain
+        for line_number, line in self.log.read():
+            try:
+                event = EventEnvelope.model_validate_json(line)
+            except Exception as exc:  # noqa: BLE001
+                return IntegrityReport(
+                    valid=False,
+                    records=records,
+                    legacy_records=legacy,
+                    error=f"line {line_number}: invalid event: {exc}",
+                )
+            records += 1
+            if canonical_hash(event.payload) != event.payload_hash:
+                return IntegrityReport(
+                    valid=False,
+                    records=records,
+                    legacy_records=legacy,
+                    error=f"line {line_number}: payload hash mismatch",
+                )
+            if event.sequence <= previous_sequence:
+                return IntegrityReport(
+                    valid=False,
+                    records=records,
+                    legacy_records=legacy,
+                    error=f"line {line_number}: non-monotonic sequence",
+                )
+            if not event.event_hash:
+                legacy += 1
                 previous_sequence = event.sequence
-                previous_hash = event.event_hash
+                previous_hash = None
+                continue
+            if event.previous_hash != previous_hash:
+                return IntegrityReport(
+                    valid=False,
+                    records=records,
+                    legacy_records=legacy,
+                    error=f"line {line_number}: previous hash mismatch",
+                )
+            if canonical_hash(_event_body(event)) != event.event_hash:
+                return IntegrityReport(
+                    valid=False,
+                    records=records,
+                    legacy_records=legacy,
+                    error=f"line {line_number}: event hash mismatch",
+                )
+            previous_sequence = event.sequence
+            previous_hash = event.event_hash
         return IntegrityReport(valid=True, records=records, legacy_records=legacy)
