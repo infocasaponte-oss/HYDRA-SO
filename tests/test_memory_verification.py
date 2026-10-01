@@ -119,6 +119,17 @@ def test_verifier_layers():
     assert good.passed and good.verified and good.tool_validation == 1.0
 
 
+def test_successful_web_tool_does_not_verify_answer():
+    req = HydraRequest(messages=[Message(role="user", content="busca teoremas en internet")])
+    route = RoutingDecision(task_type=TaskType.RESEARCH, complexity=0.5, risk=0.1)
+    state = BlackboardState()
+    state.tool_results.append({"tool": "web.search", "success": True})
+    result = Verifier().verify(req, route, state, "Abre tu navegador y busca teoremas.")
+    assert result.tool_validation == 1.0
+    assert not result.verified
+    assert not result.independent
+
+
 def test_replay_rebuilds_state():
     tid = uuid4()
     events = [
