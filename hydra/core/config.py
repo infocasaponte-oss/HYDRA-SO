@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     """HYDRA_WORLD_BACKEND: World Model delta log and snapshots: auto (PostgreSQL table hydra_logs when
     HYDRA_POSTGRES_URL is set and psycopg is installed, else data/world files) | file | postgres (required).
     Existing files are imported once and kept as a read-only copy."""
+    ip_backend: str = "auto"
+    """HYDRA_IP_BACKEND: invention registry log: auto (PostgreSQL stream ip/inventions.jsonl of hydra_logs when
+    HYDRA_POSTGRES_URL is set and psycopg is installed, else data/ip files) | file | postgres (required)."""
     key_backend: str = "auto"
     """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
     keys_dir: Path | None = None

@@ -152,7 +152,8 @@ CREATE TABLE IF NOT EXISTS ledger_anchors (
 ALTER TABLE ledger_anchors ADD COLUMN IF NOT EXISTS body TEXT;
 
 -- =====================================================================================
--- Event logs of the event-sourced planes: hydra.core.eventlog (HYDRA_CORPUS_BACKEND, HYDRA_WORLD_BACKEND),
+-- Event logs of the event-sourced planes: hydra.core.eventlog (HYDRA_CORPUS_BACKEND, HYDRA_WORLD_BACKEND,
+-- HYDRA_IP_BACKEND),
 -- which also creates this table. One stream per log file (``corpus/log.jsonl``, ``world/deltas.jsonl``...),
 -- gap-free ``seq`` per stream,
 -- exact JSON line in ``body``. Append-only: triggers reject UPDATE, DELETE and TRUNCATE.
@@ -178,21 +179,10 @@ CREATE TRIGGER hydra_logs_no_truncate BEFORE TRUNCATE ON hydra_logs
 
 -- =====================================================================================
 -- HYDRA 1.0 planes: RESERVED SCHEMA, NOT WIRED YET.
--- The IP registry and artifacts persist ONLY in the local file stores under
--- HYDRA_DATA_DIR; no code reads or writes the tables below. They document the target multi-node
+-- Artifacts persist ONLY in the local file store under
+-- HYDRA_DATA_DIR; no code reads or writes the table below. They document the target multi-node
 -- layout (docs/AUDITORIA_INTEGRAL_REPO_2026-10-01.md, section 5).
 -- =====================================================================================
-CREATE TABLE IF NOT EXISTS inventions (
-    invention_id     TEXT PRIMARY KEY,
-    title            TEXT NOT NULL,
-    status           TEXT NOT NULL,
-    conceived_at     TIMESTAMPTZ,
-    technical_problem TEXT,
-    technical_solution TEXT,
-    technical_effect TEXT,
-    confidentiality  TEXT,
-    record           JSONB NOT NULL
-);
 
 -- Content-addressed artifacts (blobs live in object storage by sha256).
 CREATE TABLE IF NOT EXISTS artifacts (
@@ -211,6 +201,9 @@ CREATE INDEX IF NOT EXISTS artifacts_sha ON artifacts (sha256);
 
 -- The corpus lives in hydra_logs (streams corpus/*). The reserved corpus_records/corpus_lineage tables
 -- of earlier schema versions were never written; databases that created them may drop them.
+
+-- The invention registry lives in hydra_logs (stream ip/inventions.jsonl). The reserved inventions
+-- table of earlier schema versions was never written; it may be dropped.
 
 -- The World Model lives in hydra_logs (streams world/*). The reserved world_entities, world_relations,
 -- beliefs and world_deltas tables of earlier schema versions were never written; they may be dropped.
