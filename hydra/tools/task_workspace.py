@@ -10,6 +10,7 @@ from pathlib import Path
 from uuid import UUID
 
 from hydra.tools.workspace import scan_source, validate_no_symlinks
+from hydra.core.paths import confine
 
 _BLOCKED_NAMES = {".git", ".venv", "__pycache__", ".pytest_cache", "runtime"}
 
@@ -37,11 +38,13 @@ class TaskWorkspaceManager:
         self,
         root: str | Path,
         *,
+        source_root: str | Path,
         max_files: int = 20_000,
         max_bytes: int = 256 * 1024 * 1024,
     ):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.source_root = Path(source_root).resolve()
         self.max_files = max_files
         self.max_bytes = max_bytes
 
@@ -55,7 +58,9 @@ class TaskWorkspaceManager:
         validate_no_symlinks(root)
 
     def create(self, task_id: UUID, source: str | Path) -> TaskWorkspace:
-        raw_source = Path(source)
+        # The allowed source root is operator configuration, never request data.
+        # Confine before any filesystem inspection or copying of the source.
+        raw_source = confine(self.source_root, str(source))
         if raw_source.is_symlink():
             raise ValueError("Workspace source may not be a symlink")
         source_path = raw_source.resolve()

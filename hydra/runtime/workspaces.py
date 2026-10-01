@@ -13,5 +13,5 @@ __all__ = ["TaskWorkspace", "WorkspaceManager", "WorkspaceStats"]
 
 class WorkspaceManager(TaskWorkspaceManager):
     def __init__(self, root: str | Path = runtime_path("workspaces"), *, max_files: int = 20_000,
-                 max_bytes: int = 256 * 1024 * 1024) -> None:
-        super().__init__(root, max_files=max_files, max_bytes=max_bytes)
+                 max_bytes: int = 256 * 1024 * 1024, source_root: str | Path = "repositories") -> None:
+        super().__init__(root, source_root=source_root, max_files=max_files, max_bytes=max_bytes)

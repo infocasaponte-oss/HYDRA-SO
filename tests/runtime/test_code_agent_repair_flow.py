@@ -82,7 +82,7 @@ async def test_code_agent_demonstrates_repair_and_uses_source_context(tmp_path):
     llm = RepairLLM()
     agent = CodeAgent(
         llm,
-        WorkspaceManager(tmp_path / "workspaces"),
+        WorkspaceManager(tmp_path / "workspaces", source_root=tmp_path),
         ArtifactStore(tmp_path / "artifacts"),
         JsonlEventStore(tmp_path / "events.jsonl"),
         sandbox_factory=RepairSandbox,
