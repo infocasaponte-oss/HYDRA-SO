@@ -10,15 +10,17 @@ from hydra.training.verified_corpus import sha256
 from hydra.training.evidence_io import write_json
 
 
-def check(root=Path("."), evidence=Path("docs/evidence"), soak_path=Path("docs/evidence/instruction-v5-soak-15m.json")):
-    digest=candidate_hash(root/"models/hydra-instruction-v5/build-manifest.json")
+def check(root=Path("."), evidence=Path("docs/evidence"), soak_path=Path("docs/evidence/instruction-v5-soak-15m.json"), version=5):
+    if version not in (5,6,7):
+        raise ValueError("unsupported candidate")
+    digest=candidate_hash(root/f"models/hydra-instruction-v{version}/build-manifest.json")
     def read(relative):
         path=root/relative
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    quality=read(evidence/"instruction-v5-summary.json")
+    quality=read(evidence/f"instruction-v{version}-summary.json")
     soak=read(soak_path)
-    external=read(evidence/"external-evaluation-v5.json")
-    reviews=read("runtime/external-evaluation-v5-reviews.json")
+    external=read(evidence/f"external-evaluation-v{version}.json")
+    reviews=read(f"runtime/external-evaluation-v{version}-reviews.json")
     manifest=read("data/external-evaluation-v2/manifest.json")
     excluded={i for group in manifest.get("duplicate_groups",[]) for i in group[1:]}
     rows=read("data/external-evaluation-v2/cases.json") or []
@@ -37,10 +39,10 @@ def check(root=Path("."), evidence=Path("docs/evidence"), soak_path=Path("docs/e
     gates={
         "fresh_process_complete":read(evidence/"status.json").get("complete") is True if evidence!=Path("docs/evidence") else True,
         "fresh_software_checks_passed":read(evidence/"software-checks.json").get("passed") is True if evidence!=Path("docs/evidence") else True,
-        "development_above_90":quality.get("v5_development",{}).get("accuracy",0)>.90,
-        "calibration_above_90":quality.get("v5_calibration",{}).get("accuracy",0)>.90,
-        "frozen_instructions_above_90":quality.get("v5_frozen_instruction",{}).get("accuracy",0)>.90,
-        "coding_regression_retained":quality.get("v5_coding",{}).get("score",0)==1,
+        "development_above_90":quality.get(f"v{version}_development",{}).get("accuracy",0)>.90,
+        "calibration_above_90":quality.get(f"v{version}_calibration",{}).get("accuracy",0)>.90,
+        "frozen_instructions_above_90":quality.get(f"v{version}_frozen_instruction",{}).get("accuracy",0)>.90,
+        "coding_regression_retained":quality.get(f"v{version}_coding",{}).get("score",0)==1,
         "soak_15m_passed":soak.get("complete") is True and soak.get("soak_gate_passed") is True and soak.get("artifact_sha256")==digest,
         "external_inference_complete":external.get("complete") is True and external.get("artifact_sha256")==digest,
         "human_review_complete":human_complete,
@@ -50,8 +52,8 @@ def check(root=Path("."), evidence=Path("docs/evidence"), soak_path=Path("docs/e
     }
     if manifest:
         gates["external_test_unchanged"]=sha256(root/"data/external-evaluation-v2/cases.json")==manifest.get("cases_sha256")
-    for label,filename in (("development","instruction-v5-v5-development.json"),("calibration","instruction-v5-generation-calibration.json"),
-                           ("frozen_instruction","instruction-v5-original-contract.json"),("coding","instruction-v5-coding-regression.json")):
+    for label,filename in (("development",f"instruction-v{version}-v{version}-development.json"),("calibration",f"instruction-v{version}-generation-calibration.json"),
+                           ("frozen_instruction",f"instruction-v{version}-original-contract.json"),("coding",f"instruction-v{version}-coding-regression.json")):
         report=read(evidence/filename)
         bound=report.get("artifact_sha256") or report.get("identity",{}).get("artifact_sha256") or report.get("model_identity",{}).get("artifact_sha256")
         gates[label+"_bound_to_candidate"]=bound==digest
@@ -59,7 +61,7 @@ def check(root=Path("."), evidence=Path("docs/evidence"), soak_path=Path("docs/e
                 evidence_directory=str(evidence),human_reviewed=len(valid),human_unique_cases=total,human_wilson95=interval,
                 pending=[name for name,passed in gates.items() if not passed],
                 scope="evidence gates for bounded evaluated tasks; no claim of universal certification")
-    write_json(root/evidence/"instruction-v5-certification-gates.json",report)
+    write_json(root/evidence/f"instruction-v{version}-certification-gates.json",report)
     return report
 
 
@@ -67,5 +69,6 @@ if __name__ == "__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--evidence",type=Path,default=Path("docs/evidence"))
     parser.add_argument("--soak",type=Path,default=Path("docs/evidence/instruction-v5-soak-15m.json"))
+    parser.add_argument("--version",type=int,choices=[5,6,7],default=5)
     args=parser.parse_args()
-    print(json.dumps(check(evidence=args.evidence,soak_path=args.soak),indent=2))
+    print(json.dumps(check(evidence=args.evidence,soak_path=args.soak,version=args.version),indent=2))

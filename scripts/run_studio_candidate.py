@@ -10,12 +10,14 @@ from hydra.core.config import Settings
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=18084)
-    parser.add_argument("--version", choices=["3", "4", "5", "6"], default="3")
+    parser.add_argument("--version", choices=["3", "4", "5", "6", "7", "8"], default="3")
+    parser.add_argument("--backend", choices=["ollama", "llamacpp"], default="ollama")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    settings = Settings(models_config=root / f"config/models.hydra-instruction-v{args.version}.yaml", offline=False,
-                        evaluation_candidate_version=6 if args.version=="6" else 5,
-                        data_dir=root / f"runtime/studio-candidate-v{args.version}/state", capture=False, public_web_enabled=True,
+    suffix = "-llamacpp" if args.backend == "llamacpp" else ""
+    settings = Settings(models_config=root / f"config/models.hydra-instruction-v{args.version}{suffix}.yaml", offline=False,
+                        evaluation_candidate_version=int(args.version) if int(args.version)>=6 else 5,
+                        data_dir=root / f"runtime/studio-candidate-v{args.version}{suffix}/state", capture=False, public_web_enabled=True,
                         deterministic_first=True,
                         budget_time_scale=6, decision_shadow_endpoint="http://127.0.0.1:8009",
                         decision_shadow_timeout_s=5, decision_full_contract=True,

@@ -13,7 +13,7 @@ from scripts.evaluate_external_holdout import evaluate as external
 
 
 async def run(output:Path, version=5):
-    if version not in (5,6):
+    if version not in (5,6,7):
         raise ValueError("unsupported candidate")
     output.mkdir(parents=True,exist_ok=False)
     status=dict(complete=False,approved=False,stage="development")
@@ -24,10 +24,19 @@ async def run(output:Path, version=5):
     manifest=Path(f"models/hydra-instruction-v{version}/build-manifest.json")
     corpus=Path(f"data/hydra-instruction-v{version}")
     results={}
+    if version>=6:
+        stage("baseline_same_development")
+        results["v5_same_development"]=await quality("hydra-instruction-v5:latest",corpus,
+            output/f"instruction-v5-v{version}-development.json",Path("models/hydra-instruction-v5/build-manifest.json"),"validation")
     stage("development")
     results[f"v{version}_development"]=await quality(model,corpus,output/f"instruction-v{version}-v{version}-development.json",manifest,"validation")
     stage("calibration")
     results[f"v{version}_calibration"]=await quality(model,corpus,output/f"instruction-v{version}-generation-calibration.json",manifest,"calibration")
+    if version>=6:
+        stage("configured_development")
+        results[f"v{version}_configured_development"]=await quality(model,corpus,output/f"instruction-v{version}-configured-development.json",manifest,"validation",True)
+        stage("configured_calibration")
+        results[f"v{version}_configured_calibration"]=await quality(model,corpus,output/f"instruction-v{version}-configured-calibration.json",manifest,"calibration",True)
     stage("raw_instructions")
     results[f"v{version}_frozen_instruction"]=await instructions(model,output/f"instruction-v{version}-original-contract.json",manifest,corpus)
     stage("configured_instructions")
@@ -48,6 +57,6 @@ async def run(output:Path, version=5):
 if __name__ == "__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--output",type=Path,required=True)
-    parser.add_argument("--version",type=int,choices=[5,6],default=5)
+    parser.add_argument("--version",type=int,choices=[5,6,7],default=5)
     args=parser.parse_args()
     asyncio.run(run(args.output,args.version))

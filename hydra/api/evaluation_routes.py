@@ -41,7 +41,7 @@ def cases():
 
 
 def register(app,secured,candidate_version=5):
-    if candidate_version not in (5,6):
+    if candidate_version not in (5,6,7,8):
         raise ValueError("unsupported review candidate")
     answers_path=ANSWERS if candidate_version==5 else ROOT/f"docs/evidence/external-evaluation-v{candidate_version}.json"
     reviews_path=REVIEWS if candidate_version==5 else ROOT/f"runtime/external-evaluation-v{candidate_version}-reviews.json"
@@ -92,7 +92,7 @@ def register(app,secured,candidate_version=5):
             saved["unique_reviewed"]=sum(str(r["id"]) in saved["cases"] for r in unique)
             saved["unique_correct"]=sum(saved["cases"].get(str(r["id"]),{}).get("decision")=="correct" for r in unique)
             saved["accuracy_unique_cases"]=saved["unique_correct"]/len(unique)
-            saved["complete"]=saved["reviewed"]==len(rows)
+            saved["complete"]=saved["unique_reviewed"]==len(unique)
             write_json(reviews_path,saved)
             return saved
 
