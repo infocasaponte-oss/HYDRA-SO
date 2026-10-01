@@ -18,7 +18,8 @@ detalle do que falta.
 | F4i-1/2 eventos durables, outbox, procedencia e despachador común | ✅ #69, #70 |
 | F4g-1 admisión de artefactos e almacenamento de candidatos do corpus | ⏳ #71 (aberta) |
 | F4c observabilidade | ✅ #72 |
-| F4d/F4e policy e ferramentas | ⏳ esta PR: `Workspace` (confinamento de rutas, o único en produción) → `hydra.tools.task_workspace.ConfinedRoot`; o resto, candidato a retirar (D2, táboa en §2.1) |
+| F4d/F4e policy e ferramentas | ✅ #73: `Workspace` (confinamento de rutas, o único en produción) → `hydra.tools.task_workspace.ConfinedRoot`; o resto, candidato a retirar (D2, táboa en §2.1) |
+| F4k-1 bucle de código e replay de auditoría | ⏳ esta PR: `code_context`, `patching`, `coding_request`, `workspace_hash` → `hydra/coding/`; `replay`, `replay_integrity`, `replay_executor` → `hydra/audit/`. `code_agent` e `code_replay` esperan a F4i (artefactos) e F5 (provedor `LocalLLM`), para non volver importar o runtime dende a plataforma |
 | `hydra/runtime/` | 98 módulos e 5.822 liñas (antes 7.837) |
 
 ## 0. Estado actual (auditado)

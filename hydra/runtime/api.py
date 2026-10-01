@@ -22,7 +22,7 @@ from hydra.runtime.budgets import BudgetExceeded, RequestBudget
 from hydra.runtime.code_agent import CodeAgent
 from hydra.runtime.code_replay import build_code_replay_evidence
 from hydra.runtime.code_verification import VerificationMode, VerificationPolicy
-from hydra.runtime.coding_request import CodingRequest, resolve_repository
+from hydra.coding.request import CodingRequest, resolve_repository
 from hydra.runtime.config import settings
 from hydra.runtime.contracts import HydraTask
 from hydra.deploy.deployment import Deployment
@@ -46,8 +46,8 @@ from hydra.provenance.ledger import ProvenanceLedger, ProvenanceRecord
 from hydra.runtime.provider import LocalLLM
 from hydra.runtime.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.deploy.readiness import evaluate_readiness
-from hydra.runtime.replay import ReplayManifest, ReplayStore
-from hydra.runtime.replay_executor import AuditReplayExecutor
+from hydra.audit.replay import ReplayManifest, ReplayStore
+from hydra.audit.executor import AuditReplayExecutor
 from hydra.runtime.runtime_bridge import RuntimeBridge
 from hydra.runtime.runtime_events import RuntimeEventEmitter
 from hydra.deploy.runtime_evidence import RuntimeEvidenceStore
