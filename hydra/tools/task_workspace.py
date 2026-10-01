@@ -5,12 +5,13 @@ mounted into the execution sandbox."""
 from __future__ import annotations
 
 import shutil
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from hydra.tools.workspace import scan_source, validate_no_symlinks
 from hydra.core.paths import confine
+from hydra.tools.workspace import scan_source, validate_no_symlinks
 
 _BLOCKED_NAMES = {".git", ".venv", "__pycache__", ".pytest_cache", "runtime"}
 
@@ -61,18 +62,29 @@ class TaskWorkspaceManager:
         # The allowed source root is operator configuration, never request data.
         # Confine before any filesystem inspection or copying of the source.
         requested = confine(self.source_root, str(source))
-        # Select a server-enumerated repository rather than forwarding request
-        # path data to filesystem operations. Nested paths are not repositories.
-        source_path = None
-        if self.source_root.is_dir():
-            for repository in self.source_root.iterdir():
-                if repository.resolve() == requested:
-                    if repository.is_symlink():
-                        raise ValueError("Workspace source may not be a symlink")
-                    source_path = repository.resolve()
-                    break
-        if source_path is None or not source_path.is_dir():
+        lexical = Path(os.path.abspath(os.path.join(self.source_root, str(source))))
+        try:
+            components = lexical.relative_to(self.source_root).parts
+        except ValueError:
+            raise ValueError("Workspace source is outside the allowed root") from None
+        # Walk server-enumerated entries one component at a time. Request values
+        # select entries, but are never used to construct paths for copying.
+        # This preserves org/repo and '.', and rejects intermediate links too.
+        source_path = self.source_root
+        for component in components:
+            if not source_path.is_dir():
+                raise ValueError("Workspace source must be a directory")
+            entry = next((item for item in source_path.iterdir()
+                          if os.path.normcase(item.name) == os.path.normcase(component)), None)
+            if entry is None:
+                raise ValueError("Workspace source must be a directory")
+            if entry.is_symlink() or entry.is_junction():
+                raise ValueError("Workspace source may not contain a symlink or junction")
+            source_path = entry
+        if source_path.resolve() != requested or not source_path.is_dir():
             raise ValueError("Workspace source must be a directory")
+        if self.root == source_path or source_path in self.root.parents:
+            raise ValueError("Task destination must not be inside its source")
 
         self._scan_source(source_path)
 

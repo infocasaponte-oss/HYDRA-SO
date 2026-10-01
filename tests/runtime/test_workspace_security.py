@@ -107,3 +107,24 @@ def test_workspace_rejects_source_link_outside_root(tmp_path):
     manager = WorkspaceManager(tmp_path / "tasks", source_root=allowed)
     with pytest.raises(ValueError, match="outside"):
         manager.create(uuid4(), "escape")
+
+
+@pytest.mark.parametrize('relative', ['org/repo', '.'])
+def test_nested_repository_and_root_remain_compatible(tmp_path, relative):
+    allowed = tmp_path / 'repositories'
+    source = allowed / relative
+    source.mkdir(parents=True)
+    (source / 'main.py').write_text('original')
+    manager = WorkspaceManager(tmp_path / 'tasks', source_root=allowed)
+    workspace = manager.create(uuid4(), relative)
+    assert (workspace.root / 'main.py').read_text() == 'original'
+
+
+@requires_symlinks
+def test_intermediate_link_inside_allowed_root_is_rejected(tmp_path):
+    allowed = tmp_path / 'repositories'
+    (allowed / 'real/repo').mkdir(parents=True)
+    (allowed / 'alias').symlink_to(allowed / 'real', target_is_directory=True)
+    manager = WorkspaceManager(tmp_path / 'tasks', source_root=allowed)
+    with pytest.raises(ValueError, match='symlink'):
+        manager.create(uuid4(), 'alias/repo')
