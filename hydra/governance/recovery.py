@@ -19,7 +19,7 @@ import shutil
 import subprocess
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from pydantic import BaseModel, Field
 
@@ -44,19 +44,23 @@ KEY_LEGACY_PATHS = {"ledger-ed25519": "keys/hydra-ed25519.pem", "secrets-broker"
 
 
 def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, postgres_url: str | None = None,
-           keystore=None, ledger=None) -> BackupManifest:
+           keystore=None, ledger=None, logs: Iterable = ()) -> BackupManifest:
     """``ledger``: the node's ledger. A PostgreSQL ledger is exported into the archive as
     ``data/ledger/events.jsonl`` / ``anchors.jsonl`` (the portable format restore verifies).
+    ``logs``: ``hydra.core.eventlog.LogSpace`` of the planes (corpus, World Model); their PostgreSQL
+    streams are exported at their file paths (``data/corpus/log.jsonl``...).
     ``keystore``: with ``include_private_keys``, keys held outside the data directory are exported."""
     out.parent.mkdir(parents=True, exist_ok=True)
     manifest = BackupManifest(source=str(data_dir), include_private_keys=include_private_keys)
     files = [p for p in data_dir.rglob("*") if p.is_file() and p.suffix not in EXCLUDE_ALWAYS
              and (include_private_keys or p.name not in PRIVATE_KEY_NAMES)]
-    ledger_export: dict[str, str] = {}
+    exported: dict[str, str] = {}
     if ledger is not None and getattr(ledger, "backend", "file") != "file":
-        ledger_export["ledger/events.jsonl"], ledger_export["ledger/anchors.jsonl"] = ledger.export_jsonl()
-        files = [p for p in files if p.relative_to(data_dir).as_posix() not in ledger_export]
-    ledger_text = ledger_export.get("ledger/events.jsonl")
+        exported["ledger/events.jsonl"], exported["ledger/anchors.jsonl"] = ledger.export_jsonl()
+    for space in logs:
+        exported.update(space.exports())
+    files = [p for p in files if p.relative_to(data_dir).as_posix() not in exported]
+    ledger_text = exported.get("ledger/events.jsonl")
     if ledger_text is None and (data_dir / "ledger" / "events.jsonl").exists():
         ledger_text = (data_dir / "ledger" / "events.jsonl").read_text(encoding="utf-8")
     if ledger_text is not None:
@@ -73,7 +77,7 @@ def backup(data_dir: Path, out: Path, *, include_private_keys: bool = False, pos
     for p in files:
         manifest.files[p.relative_to(data_dir).as_posix()] = sha256_file(p)
     extra: dict[str, tuple[bytes, int]] = {
-        rel: (text.encode("utf-8"), 0o644) for rel, text in ledger_export.items()}
+        rel: (text.encode("utf-8"), 0o644) for rel, text in exported.items()}
     if include_private_keys and keystore is not None:
         for name, rel in KEY_LEGACY_PATHS.items():
             if rel in manifest.files:

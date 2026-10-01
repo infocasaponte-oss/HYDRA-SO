@@ -254,6 +254,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.corpus.factory import DatasetFactory
     from hydra.corpus.gates import CorpusCurator
     from hydra.corpus.store import CorpusStore
+    from hydra.core.eventlog import open_log_space
     from hydra.governance.config_registry import ConfigRegistry, FeatureFlags
     from hydra.governance.policy_dsl import PolicyEngine
     from hydra.governance.secrets import SecretsBroker
@@ -282,7 +283,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     knowledge = KnowledgeCompiler(world, family_of=family_of)
     corpus = CorpusStore(data / "corpus", CorpusCurator(
         dedup=Deduplicator(), contamination=ContaminationGuard.from_suites(load_suites(settings.evals_dir))),
-        ledger=ledger)
+        ledger=ledger, logs=open_log_space(settings.corpus_backend, settings.postgres_url, "corpus"))
     datasets = DatasetFactory(corpus, ledger)
     ip = IPRegistry(data / "ip", ledger)
     licenses = LicenseEngine.from_yaml(settings.licenses_config)
