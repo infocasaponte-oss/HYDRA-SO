@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hydra.runtime.events import JsonlEventStore
-from hydra.runtime.provenance import ProvenanceLedger
+from hydra.core.durable_events import JsonlEventStore
+from hydra.provenance.ledger import ProvenanceLedger
 
 
 @dataclass(frozen=True)

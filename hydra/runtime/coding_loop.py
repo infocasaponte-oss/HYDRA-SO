@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from hydra.runtime.artifacts import ArtifactRecord, ArtifactStore
-from hydra.runtime.events import JsonlEventStore
+from hydra.core.durable_events import JsonlEventStore
 from hydra.runtime.patching import PatchTool
 from hydra.runtime.sandbox import OciSandbox
 

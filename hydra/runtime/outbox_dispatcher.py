@@ -4,9 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hydra.runtime.corpus import CorpusRecord, CorpusStore
-from hydra.runtime.events import JsonlEventStore
-from hydra.runtime.outbox import OutboxMessage, TransactionalOutbox
-from hydra.runtime.provenance import ProvenanceLedger, ProvenanceRecord
+from hydra.core.durable_events import JsonlEventStore
+from hydra.core.outbox import OutboxMessage, TransactionalOutbox
+from hydra.provenance.ledger import ProvenanceLedger, ProvenanceRecord
 
 
 @dataclass(frozen=True)

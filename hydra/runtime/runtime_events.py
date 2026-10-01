@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from hydra.runtime.events import JsonlEventStore
+from hydra.core.durable_events import JsonlEventStore
 
 
 @dataclass

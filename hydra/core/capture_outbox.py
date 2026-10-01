@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
-from hydra.runtime.outbox import OutboxMessage, TransactionalOutbox
+from hydra.core.outbox import OutboxMessage, TransactionalOutbox
 from hydra.runtime.outbox_worker import OutboxWorker, RetryPolicy, WorkerResult
 
 log = logging.getLogger("hydra.capture")
