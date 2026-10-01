@@ -199,7 +199,7 @@ class Settings(BaseSettings):
     max_output_tokens: int = 4096
     runtime_backend: str = "auto"
     """HYDRA_RUNTIME_BACKEND: runtime-line state (event and provenance hash chains, live-traffic evidence,
-    deployment registry): auto (PostgreSQL streams
+    deployment registry, and the hydra.db stores: outbox, task commits, metrics, health, promotion evidence): auto (PostgreSQL streams
     runtime/* of hydra_logs when HYDRA_POSTGRES_URL is set and psycopg is installed, else files under
     HYDRA_RUNTIME_DIR) | file | postgres (required). Existing files are imported once and kept."""
 

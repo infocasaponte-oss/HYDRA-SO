@@ -53,8 +53,8 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 | `provenance.jsonl` (cadena hash) | `runtime/provenance.py` | ✅ F3a: stream `runtime/provenance.jsonl`; el anclaje en el ledger (`ledger/runtime_anchor.py`) se mantiene |
 | `runtime-evidence.jsonl` | `runtime/runtime_evidence.py` | ✅ F3b: stream `runtime/evidence.jsonl` (la evidencia de todos los nodos cuenta); fases por `seq`; los offsets en bytes de despliegues a mitad de fase se convierten al arrancar y, si el fichero ya no está, la fase vuelve a contar desde ese momento (`evidence_restarted_at`) |
 | `deployments.json` | `runtime/deployment_store.py` | ✅ F3b: snapshots en `runtime/deployments.jsonl`; cada operación de admin es `mutate` sobre el último estado con el stream bloqueado; los nodos siguen el registro con `sync` cada segundo; un fallo a medias restaura la memoria; `deployments.json` se adopta una vez |
-| `hydra.db` → `outbox` | `runtime/outbox.py`, `capture_uow.py` | tabla PostgreSQL (mismo patrón que `capture_outbox`, con reclamación por nodo) |
-| `hydra.db` → métricas, salud, evidencia de despliegue | `metrics_store`, `runtime_health_store`, `deployment_evidence_store` | tablas PostgreSQL |
+| `hydra.db` → `outbox`, `task_commits` | `runtime/outbox.py`, `capture_uow.py` | ✅ F3c: `runtime_outbox` (el `PostgresOutbox` de captura, con reclamación por nodo) y `task_commits` en la misma transacción (`runtime/pg_stores.py`) |
+| `hydra.db` → métricas, salud, evidencia de despliegue | `metrics_store`, `runtime_health_store`, `deployment_evidence_store` | ✅ F3c: tablas `operating_metrics` (con el nodo), `runtime_health` (por nodo y variante: la salud de un runtime vista desde un nodo no vale para otro) y `deployment_evidence`; `hydra.db` se importa una vez |
 | `beliefs.jsonl` | `runtime/beliefs.py` | World Model (ya existe el puente `world/runtime_beliefs.py`) |
 | `corpus.jsonl` | `runtime/corpus.py` | `corpus.store.CorpusStore` |
 | `artifacts/` | `runtime/artifacts.py`, `replay_executor.py` | `artifacts.store.ArtifactStore`, con blobs en S3 o volumen |

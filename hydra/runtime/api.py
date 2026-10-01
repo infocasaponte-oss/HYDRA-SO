@@ -16,7 +16,6 @@ from hydra.core.eventlog import open_log_space
 from hydra.runtime.artifacts import ArtifactStore
 from hydra.runtime.bootstrap import bootstrap_runtime
 from hydra.runtime.budgets import BudgetExceeded, RequestBudget
-from hydra.runtime.capture_uow import CaptureUnitOfWork
 from hydra.runtime.code_agent import CodeAgent
 from hydra.runtime.code_replay import build_code_replay_evidence
 from hydra.runtime.code_verification import VerificationMode, VerificationPolicy
@@ -26,12 +25,10 @@ from hydra.runtime.contracts import HydraTask
 from hydra.runtime.deployment import Deployment
 from hydra.runtime.deployment_controller import DeploymentController
 from hydra.runtime.deployment_controller import LEGACY_OFFSETS, EvidenceRejected
-from hydra.runtime.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.runtime.deployment_store import DeploymentStore
 from hydra.runtime.deployment_validation import DeploymentArtifactValidator
 from hydra.runtime.kernel import HydraKernel
 from hydra.runtime.learning_capture import LearningCapture
-from hydra.runtime.metrics_store import OperatingMetricsStore
 from hydra.runtime.model_factory import ModelVariant
 from hydra.runtime.model_scout import HashCache, scan_models
 from hydra.runtime.operating_metrics import collect_operating_metrics
@@ -51,7 +48,7 @@ from hydra.runtime.runtime_events import RuntimeEventEmitter
 from hydra.runtime.runtime_evidence import RuntimeEvidenceStore
 from hydra.runtime.runtime_executor import RuntimeExecutor
 from hydra.runtime.runtime_health import RuntimeHealth
-from hydra.runtime.runtime_health_store import RuntimeHealthStore
+from hydra.runtime.pg_stores import open_runtime_stores
 from hydra.runtime.sandbox import OciSandbox
 from hydra.runtime.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.runtime.security_audit import SecurityAudit
@@ -85,8 +82,11 @@ deployment_store = DeploymentStore(
     if runtime_logs.backend == "postgres" else None,
 )
 deployment_registry = deployment_store.load()
-deployment_evidence_store = DeploymentEvidenceStore(settings.runtime_db)
-operating_metrics_store = OperatingMetricsStore(settings.runtime_db)
+runtime_stores = open_runtime_stores(
+    settings.runtime_db, settings.postgres_url if runtime_logs.backend == "postgres" else ""
+)
+deployment_evidence_store = runtime_stores.deployment_evidence
+operating_metrics_store = runtime_stores.operating_metrics
 runtime_evidence = RuntimeEvidenceStore(
     log=runtime_logs.open(runtime_path("runtime-evidence.jsonl"), RuntimeEvidenceStore.STREAM)
 )
@@ -97,12 +97,12 @@ deployment_controller = DeploymentController(
 )
 if any(LEGACY_OFFSETS[key] in d.metadata for d in deployment_registry.deployments.values() for key in LEGACY_OFFSETS):
     deployment_store.mutate(deployment_registry, lambda _: deployment_controller.migrate_phase_starts())
-capture_uow = CaptureUnitOfWork(settings.runtime_db)
+capture_uow = runtime_stores.capture_uow
 kernel = HydraKernel(
     capture_uow=capture_uow,
     events=JsonlEventStore(log=runtime_logs.open(runtime_path("events.jsonl"), JsonlEventStore.STREAM)),
 )
-runtime_health_store = RuntimeHealthStore(settings.runtime_db)
+runtime_health_store = runtime_stores.runtime_health
 runtime_health = RuntimeHealth(store=runtime_health_store)
 physical_inference = PhysicalInferenceClient(deployment_registry)
 traffic_router = TrafficRouter(deployment_registry, runtime_health)

@@ -74,10 +74,11 @@ def test_failures_back_off_then_dead_letter(queue):
     c = cap()
     item = queue.submit(WorkItem(capability=c, max_attempts=2))
     w = queue.claim([c], "w")
-    failed = queue.fail(w.id, "w", "boom", retry_in_s=0.05)
-    assert failed.status == "queued" and failed.available_at > time.time()
+    before = time.time()  # measured before the call: slow CI runners must not make this flaky
+    failed = queue.fail(w.id, "w", "boom", retry_in_s=0.5)
+    assert failed.status == "queued" and failed.available_at >= before + 0.5
     assert queue.claim([c], "w") is None  # still backing off
-    time.sleep(0.1)
+    time.sleep(max(0.0, failed.available_at - time.time()) + 0.05)
     w = queue.claim([c], "w")
     assert queue.fail(w.id, "w", "boom again").status == "dead"
     assert queue.get(item.id).status == "dead" and queue.stats()["dead"]

@@ -194,6 +194,20 @@ class TransactionalOutbox:
             ).fetchone()
         return {"pending": pending, "dead_letters": dead}
 
+    def pending_summary(self) -> tuple[int, int, str | None]:
+        """(pending, dead letters, created_at of the oldest pending message), counted in the database."""
+        with self._connect() as connection:
+            pending, dead, oldest = connection.execute(
+                """
+                SELECT
+                    COALESCE(SUM(published_at IS NULL AND dead_lettered_at IS NULL), 0),
+                    COALESCE(SUM(dead_lettered_at IS NOT NULL), 0),
+                    MIN(CASE WHEN published_at IS NULL AND dead_lettered_at IS NULL THEN created_at END)
+                FROM outbox
+                """
+            ).fetchone()
+        return pending, dead, oldest
+
     def dead_letters(self, limit: int = 100) -> list[OutboxMessage]:
         with self._connect() as connection:
             rows = connection.execute(
