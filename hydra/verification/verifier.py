@@ -155,7 +155,8 @@ class Verifier:
 
         passed = not hard_fail and score >= self.pass_threshold
         # "verified" means an independent layer beyond format checks confirmed it.
-        independent = [c for c in checks if c.layer in ("math", "tool", "evidence", "critic")]
+        # Tool execution proves retrieval/execution succeeded, not that the answer is correct.
+        independent = [c for c in checks if c.layer in ("math", "evidence", "critic")]
         verified = passed and bool(independent) and all(c.passed for c in independent)
         return VerificationResult(
             passed=passed, score=score, verified=verified, checks=checks, uncertainties=uncertainties,

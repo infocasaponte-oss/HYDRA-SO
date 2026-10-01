@@ -35,7 +35,7 @@ def automatic_match(text,expected):
 
 
 async def evaluate(output=Path("docs/evidence/external-evaluation-v5.json"), version=5):
-    if version not in (5,6):
+    if version not in (5,6,7,8):
         raise ValueError("unsupported candidate version")
     root=Path("data/external-evaluation-v2")
     manifest=json.loads((root/"manifest.json").read_text(encoding="utf-8"))

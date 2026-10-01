@@ -11,6 +11,7 @@ import httpx
 
 from hydra.training.evaluate_corpus import candidate_hash, model_identity
 from hydra.training.generation_reliability import check
+from hydra.training.evidence_io import write_json
 
 
 async def validate(model, manifest, corpus, output, seconds=900, studio=None):
@@ -26,10 +27,7 @@ async def validate(model, manifest, corpus, output, seconds=900, studio=None):
                   scope="bounded synthetic regression soak; not general production certification",
                   required_duration_s=seconds,calls=[],snapshots=[],engine_calls=[])
     def save():
-        output.parent.mkdir(parents=True,exist_ok=True)
-        tmp=output.with_suffix(".tmp")
-        tmp.write_text(json.dumps(result,indent=2,ensure_ascii=False),encoding="utf-8")
-        tmp.replace(output)
+        write_json(output,result)
     started=time.monotonic()
     previous,seen=0,{}
     async with httpx.AsyncClient(base_url="http://127.0.0.1:11434",timeout=60) as client:

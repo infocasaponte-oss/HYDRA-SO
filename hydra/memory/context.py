@@ -64,6 +64,10 @@ class ContextCompiler:
             for it in items:
                 t = count_tokens(it)
                 if used + t > tokens:
+                    # Oversized first documents must not disappear entirely.
+                    remaining = tokens - used
+                    if remaining > 32:
+                        out.append(f"- {truncate(it, remaining)}")
                     break
                 out.append(f"- {it}")
                 used += t

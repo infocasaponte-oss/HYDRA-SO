@@ -16,7 +16,7 @@ from hydra.workers.reasoner import requested_json_schema
 
 async def evaluate(model: str, output: Path, manifest_path: Path | None = None,
                    corpus: Path = Path("data/hydra-instruction-v2"), typed_state_json: bool = False) -> dict:
-    manifest = json.loads((corpus / "manifest.json").read_text())
+    manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     test = corpus / "test.jsonl"
     if sha256(test) != manifest["files"][test.name]["sha256"]:
         raise ValueError("test partition changed")

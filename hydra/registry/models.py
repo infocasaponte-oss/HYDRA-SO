@@ -52,6 +52,9 @@ class ModelProfile(BaseModel):
 
     runtime_model: str | None = None
     """Physical model name on the runtime. Defaults to ``id``."""
+    identity_context: str = ""
+    engine_creator: str = ""
+    """Operator-supplied engine and weight provenance, included before worker instructions."""
 
     endpoint: str | None = None
     """Dedicated runtime URL (one vLLM server per model). Defaults to the provider's URL."""

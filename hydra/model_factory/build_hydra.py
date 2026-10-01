@@ -13,6 +13,7 @@ from pathlib import Path
 
 from hydra.model_factory.gguf import read_gguf
 from hydra.training.verified_corpus import sha256
+from hydra.training.corpus_integrity import validate_parent_replay
 
 
 def checked(cmd: list[str], log: Path) -> None:
@@ -38,6 +39,7 @@ def validate_inputs(recipe: dict) -> dict:
         if not list(weights.keys()):
             raise ValueError("base has no weights")
     manifest = json.loads((corpus/"manifest.json").read_text(encoding="utf-8"))
+    validate_parent_replay(corpus,manifest)
     for split in ("train", "validation", "test"):
         filename = f"{split}.jsonl"
         if sha256(corpus/filename) != manifest["files"][filename]["sha256"]:
@@ -45,6 +47,14 @@ def validate_inputs(recipe: dict) -> dict:
     if "calibration.jsonl" in manifest["files"]:
         if sha256(corpus/"calibration.jsonl") != manifest["files"]["calibration.jsonl"]["sha256"]:
             raise ValueError("dataset hash mismatch: calibration.jsonl")
+    if recipe.get("resume_from_checkpoint"):
+        checkpoint = Path(recipe["resume_from_checkpoint"])
+        pinned = recipe.get("resume_checkpoint_sha256", {})
+        required_resume = {"adapter_model.safetensors", "optimizer.pt", "scheduler.pt", "rng_state.pth", "trainer_state.json"}
+        if not required_resume.issubset(pinned):
+            raise ValueError("resume checkpoint must pin adapter, optimizer, scheduler, RNG and trainer state")
+        if any(not (checkpoint/name).is_file() or sha256(checkpoint/name) != digest for name,digest in pinned.items()):
+            raise ValueError("resume checkpoint changed")
     return {"base_sha256": base_hash, "dataset": manifest,
             "recipe": recipe, "quantizer_sha256": sha256(Path(recipe["quantizer"])),
             "converter_sha256": sha256(Path(recipe["llamacpp"])/"convert_hf_to_gguf.py"),
