@@ -11,13 +11,15 @@
 * Lab/batch work never starves production: background jobs are not handed out while
   interactive work is waiting (preemption at the queue level).
 
-SQLite (WAL) gives durability for one host; the same contract maps to Redis Streams /
-NATS JetStream consumers for multi-host fabrics."""
+SQLite (WAL) gives durability for one host. With PostgreSQL configured the same contract runs on
+``hydra.cluster.fabric_pg.PostgresWorkQueue`` and is shared by every gateway and worker node
+(``open_work_queue`` picks the backend; ``HYDRA_FABRIC_BACKEND`` = auto | sqlite | postgres)."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import socket
 import sqlite3
 import threading
@@ -28,6 +30,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from pydantic import BaseModel, Field
+
+log = logging.getLogger("hydra.fabric")
 
 
 class Priority(IntEnum):
@@ -73,6 +77,8 @@ CREATE TABLE IF NOT EXISTS checkpoints (task_id TEXT, step INT, state TEXT, at R
 
 
 class WorkQueue:
+    backend = "sqlite"
+
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
@@ -211,6 +217,25 @@ class WorkQueue:
         for st, pr, n in rows:
             out.setdefault(st, {})[Priority(pr).name] = n
         return out
+
+
+def open_work_queue(backend: str, path: Path, postgres_url: str = ""):
+    """The fabric queue for this node: PostgreSQL (shared by every node) or SQLite (this host only)."""
+    if backend not in ("auto", "sqlite", "postgres"):
+        raise ValueError(f"unknown fabric backend {backend!r}; use auto, sqlite or postgres")
+    if backend == "postgres" and not postgres_url:
+        raise ValueError("HYDRA_FABRIC_BACKEND=postgres requires HYDRA_POSTGRES_URL")
+    if backend != "sqlite" and postgres_url:
+        try:
+            from hydra.cluster.fabric_pg import PostgresWorkQueue
+
+            return PostgresWorkQueue(postgres_url)
+        except ImportError:
+            if backend == "postgres":
+                raise RuntimeError('the PostgreSQL fabric needs psycopg: pip install "hydra-engine[postgres]"') from None
+            log.warning("HYDRA_POSTGRES_URL is set but psycopg is not installed: the fabric queue is local "
+                        "SQLite and is NOT shared with other nodes")
+    return WorkQueue(path)
 
 
 Handler = Callable[[WorkItem], Awaitable[dict[str, Any]]]

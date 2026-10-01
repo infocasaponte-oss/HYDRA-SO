@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     sync_trusted_keys_dir: Path | None = None
     """Directory with ``*.pub.pem`` keys trusted for edge sync imports (default: <data_dir>/keys/trusted).
     This node's own public key is always trusted; clients can never supply keys."""
+    fabric_backend: str = "auto"
+    """HYDRA_FABRIC_BACKEND: execution-fabric queue: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
+    psycopg is installed, else local SQLite) | sqlite | postgres (required: fail if unavailable)."""
     key_backend: str = "auto"
     """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
     keys_dir: Path | None = None

@@ -296,13 +296,13 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     executor = ToolExecutor(tools, ToolPolicyEngine(policy), bus, simulator=Simulator(), secrets=secrets,
                             policy_dsl=policy_dsl)
     from hydra.cluster.capacity import TenantRegistry
-    from hydra.cluster.fabric import WorkQueue
+    from hydra.cluster.fabric import open_work_queue
     from hydra.cluster.nodes import NodeRegistry
     from hydra.cluster.scheduler import GlobalScheduler
 
     nodes = NodeRegistry(heartbeat_ttl_s=max(30.0, settings.heartbeat_interval_s * 3))
     scheduler = GlobalScheduler(nodes)
-    queue = WorkQueue(data / "fabric" / "queue.db")
+    queue = open_work_queue(settings.fabric_backend, data / "fabric" / "queue.db", settings.postgres_url)
 
     def config_ref():
         cur = configs.current("production")

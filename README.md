@@ -125,9 +125,10 @@ Detalle en [docs/architecture.md](docs/architecture.md) y [docs/INTEGRATION_PLAN
 * **CLUSTER**: `infra/kubernetes/` (plano de control/datos, GPUs vía device plugin o DRA) y `infra/terraform/`.
 * **EDGE**: una máquina, Ollama/llama.cpp, políticas offline y `hydra sync export|import` firmado.
 * PostgreSQL (`sql/schema.sql`) persiste hoy tareas, eventos, ejecuciones de inferencia, métricas de
-  modelos y memoria. Ledger, IP, artefactos, corpus, World Model y la cola del Execution Fabric viven en
-  ficheros/SQLite bajo `HYDRA_DATA_DIR`: las tablas de esos planos en `schema.sql` son un esquema
-  reservado aún no conectado, por eso los manifiestos CLUSTER ejecutan una réplica por servicio.
+  modelos, memoria y la cola del Execution Fabric (`fabric_*`, compartida por todos los nodos con
+  `FOR UPDATE SKIP LOCKED`; requiere el extra `postgres`). Ledger, IP, artefactos, corpus y World Model
+  viven aún en ficheros bajo `HYDRA_DATA_DIR`: sus tablas en `schema.sql` son esquema reservado, por eso
+  los manifiestos CLUSTER ejecutan una réplica por servicio.
 
 ## Pruebas
 
@@ -144,8 +145,8 @@ set HYDRA_IT_NATS=nats://localhost:4222
   herramientas externas (llama.cpp, llm-compressor, mlx-lm, optimum, torch/transformers/peft/trl) que
   HYDRA integra pero no incluye; sin ellas lo informa (`ToolMissing`) en vez de fingir.
 * El scheduler de clúster, la analítica federada y las colas están probados en una máquina y con
-  nodos simulados. La cola del fabric es SQLite local: escalar réplicas requiere antes llevar fabric,
-  outbox, ledger, corpus y World Model a PostgreSQL.
+  nodos simulados. Con PostgreSQL la cola del fabric ya es compartida entre nodos; escalar réplicas
+  requiere además llevar outbox, ledger, corpus y World Model a PostgreSQL.
 * En Ollama el tipo de caché KV es un ajuste del servidor (`OLLAMA_KV_CACHE_TYPE`): el AutoBuilder
   lo varía solo con llama-server.
 * HYDRA registra evidencia técnica y de autoría; no decide patentabilidad ni autoría legal.

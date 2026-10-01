@@ -113,6 +113,35 @@ jobs:
           docker run --rm --workdir /tmp hydra-ci python -c "from hydra.persistence.postgres import SCHEMA; assert SCHEMA.is_file(), SCHEMA; print(SCHEMA)"
           docker run --rm --workdir /tmp hydra-ci python -c "import importlib.resources as r; assert r.files('hydra').joinpath('api/evaluation_review.html').is_file()"
 
+  integration:
+    name: integration (PostgreSQL, Redis)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env: {POSTGRES_USER: hydra, POSTGRES_PASSWORD: hydra, POSTGRES_DB: hydra}
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U hydra" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:8
+        ports: ["6379:6379"]
+    env:
+      HYDRA_IT_POSTGRES: postgresql://hydra:hydra@localhost:5432/hydra
+      HYDRA_IT_REDIS: redis://localhost:6379/0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install -e ".[dev,postgres,redis]"
+      - name: Fabric contract and infrastructure integration
+        run: pytest -q -rs tests/test_fabric_backends.py tests/test_integration_infra.py
+
   manifests:
     name: deployment manifests
     runs-on: ubuntu-latest
