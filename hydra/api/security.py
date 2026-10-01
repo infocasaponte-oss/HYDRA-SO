@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import base64
 import ipaddress
 import secrets
 
@@ -63,11 +64,21 @@ def authorize_admin(settings, host: str, token: str | None) -> str:
 
 
 def websocket_token(headers, subprotocols: list[str]) -> str | None:
-    """Token from ``X-API-Key``/``Authorization`` headers or a ``hydra.token.<key>`` subprotocol
-    (browsers cannot set WebSocket headers). Query strings are never accepted: they end up in logs."""
+    """Token from ``X-API-Key``/``Authorization`` headers or a subprotocol (browsers cannot set
+    WebSocket headers): ``hydra.token.b64.<base64url key>`` for any key, or ``hydra.token.<key>`` for
+    keys that are already RFC 7230 tokens. Query strings are never accepted: they end up in logs."""
     token = headers.get("x-api-key") or headers.get("x-hydra-token")
     if not token and (authorization := headers.get("authorization", "")).lower().startswith("bearer "):
         token = authorization[7:].strip()
-    if not token:
-        token = next((p.removeprefix("hydra.token.") for p in subprotocols if p.startswith("hydra.token.")), None)
-    return token
+    if token:
+        return token
+    for protocol in subprotocols:
+        if protocol.startswith("hydra.token.b64."):
+            encoded = protocol.removeprefix("hydra.token.b64.")
+            try:
+                return base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)).decode("utf-8")
+            except (ValueError, UnicodeDecodeError):
+                return None
+        if protocol.startswith("hydra.token."):
+            return protocol.removeprefix("hydra.token.")
+    return None

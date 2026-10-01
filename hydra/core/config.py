@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from hydra.tools.sandbox import DEFAULT_SANDBOX_IMAGE
@@ -91,6 +91,15 @@ class Settings(BaseSettings):
     """HYDRA_LEDGER_BACKEND: signed IP/provenance ledger: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
     psycopg is installed, else data/ledger files) | file | postgres (required). A PostgreSQL ledger adopts an
     existing file ledger once, after verifying it; the file is kept as a read-only copy."""
+
+    @field_validator("sync_trusted_keys_dir", mode="before")
+    @classmethod
+    def _empty_path_is_unset(cls, value):
+        # HYDRA_SYNC_TRUSTED_KEYS_DIR= (as in .env.example) would otherwise become Path('.') and
+        # trust every *.pub.pem in the working directory.
+        return None if isinstance(value, str) and not value.strip() else value
+
+
     api_rate_limit_per_minute: int = 60
     """Per-client limit for authenticated API routes. Set <= 0 to disable."""
 
