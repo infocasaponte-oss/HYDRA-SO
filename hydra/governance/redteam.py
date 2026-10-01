@@ -133,11 +133,11 @@ class RedTeam:
             return action["action"] in ("smaller_quant", "move_node", "reduce_batch_and_fallback"), action
 
         async def corrupted_artifact():
-            m = rt.artifact_store.put(f"redteam {uuid4()}", artifact_type="probe")
-            p = rt.artifact_store.object_path(m.sha256)
-            p.write_text("tampered", encoding="utf-8")
+            content = f"redteam {uuid4()}"
+            m = rt.artifact_store.put(content, artifact_type="probe")
+            rt.artifact_store.blobs.overwrite(m.sha256, b"tampered")
             rep = rt.artifact_store.verify()
-            p.unlink()
+            rt.artifact_store.blobs.overwrite(m.sha256, content.encode("utf-8"))  # leave the store verifiable
             return m.sha256 in rep["corrupt_or_missing"], {"detected": m.sha256[:12]}
 
         async def ledger_tamper():

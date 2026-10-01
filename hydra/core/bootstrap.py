@@ -255,6 +255,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.corpus.gates import CorpusCurator
     from hydra.corpus.store import CorpusStore
     from hydra.core.eventlog import open_log_space
+    from hydra.artifacts.blobs import open_blobs
     from hydra.governance.config_registry import ConfigRegistry, FeatureFlags
     from hydra.governance.policy_dsl import PolicyEngine
     from hydra.governance.secrets import SecretsBroker
@@ -272,7 +273,9 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     signer = overrides.get("signer") or Signer.load_or_create(data / "keys", keystore=keystore)
     ledger = open_ledger(settings.ledger_backend, data / "ledger", signer, settings.ledger_anchor_every,
                          settings.postgres_url)
-    artifact_store = ArtifactStore(data / "artifacts")
+    artifact_store = ArtifactStore(
+        data / "artifacts", logs=open_log_space(settings.artifacts_backend, settings.postgres_url, "artifacts"),
+        blobs=open_blobs(settings.artifact_objects, data / "artifacts" / "objects", settings.s3_endpoint_url))
     world = WorldModel(data / "world", logs=open_log_space(settings.world_backend, settings.postgres_url, "world"))
     world_rag = GraphRAG(world)
 

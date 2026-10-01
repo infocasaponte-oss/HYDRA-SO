@@ -112,7 +112,9 @@ class RestoreReport(BaseModel):
     ok: bool = False
 
 
-def restore(archive: Path, data_dir: Path, *, overwrite: bool = False) -> RestoreReport:
+def restore(archive: Path, data_dir: Path, *, overwrite: bool = False, blobs=None) -> RestoreReport:
+    """``blobs``: the artifact blob store when it lives outside the data directory (HYDRA_ARTIFACT_OBJECTS:
+    a shared volume or an S3 bucket, backed up by its own means); restored manifests are verified there."""
     if data_dir.exists() and any(data_dir.iterdir()) and not overwrite:
         raise FileExistsError(f"{data_dir} is not empty (use overwrite=True)")
     tmp = data_dir.parent / f".restore-{archive.stem}"
@@ -149,7 +151,7 @@ def restore(archive: Path, data_dir: Path, *, overwrite: bool = False) -> Restor
     if (data_dir / "artifacts").exists():
         from hydra.artifacts.store import ArtifactStore
 
-        report.artifacts = ArtifactStore(data_dir / "artifacts").verify()
+        report.artifacts = ArtifactStore(data_dir / "artifacts", blobs=blobs).verify()
     if (data_dir / "world").exists():
         from hydra.world.model import WorldModel
 

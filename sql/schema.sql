@@ -153,7 +153,7 @@ ALTER TABLE ledger_anchors ADD COLUMN IF NOT EXISTS body TEXT;
 
 -- =====================================================================================
 -- Event logs of the event-sourced planes: hydra.core.eventlog (HYDRA_CORPUS_BACKEND, HYDRA_WORLD_BACKEND,
--- HYDRA_IP_BACKEND),
+-- HYDRA_IP_BACKEND, HYDRA_ARTIFACTS_BACKEND),
 -- which also creates this table. One stream per log file (``corpus/log.jsonl``, ``world/deltas.jsonl``...),
 -- gap-free ``seq`` per stream,
 -- exact JSON line in ``body``. Append-only: triggers reject UPDATE, DELETE and TRUNCATE.
@@ -178,26 +178,10 @@ CREATE TRIGGER hydra_logs_no_truncate BEFORE TRUNCATE ON hydra_logs
     FOR EACH STATEMENT EXECUTE FUNCTION hydra_logs_immutable();
 
 -- =====================================================================================
--- HYDRA 1.0 planes: RESERVED SCHEMA, NOT WIRED YET.
--- Artifacts persist ONLY in the local file store under
--- HYDRA_DATA_DIR; no code reads or writes the table below. They document the target multi-node
--- layout (docs/AUDITORIA_INTEGRAL_REPO_2026-10-01.md, section 5).
+-- Tables of earlier schema versions that were reserved and never written (safe to drop).
 -- =====================================================================================
-
--- Content-addressed artifacts (blobs live in object storage by sha256).
-CREATE TABLE IF NOT EXISTS artifacts (
-    id               UUID PRIMARY KEY,
-    artifact_type    TEXT NOT NULL,
-    sha256           TEXT NOT NULL,
-    uri              TEXT NOT NULL,
-    media_type       TEXT,
-    size_bytes       BIGINT,
-    metadata         JSONB NOT NULL DEFAULT '{}',
-    parents          JSONB NOT NULL DEFAULT '[]',
-    created_by_task  UUID,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS artifacts_sha ON artifacts (sha256);
+-- Artifact manifests live in hydra_logs (stream artifacts/manifests.jsonl); blobs in HYDRA_ARTIFACT_OBJECTS.
+-- The reserved artifacts table was never written; it may be dropped.
 
 -- The corpus lives in hydra_logs (streams corpus/*). The reserved corpus_records/corpus_lineage tables
 -- of earlier schema versions were never written; databases that created them may drop them.
