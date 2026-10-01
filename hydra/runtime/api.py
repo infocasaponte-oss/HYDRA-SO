@@ -28,12 +28,12 @@ from hydra.runtime.contracts import HydraTask
 from hydra.deploy.deployment import Deployment
 from hydra.deploy.deployment_controller import DeploymentController
 from hydra.deploy.deployment_controller import LEGACY_OFFSETS, EvidenceRejected
-from hydra.runtime.deployment_store import DeploymentStore
-from hydra.runtime.deployment_validation import DeploymentArtifactValidator
+from hydra.deploy.deployment_store import DeploymentStore
+from hydra.deploy.deployment_validation import DeploymentArtifactValidator
 from hydra.runtime.kernel import HydraKernel
 from hydra.runtime.learning_capture import LearningCapture
 from hydra.model_factory.contracts import ModelVariant
-from hydra.runtime.model_scout import HashCache, scan_models
+from hydra.model_factory.model_scout import HashCache, scan_models
 from hydra.runtime.observability import CognitiveTracer
 from hydra.runtime.operating_metrics import collect_operating_metrics
 from hydra.runtime.outbox_dispatcher import OutboxDispatcher
