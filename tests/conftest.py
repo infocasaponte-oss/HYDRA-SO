@@ -87,3 +87,22 @@ def isolated_runtime_models(tmp_path_factory, monkeypatch):
     models = tmp_path_factory.mktemp("models")
     monkeypatch.setattr(api, "settings", replace(api.settings, models_dir=str(models)))
     monkeypatch.setattr(api, "model_hash_cache", HashCache())
+
+
+@pytest.fixture
+def pg_url():
+    """A fresh PostgreSQL database per test on the server in HYDRA_IT_POSTGRES (its user must be able to
+    create databases). Append-only tables forbid TRUNCATE, so tests cannot share one database."""
+    import os
+    import uuid
+
+    server = os.environ.get("HYDRA_IT_POSTGRES")
+    if not server:
+        pytest.skip("set HYDRA_IT_POSTGRES to run the PostgreSQL backends")
+    psycopg = pytest.importorskip("psycopg")
+    name = f"hydra_it_{uuid.uuid4().hex[:10]}"
+    with psycopg.connect(server, autocommit=True) as admin:
+        admin.execute(f'CREATE DATABASE "{name}"')
+    yield server.rsplit("/", 1)[0] + "/" + name
+    with psycopg.connect(server, autocommit=True) as admin:
+        admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')

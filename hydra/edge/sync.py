@@ -50,9 +50,8 @@ def export_delta(runtime, since: SyncCursor, origin: str) -> SyncBundle:
         lines = [x for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]
         world_deltas = [json.loads(x) for x in lines[since.world_version:]]
     corpus = []
-    lines = [x for x in runtime.corpus.log_path.read_text(encoding="utf-8").splitlines() if x.strip()] \
-        if runtime.corpus.log_path.exists() else []
-    for line in lines[since.corpus_offset:]:
+    corpus_offset = since.corpus_offset
+    for corpus_offset, line in runtime.corpus.history(since.corpus_offset):
         r = json.loads(line)
         if r.get("training_status") in ("CURATED", "GOLD") and r.get("classification") in ("PUBLIC", "INTERNAL"):
             corpus.append(r)
@@ -62,7 +61,7 @@ def export_delta(runtime, since: SyncCursor, origin: str) -> SyncBundle:
     events = list(runtime.ledger.events())
     head = events[-1] if events else None
     b = SyncBundle(origin=origin, cursor_from=since,
-                   cursor_to=SyncCursor(world_version=runtime.world.version, corpus_offset=len(lines),
+                   cursor_to=SyncCursor(world_version=runtime.world.version, corpus_offset=corpus_offset,
                                         ledger_sequence=len(runtime.ledger)),
                    world_deltas=world_deltas, corpus_records=corpus, model_manifests=manifests,
                    ledger_digest={"sequence": head.sequence if head else 0, "head": head.event_hash if head else None})

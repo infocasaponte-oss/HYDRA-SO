@@ -91,6 +91,10 @@ class Settings(BaseSettings):
     """HYDRA_LEDGER_BACKEND: signed IP/provenance ledger: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
     psycopg is installed, else data/ledger files) | file | postgres (required). A PostgreSQL ledger adopts an
     existing file ledger once, after verifying it; the file is kept as a read-only copy."""
+    corpus_backend: str = "auto"
+    """HYDRA_CORPUS_BACKEND: corpus logs (records, lineage, tombstones, snapshots): auto (PostgreSQL table
+    hydra_logs when HYDRA_POSTGRES_URL is set and psycopg is installed, else data/corpus files) | file |
+    postgres (required). Existing files are imported once and kept as a read-only copy."""
     key_backend: str = "auto"
     """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
     keys_dir: Path | None = None

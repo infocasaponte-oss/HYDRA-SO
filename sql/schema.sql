@@ -152,8 +152,32 @@ CREATE TABLE IF NOT EXISTS ledger_anchors (
 ALTER TABLE ledger_anchors ADD COLUMN IF NOT EXISTS body TEXT;
 
 -- =====================================================================================
+-- Event logs of the event-sourced planes: hydra.core.eventlog (HYDRA_CORPUS_BACKEND), which also
+-- creates this table. One stream per log file (``corpus/log.jsonl``...), gap-free ``seq`` per stream,
+-- exact JSON line in ``body``. Append-only: triggers reject UPDATE, DELETE and TRUNCATE.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hydra_logs (
+    stream     TEXT NOT NULL,
+    seq        BIGINT NOT NULL,
+    body       TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (stream, seq)
+);
+CREATE OR REPLACE FUNCTION hydra_logs_immutable() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'hydra_logs is append-only';
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS hydra_logs_no_update ON hydra_logs;
+CREATE TRIGGER hydra_logs_no_update BEFORE UPDATE OR DELETE ON hydra_logs
+    FOR EACH ROW EXECUTE FUNCTION hydra_logs_immutable();
+DROP TRIGGER IF EXISTS hydra_logs_no_truncate ON hydra_logs;
+CREATE TRIGGER hydra_logs_no_truncate BEFORE TRUNCATE ON hydra_logs
+    FOR EACH STATEMENT EXECUTE FUNCTION hydra_logs_immutable();
+
+-- =====================================================================================
 -- HYDRA 1.0 planes: RESERVED SCHEMA, NOT WIRED YET.
--- The IP registry, artifacts, corpus and World Model persist ONLY in the local file stores under
+-- The IP registry, artifacts and World Model persist ONLY in the local file stores under
 -- HYDRA_DATA_DIR; no code reads or writes the tables below. They document the target multi-node
 -- layout (docs/AUDITORIA_INTEGRAL_REPO_2026-10-01.md, section 5).
 -- =====================================================================================
@@ -184,28 +208,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
 );
 CREATE INDEX IF NOT EXISTS artifacts_sha ON artifacts (sha256);
 
--- Corpus Engine (canonical records; training exports are Parquet/JSONL releases).
-CREATE TABLE IF NOT EXISTS corpus_records (
-    id               TEXT PRIMARY KEY,
-    record_type      TEXT NOT NULL,
-    content          JSONB NOT NULL,
-    quality          DOUBLE PRECISION,
-    verification     DOUBLE PRECISION,
-    rights           JSONB NOT NULL,
-    privacy          JSONB NOT NULL,
-    provenance       JSONB NOT NULL,
-    training_status  TEXT NOT NULL,
-    classification   TEXT NOT NULL,
-    tenant_id        TEXT,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE TABLE IF NOT EXISTS corpus_lineage (
-    parent_id        TEXT NOT NULL,
-    child_id         TEXT NOT NULL,
-    transformation   TEXT NOT NULL,
-    pipeline_version TEXT NOT NULL,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+-- The corpus lives in hydra_logs (streams corpus/*). The reserved corpus_records/corpus_lineage tables
+-- of earlier schema versions were never written; databases that created them may drop them.
 
 -- World Model (bitemporal relations, beliefs with evidence).
 CREATE TABLE IF NOT EXISTS world_entities (

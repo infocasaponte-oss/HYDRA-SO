@@ -2,7 +2,7 @@
 """One ledger contract, two backends (JSONL files on one host, PostgreSQL shared by every node).
 
 PostgreSQL cases run when HYDRA_IT_POSTGRES points at a disposable server whose user may create
-databases (each test gets its own database: the ledger forbids TRUNCATE, so tables cannot be reset):
+databases (``pg_url`` in conftest gives each test its own database: the ledger forbids TRUNCATE):
     docker run -d -p 127.0.0.1:15432:5432 -e POSTGRES_USER=hydra -e POSTGRES_PASSWORD=hydra postgres:17
     HYDRA_IT_POSTGRES=postgresql://hydra:hydra@127.0.0.1:15432/hydra
 """
@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import tarfile
 import threading
-import uuid
 
 import pytest
 
@@ -21,19 +20,6 @@ from hydra.ledger.signing import Signer
 
 PG = os.environ.get("HYDRA_IT_POSTGRES")
 needs_pg = pytest.mark.skipif(not PG, reason="set HYDRA_IT_POSTGRES")
-
-
-@pytest.fixture
-def pg_url():
-    if not PG:
-        pytest.skip("set HYDRA_IT_POSTGRES to run the PostgreSQL ledger")
-    psycopg = pytest.importorskip("psycopg")
-    name = f"hydra_ledger_{uuid.uuid4().hex[:10]}"
-    with psycopg.connect(PG, autocommit=True) as admin:
-        admin.execute(f'CREATE DATABASE "{name}"')
-    yield PG.rsplit("/", 1)[0] + "/" + name
-    with psycopg.connect(PG, autocommit=True) as admin:
-        admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
 
 
 @pytest.fixture
