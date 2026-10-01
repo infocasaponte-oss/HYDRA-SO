@@ -39,6 +39,11 @@ def validate_inputs(recipe: dict) -> dict:
         if not list(weights.keys()):
             raise ValueError("base has no weights")
     manifest = json.loads((corpus/"manifest.json").read_text(encoding="utf-8"))
+    if (corpus / "QUARANTINED.json").exists():
+        raise ValueError("corpus is quarantined; use a corrected new dataset and recipe")
+    if recipe.get("training_program"):
+        from hydra.training.program import validate_corpus
+        validate_corpus(corpus)
     validate_parent_replay(corpus,manifest)
     for split in ("train", "validation", "test"):
         filename = f"{split}.jsonl"
