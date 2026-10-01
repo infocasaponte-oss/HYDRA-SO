@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from pathlib import Path
 
 from pydantic import BaseModel, Field
+
+from hydra.tools.task_workspace import ConfinedRoot
 
 
 class ToolRisk(StrEnum):
@@ -40,12 +41,5 @@ class ToolRegistry:
         return sorted(self._tools)
 
 
-class Workspace:
-    def __init__(self, root: str | Path):
-        self.root = Path(root).resolve()
-
-    def resolve(self, relative: str) -> Path:
-        candidate = (self.root / relative).resolve()
-        if candidate != self.root and self.root not in candidate.parents:
-            raise ValueError("Workspace path escape rejected")
-        return candidate
+# F4e: path confinement moved to the platform (used by the coding loop and patching).
+Workspace = ConfinedRoot

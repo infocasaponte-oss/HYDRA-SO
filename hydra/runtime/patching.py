@@ -8,7 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from hydra.runtime.tools import Workspace
+from hydra.tools.task_workspace import ConfinedRoot as Workspace
 
 
 @dataclass(frozen=True)

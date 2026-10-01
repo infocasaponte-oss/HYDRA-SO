@@ -17,7 +17,8 @@ detalle do que falta.
 | F4j despregamentos (`hydra/deploy/`) | ✅ #65–#68 |
 | F4i-1/2 eventos durables, outbox, procedencia e despachador común | ✅ #69, #70 |
 | F4g-1 admisión de artefactos e almacenamento de candidatos do corpus | ⏳ #71 (aberta) |
-| F4c observabilidade | ⏳ esta PR |
+| F4c observabilidade | ✅ #72 |
+| F4d/F4e policy e ferramentas | ⏳ esta PR: `Workspace` (confinamento de rutas, o único en produción) → `hydra.tools.task_workspace.ConfinedRoot`; o resto, candidato a retirar (D2, táboa en §2.1) |
 | `hydra/runtime/` | 98 módulos e 5.822 liñas (antes 7.837) |
 
 ## 0. Estado actual (auditado)
@@ -87,6 +88,22 @@ a que se queda cobre todo → reexportación → F0 sen cambios (salvo engadidos
 | **F4j** | Despregamentos | `deployment_*`, `traffic_router`, `runtime_health*`, `runtime_evidence`, `health_gate`, `readiness`: non teñen equivalente na plataforma. Movelos tal cual a `hydra/deploy/` (só mover código) | Baixo |
 | **F4k** | Bucle de código e replay de auditoría | `code_agent`, `code_context`, `patching`, `coding_request`, `workspace_hash` → `hydra/coding/`; `coding_loop` e `static_analysis` (sen chamadores) → integrar ou retirar. `replay`, `replay_executor`, `replay_integrity`, `code_replay` → `hydra/audit/` (xa existe `hydra/replay.py`, que é outra cousa: o laboratorio de melloras) | Medio |
 | **F4l** | Tradución e glosarios do runtime | Non son alcanzables desde o gateway (gaña a plataforma). Retiralos tras a decisión D1 | Baixo |
+
+### 2.1 Candidatos a retirar: subsistema de ferramentas do runtime (D2)
+`runtime/policy` (`PolicyEngine`, `ToolPermission`), `runtime/tools` (`ToolRegistry`, `ToolSpec`),
+`runtime/tool_runtime` (`ToolRuntime`) e `runtime/tool_audit` só os usan os seus tests. A plataforma
+cobre cada función:
+
+| Runtime | Plataforma |
+|---|---|
+| `workspace.list` | `workspace.list` |
+| `workspace.search` | `workspace.search` |
+| `workspace.read` (ata 100 000 caracteres) | `filesystem.read` (rutas confinadas por `allowed_path`) |
+| `python.test` (pytest no sandbox OCI, só lectura) | `python.run_tests` (sandbox da plataforma); o pytest OCI segue en `tools/oci_sandbox` para o bucle de código |
+| `PolicyEngine.authorize` (rede, escritura, execución) | `ToolPolicyEngine.evaluate`: capacidades, nivel de risco, aprobacións, rutas, dominios, modo privado e shadow |
+| `tool_audit` | eventos `TOOL_*` do bus e ledger |
+
+Proposta: retiralos en F6b xunto coas reexportacións, salvo que D2 diga o contrario.
 
 ## 3. F5: kernel e contratos
 Depende da decisión D1.
