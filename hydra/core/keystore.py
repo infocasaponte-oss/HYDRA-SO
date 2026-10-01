@@ -181,8 +181,9 @@ class KeyStore:
             _restrict(self.keys_dir / f"{name}.key")
             return
         if self.backend != "legacy":
-            log.warning("no OS keyring and no HYDRA_KEYS_DIR: key %s is stored in the data directory (%s)",
-                        name, legacy_path)
+            # Where key material sits stays out of the logs: only that a key is in the data directory.
+            log.warning("no OS keyring and no HYDRA_KEYS_DIR: a private key is stored in the data directory "
+                        "(use HYDRA_KEYS_DIR; `hydra keys export` writes them there)")
         legacy_path.parent.mkdir(parents=True, exist_ok=True)
         write_bytes_atomic(legacy_path, value)
         _restrict(legacy_path)

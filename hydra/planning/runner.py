@@ -27,7 +27,7 @@ from hydra.planning.goals import ExecutionPlan, Goal, PlanNode, PlanWeights, par
 from hydra.planning.htn import decompose, infer_goal
 from hydra.planning.procedures import ProcedureMiner, ProcedureStore, Trace, ValueModel
 from hydra.planning.simulator import CalibrationEngine, HistoricalSimulator, SimulatorEnsemble, branch_and_bound
-from hydra.runtime.code_verification import changed_python_paths
+from hydra.verification.code import changed_python_paths
 
 FILE_BLOCK = re.compile(r"(?:###\s*FILE:\s*|#\s*file:\s*)(?P<path>[\w./\\-]+)\s*\n```[\w+-]*\s*\n(?P<body>.*?)```", re.S)
 DIFF_BLOCK = re.compile(r"```(?:diff|patch)\s*\n(.*?)```", re.S)

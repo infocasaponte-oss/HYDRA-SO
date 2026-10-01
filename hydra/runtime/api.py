@@ -78,6 +78,7 @@ artifacts = ArtifactStore(
 )
 provenance = ProvenanceLedger(log=runtime_logs.open(runtime_path("provenance.jsonl"), ProvenanceLedger.STREAM))
 workspaces = WorkspaceManager(
+    source_root=settings.repositories_root,
     max_files=settings.workspace_max_files,
     max_bytes=settings.workspace_max_bytes,
 )

@@ -78,7 +78,7 @@ Hoy se cumple el punto 1 para la plataforma (PRs #41–#50). Este plan cubre el 
 | Corpus y datasets | `corpus/store`, `corpus/factory` | `runtime/corpus`, `runtime/dataset_factory` | `runtime/corpus_quality` se mantiene como puerta de calidad |
 | Creencias | `world/model` | `runtime/beliefs` | |
 | Outbox | `capture_outbox` (+ PG) | `runtime/outbox` | un solo outbox con topics |
-| Sandbox y workspaces | `tools/sandbox`, `tools/workspace` | `runtime/sandbox`, `runtime/workspaces` | |
+| Sandbox y workspaces | `tools/sandbox`, `tools/workspace` | `runtime/sandbox`, `runtime/workspaces` | ✅ F4b: no se solapan. `tools/sandbox` ejecuta fragmentos de Python; el del runtime ejecuta py_compile/ruff/mypy/pytest sobre el workspace de la tarea → movido tal cual a `tools/oci_sandbox` (misma imagen), con `code_verification` → `verification/code` y las copias por tarea → `tools/task_workspace`; el runtime reexporta |
 | Verificador | `verification/verifier` | `runtime/verifier`, `code_verification` | ✅ F4a: `Verifier.verify_text` (+ `TextVerification`) reproduce la verificación estructural del runtime, comprobada idéntica contra el original; `runtime/verifier` reexporta. `code_verification` va con el sandbox (depende de `SandboxResult`) |
 | Planificador | `scheduler/planner` | `runtime/planner`, `planning/goals.ExecutionPlan` | tres `ExecutionPlan`: unificar a uno |
 | Policy | `governance/policy_dsl` | `runtime/policy` | |
