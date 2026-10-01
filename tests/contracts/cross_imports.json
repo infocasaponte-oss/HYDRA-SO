@@ -28,9 +28,6 @@
   "hydra.runtime.promotion_gate:PromotionPolicy",
   "hydra.runtime.promotion_gate:apply_promotion_gate"
  ],
- "hydra/planning/runner.py": [
-  "hydra.runtime.code_verification:changed_python_paths"
- ],
  "hydra/world/runtime_beliefs.py": [
   "hydra.runtime.beliefs:Belief",
   "hydra.runtime.beliefs:BeliefStatus",
