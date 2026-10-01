@@ -198,6 +198,43 @@ CREATE INDEX IF NOT EXISTS capture_outbox_due ON capture_outbox (next_attempt_at
     WHERE published_at IS NULL AND dead_lettered_at IS NULL;
 
 -- =====================================================================================
+-- Runtime line (hydra.runtime.pg_stores, HYDRA_RUNTIME_BACKEND), which also creates these tables
+-- (runtime_outbox has the capture_outbox layout and is created by PostgresOutbox).
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS task_commits (
+    task_id      UUID PRIMARY KEY,
+    trace_id     TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    result       JSONB NOT NULL,
+    committed_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS deployment_evidence (
+    id         BIGSERIAL PRIMARY KEY,
+    variant_id TEXT NOT NULL,
+    phase      TEXT NOT NULL,
+    payload    JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS deployment_evidence_variant_phase ON deployment_evidence (variant_id, phase, id);
+CREATE TABLE IF NOT EXISTS operating_metrics (
+    id          BIGSERIAL PRIMARY KEY,
+    node        TEXT NOT NULL,
+    captured_at TIMESTAMPTZ NOT NULL,
+    payload     JSONB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runtime_health (
+    node              TEXT NOT NULL,
+    variant_id        TEXT NOT NULL,
+    state             TEXT NOT NULL,
+    failures          INTEGER NOT NULL,
+    failure_threshold INTEGER NOT NULL,
+    recovery_seconds  DOUBLE PRECISION NOT NULL,
+    opened_at_wall    DOUBLE PRECISION,
+    updated_at        TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (node, variant_id)
+);
+
+-- =====================================================================================
 -- Tables of earlier schema versions that were reserved and never written (safe to drop).
 -- =====================================================================================
 -- Artifact manifests live in hydra_logs (stream artifacts/manifests.jsonl); blobs in HYDRA_ARTIFACT_OBJECTS.

@@ -15,13 +15,14 @@ class OutboxMetrics:
 
 
 def collect_outbox_metrics(outbox: TransactionalOutbox) -> OutboxMetrics:
-    pending = outbox.pending(limit=10_000)
+    """Counted by the store (``pending_summary``): no row is loaded, and on PostgreSQL no message is
+    claimed, which ``pending()`` would do."""
+    pending, dead_letters, oldest = outbox.pending_summary()
     oldest_age = None
-    if pending:
-        oldest = min(datetime.fromisoformat(item.created_at) for item in pending)
-        oldest_age = max((datetime.now(UTC) - oldest).total_seconds(), 0.0)
+    if oldest is not None:
+        oldest_age = max((datetime.now(UTC) - datetime.fromisoformat(oldest)).total_seconds(), 0.0)
     return OutboxMetrics(
-        pending=len(pending),
-        dead_letters=len(outbox.dead_letters(limit=10_000)),
+        pending=pending,
+        dead_letters=dead_letters,
         oldest_pending_age_seconds=oldest_age,
     )

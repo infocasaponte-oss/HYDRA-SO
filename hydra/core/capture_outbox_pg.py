@@ -26,7 +26,7 @@ from hydra.runtime.outbox import OutboxMessage, TransactionalOutbox
 log = logging.getLogger("hydra.capture")
 
 OUTBOX_SCHEMA = """
-CREATE TABLE IF NOT EXISTS capture_outbox (
+CREATE TABLE IF NOT EXISTS {table} (
     id               UUID PRIMARY KEY,
     topic            TEXT NOT NULL,
     aggregate_id     UUID NOT NULL,
@@ -39,9 +39,10 @@ CREATE TABLE IF NOT EXISTS capture_outbox (
     last_error       TEXT,
     dead_lettered_at TIMESTAMPTZ
 );
-CREATE INDEX IF NOT EXISTS capture_outbox_due ON capture_outbox (next_attempt_at, created_at)
+CREATE INDEX IF NOT EXISTS {table}_due ON {table} (next_attempt_at, created_at)
     WHERE published_at IS NULL AND dead_lettered_at IS NULL;
 """
+TABLES = ("capture_outbox", "runtime_outbox")  # platform capture writes; runtime-line transactional outbox
 
 _COLUMNS = ("id, topic, aggregate_id, trace_id, payload, created_at, published_at, attempts, next_attempt_at, "
             "last_error, dead_lettered_at")
@@ -62,17 +63,21 @@ def _message(row) -> OutboxMessage:
 class PostgresOutbox:
     backend = "postgres"
 
-    def __init__(self, url: str, lease_s: float = 120.0) -> None:
+    def __init__(self, url: str, lease_s: float = 120.0, table: str = "capture_outbox") -> None:
+        """``table``: ``capture_outbox`` (platform capture) or ``runtime_outbox`` (runtime line)."""
         import psycopg  # optional dependency
         from psycopg.types.json import Jsonb
 
+        if table not in TABLES:
+            raise ValueError(f"unknown outbox table {table!r}")
         self._psycopg, self._jsonb = psycopg, Jsonb
         self.url = url
+        self.table = table
         self.lease_s = lease_s
         self._local = threading.local()
         con = self._con()
         with con.transaction():
-            con.execute(OUTBOX_SCHEMA)
+            con.execute(OUTBOX_SCHEMA.format(table=table))
 
     def _con(self):
         con = getattr(self._local, "con", None)
@@ -96,7 +101,7 @@ class PostgresOutbox:
                 payload: dict[str, Any]) -> OutboxMessage:
         message = OutboxMessage(id=uuid4(), topic=topic, aggregate_id=aggregate_id, trace_id=trace_id,
                                 payload=payload, created_at=datetime.now(UTC).isoformat())
-        connection.execute("INSERT INTO capture_outbox (id, topic, aggregate_id, trace_id, payload, created_at) "
+        connection.execute(f"INSERT INTO {self.table} (id, topic, aggregate_id, trace_id, payload, created_at) "
                            "VALUES (%s, %s, %s, %s, %s, %s)",
                            (message.id, topic, aggregate_id, trace_id, self._jsonb(payload), message.created_at))
         return message
@@ -105,8 +110,8 @@ class PostgresOutbox:
         """Claim up to ``limit`` due messages for ``lease_s`` seconds (see the module docstring)."""
         lease_until = datetime.now(UTC) + timedelta(seconds=self.lease_s)
         rows = self._con().execute(
-            f"""UPDATE capture_outbox SET next_attempt_at = %s
-                WHERE id IN (SELECT id FROM capture_outbox
+            f"""UPDATE {self.table} SET next_attempt_at = %s
+                WHERE id IN (SELECT id FROM {self.table}
                              WHERE published_at IS NULL AND dead_lettered_at IS NULL
                                AND (next_attempt_at IS NULL OR next_attempt_at <= now())
                              ORDER BY created_at, id LIMIT %s FOR UPDATE SKIP LOCKED)
@@ -114,32 +119,41 @@ class PostgresOutbox:
         return sorted((_message(r) for r in rows), key=lambda m: (m.created_at, str(m.id)))
 
     def mark_published(self, message_id: UUID) -> None:
-        self._con().execute("UPDATE capture_outbox SET published_at = now(), last_error = NULL, "
+        self._con().execute(f"UPDATE {self.table} SET published_at = now(), last_error = NULL, "
                             "next_attempt_at = NULL WHERE id = %s", (message_id,))
 
     def record_failure(self, message_id: UUID, *, error: str, next_attempt_at: str | None,
                        dead_letter: bool) -> None:
         self._con().execute(
-            "UPDATE capture_outbox SET attempts = attempts + 1, last_error = %s, next_attempt_at = %s, "
+            f"UPDATE {self.table} SET attempts = attempts + 1, last_error = %s, next_attempt_at = %s, "
             "dead_lettered_at = CASE WHEN %s THEN now() ELSE dead_lettered_at END WHERE id = %s",
             (error[:2000], next_attempt_at, dead_letter, message_id))
 
     def requeue_dead_letter(self, message_id: UUID) -> bool:
         cur = self._con().execute(
-            "UPDATE capture_outbox SET dead_lettered_at = NULL, next_attempt_at = NULL, last_error = NULL, "
+            f"UPDATE {self.table} SET dead_lettered_at = NULL, next_attempt_at = NULL, last_error = NULL, "
             "attempts = 0 WHERE id = %s AND dead_lettered_at IS NOT NULL AND published_at IS NULL", (message_id,))
         return cur.rowcount == 1
 
     def dead_letters(self, limit: int = 100) -> list[OutboxMessage]:
-        rows = self._con().execute(f"SELECT {_COLUMNS} FROM capture_outbox WHERE dead_lettered_at IS NOT NULL "
+        rows = self._con().execute(f"SELECT {_COLUMNS} FROM {self.table} WHERE dead_lettered_at IS NOT NULL "
                                    "ORDER BY dead_lettered_at, id LIMIT %s", (limit,)).fetchall()
         return [_message(r) for r in rows]
 
     def counts(self) -> dict[str, int]:
         pending, dead = self._con().execute(
             "SELECT count(*) FILTER (WHERE published_at IS NULL AND dead_lettered_at IS NULL), "
-            "count(*) FILTER (WHERE dead_lettered_at IS NOT NULL) FROM capture_outbox").fetchone()
+            f"count(*) FILTER (WHERE dead_lettered_at IS NOT NULL) FROM {self.table}").fetchone()
         return {"pending": pending, "dead_letters": dead}
+
+    def pending_summary(self) -> tuple[int, int, str | None]:
+        """(pending, dead letters, created_at of the oldest pending message), without claiming anything."""
+        pending, dead, oldest = self._con().execute(
+            "SELECT count(*) FILTER (WHERE published_at IS NULL AND dead_lettered_at IS NULL), "
+            "count(*) FILTER (WHERE dead_lettered_at IS NOT NULL), "
+            f"min(created_at) FILTER (WHERE published_at IS NULL AND dead_lettered_at IS NULL) FROM {self.table}"
+        ).fetchone()
+        return pending, dead, _iso(oldest)
 
     def import_sqlite(self, path: Path) -> int:
         """Copy the unpublished messages of a local SQLite capture outbox (kept as is) once, by id."""
@@ -155,7 +169,7 @@ class PostgresOutbox:
         with self.transaction() as pg:
             for r in rows:
                 cur = pg.execute(
-                    "INSERT INTO capture_outbox (id, topic, aggregate_id, trace_id, payload, created_at, attempts, "
+                    f"INSERT INTO {self.table} (id, topic, aggregate_id, trace_id, payload, created_at, attempts, "
                     "next_attempt_at, last_error, dead_lettered_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                     "ON CONFLICT (id) DO NOTHING",
                     (r["id"], r["topic"], r["aggregate_id"], r["trace_id"], self._jsonb(json.loads(r["payload_json"])),
