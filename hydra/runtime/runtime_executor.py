@@ -62,7 +62,24 @@ class RuntimeExecutor:
             if primary is decision.canary:
                 canary_error = True  # the canary failed this request; the active variant answers it
                 started = time.perf_counter()
-                answer, primary_id = await self._fallback(decision, prompt, max_tokens)
+                try:
+                    answer, primary_id = await self._fallback(decision, prompt, max_tokens)
+                except Exception:
+                    # The request fails, but the canary failure is still evidence: without this
+                    # record a canary that fails together with its fallback would look error-free.
+                    if shadow_task is not None:
+                        shadow_task.cancel()
+                    if self.evidence_store is not None:
+                        self.evidence_store.append(
+                            trace_id=trace_id,
+                            capability=capability,
+                            primary_variant_id=str(decision.primary.variant_id),
+                            primary_output="",
+                            primary_error=True,
+                            canary_variant_id=canary_id,
+                            canary_error=True,
+                        )
+                    raise
             else:
                 raise
         else:
@@ -136,6 +153,10 @@ class RuntimeExecutor:
         max_tokens: int,
     ) -> tuple[str, str]:
         fallback_id = str(decision.primary.variant_id)
-        answer = await self.inference_call(fallback_id, prompt, max_tokens)
+        try:
+            answer = await self.inference_call(fallback_id, prompt, max_tokens)
+        except Exception:
+            self.health.failure(fallback_id)
+            raise
         self.health.success(fallback_id)
         return answer, fallback_id

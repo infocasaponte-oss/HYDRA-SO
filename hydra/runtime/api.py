@@ -478,7 +478,8 @@ async def approve_deployment_canary(variant_id: UUID, request: Request) -> dict:
     if deployment is None:
         raise HTTPException(status_code=404, detail="Deployment not found")
     try:
-        evidence = deployment_controller.approve_canary(deployment)
+        # Evidence aggregation reads the traffic log: keep it off the event loop.
+        evidence = await asyncio.to_thread(deployment_controller.approve_canary, deployment)
         deployment_store.save(deployment_registry)
     except EvidenceRejected as exc:
         raise HTTPException(status_code=409, detail=_rejection(exc)) from exc
@@ -503,7 +504,7 @@ async def activate_deployment(variant_id: UUID, request: Request) -> dict:
     if deployment is None:
         raise HTTPException(status_code=404, detail="Deployment not found")
     try:
-        evidence = deployment_controller.measure_canary(deployment)
+        evidence = await asyncio.to_thread(deployment_controller.measure_canary, deployment)
         active = deployment_controller.activate(deployment, evidence)
         deployment_store.save(deployment_registry)
     except EvidenceRejected as exc:
@@ -530,9 +531,9 @@ async def deployment_evidence(variant_id: UUID, request: Request) -> dict:
         raise HTTPException(status_code=404, detail="Deployment not found")
     measured = None
     if deployment.state.value == "shadow":
-        measured = asdict(deployment_controller.measure_shadow(deployment))
+        measured = asdict(await asyncio.to_thread(deployment_controller.measure_shadow, deployment))
     elif deployment.state.value == "canary":
-        measured = asdict(deployment_controller.measure_canary(deployment))
+        measured = asdict(await asyncio.to_thread(deployment_controller.measure_canary, deployment))
     return {
         "variant_id": str(variant_id),
         "state": deployment.state.value,

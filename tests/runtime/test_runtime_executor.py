@@ -91,3 +91,23 @@ async def test_canary_failures_and_latency_are_recorded_as_evidence(tmp_path):
     assert measured_shadow.samples == 1 and measured_shadow.error_rate == 1.0
     record = next(evidence.records())
     assert record["canary_error"] is True and record["primary_latency_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_canary_failure_is_recorded_even_when_the_fallback_fails(tmp_path):
+    registry = DeploymentRegistry()
+    active = deployment(DeploymentState.ACTIVE, 1)
+    canary = deployment(DeploymentState.CANARY, 2)
+    registry.add(active)
+    registry.add(canary)
+
+    async def call(variant_id: str, prompt: str, max_tokens: int) -> str:
+        raise RuntimeError("everything is down")
+
+    health = RuntimeHealth()
+    evidence = RuntimeEvidenceStore(tmp_path / "evidence.jsonl")
+    executor = RuntimeExecutor(TrafficRouter(registry, health, canary_percent=100), health, call, evidence)
+    with pytest.raises(RuntimeError):
+        await executor.execute(capability="reasoning.general", trace_id="t", prompt="p", max_tokens=8)
+    measured = evidence.canary_evidence(str(canary.variant_id))
+    assert measured.requests == 1 and measured.error_rate == 1.0
