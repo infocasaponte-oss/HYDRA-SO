@@ -31,3 +31,12 @@ def test_registry_produces_a_release_notice():
     notice = attribution_notice({"name": s["name"], "license": s["license"], "url": s["url"]}
                                 for s in REGISTRY["admitted"])
     assert "CC-BY-4.0" in notice and "es-public-sector-reuse" in notice and "eu-reuse-2011-833" in notice
+
+
+def test_local_inventory_agrees_with_the_policy():
+    inventory = REGISTRY["local_inventory"]
+    for item in inventory["admitted"]:
+        for lic in [item["license"], *item.get("also", [])]:
+            assert admit_source(lic).allowed, item["path"]
+    for item in inventory["rejected"]:
+        assert not admit_source(item["license"]).allowed, item["path"]
