@@ -55,8 +55,8 @@ from hydra.deploy.executor import RuntimeExecutor
 from hydra.deploy.runtime_health import RuntimeHealth
 from hydra.core.native_stores import open_runtime_stores
 from hydra.runtime.sandbox import OciSandbox
-from hydra.runtime.security import SecurityConfig, require_admin_access, require_api_access
-from hydra.runtime.security_audit import SecurityAudit
+from hydra.api.native_access import SecurityConfig, require_admin_access, require_api_access
+from hydra.audit.access import SecurityAudit
 from hydra.deploy.traffic_router import TrafficRouter
 from hydra.edge.native_translation import GlossaryStore, TranslationService
 from hydra.runtime.workspaces import WorkspaceManager
