@@ -39,7 +39,7 @@ from hydra.runtime.observability import CognitiveTracer
 from hydra.runtime.operating_metrics import collect_operating_metrics
 from hydra.core.outbox_dispatcher import OutboxDispatcher
 from hydra.core.outbox_worker import OutboxWorker
-from hydra.runtime.physical_inference import PhysicalInferenceClient
+from hydra.providers.physical import PhysicalInferenceClient
 from hydra.core.durable_events import JsonlEventStore
 from hydra.core.runtime_paths import runtime_path
 from hydra.provenance.ledger import ProvenanceLedger, ProvenanceRecord
@@ -48,10 +48,10 @@ from hydra.runtime.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.deploy.readiness import evaluate_readiness
 from hydra.audit.replay import ReplayManifest, ReplayStore
 from hydra.audit.executor import AuditReplayExecutor
-from hydra.runtime.runtime_bridge import RuntimeBridge
-from hydra.runtime.runtime_events import RuntimeEventEmitter
+from hydra.deploy.bridge import RuntimeBridge
+from hydra.deploy.events import RuntimeEventEmitter
 from hydra.deploy.runtime_evidence import RuntimeEvidenceStore
-from hydra.runtime.runtime_executor import RuntimeExecutor
+from hydra.deploy.executor import RuntimeExecutor
 from hydra.deploy.runtime_health import RuntimeHealth
 from hydra.runtime.pg_stores import open_runtime_stores
 from hydra.runtime.sandbox import OciSandbox
@@ -333,7 +333,7 @@ async def execute_task(task: HydraTask, request: Request) -> dict:
         result = await kernel.run(task, llm)
         return result.model_dump(mode="json")
     except Exception as exc:
-        from hydra.runtime.executor import UnsafePlan
+        from hydra.scheduler.native_executor import UnsafePlan
         if isinstance(exc, UnsafePlan):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=502, detail="HYDRA execution failed") from exc
