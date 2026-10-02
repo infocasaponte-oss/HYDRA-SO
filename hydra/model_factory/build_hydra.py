@@ -76,6 +76,9 @@ def build(recipe_path: Path) -> Path:
         old = json.loads(manifest_path.read_text(encoding="utf-8"))
         if old["inputs"] != evidence:
             raise ValueError("build inputs changed; use a new output directory")
+        # Resuming: completed stages are re-verified by hash; a previous error no longer applies.
+        old.pop("error", None)
+        old["status"] = "BUILDING"
     else:
         old = {"inputs": evidence, "stages": {}, "status": "BUILDING", "approved": False}
     def save():
@@ -112,7 +115,9 @@ def build(recipe_path: Path) -> Path:
         quantization = recipe.get("quantization", "Q4_K_M")
         if quantization not in {"Q4_K_M", "Q5_K_M", "Q8_0"}:
             raise ValueError("unsupported candidate quantization")
-        stage("quantize", [recipe["quantizer"],str(root/"HYDRA-f16.gguf"),str(target),quantization], [target])
+        # Windows CreateProcess cannot launch a relative "a/b/c.exe" path; resolve it first.
+        quantizer = str(Path(recipe["quantizer"]).resolve())
+        stage("quantize", [quantizer,str(root/"HYDRA-f16.gguf"),str(target),quantization], [target])
         info = read_gguf(target)
         if not info.tensors or info.file_type != quantization:
             raise ValueError("invalid or unexpected GGUF output")
