@@ -21,7 +21,7 @@ async def evaluate(args):
     report = {"artifact_sha256": build["sha256"], "dataset_sha256": sha256(args.dataset),
               "model": args.model, "endpoint": args.endpoint, "approved": False,
               "evaluator_sha256": sha256(Path(__file__)),
-              "protocol": {"temperature": 0, "seed": 42, "max_tokens": 160, "grammar": False},
+              "protocol": {"temperature": 0, "seed": 42, "max_tokens": args.max_tokens, "grammar": False},
               "scope": "Known regression or synthetic fixtures; not independent certification",
               "complete": False, "cases": []}
     report["quarantined_diagnostic_only"] = quarantined
@@ -34,7 +34,7 @@ async def evaluate(args):
             raise ValueError("runtime is not serving the declared artifact path")
         for row in rows:
             response = await client.post("/v1/chat/completions", json={"model": args.model,
-                "messages": row["messages"][:-1], "temperature": 0, "seed": 42, "max_tokens": 160})
+                "messages": row["messages"][:-1], "temperature": 0, "seed": 42, "max_tokens": args.max_tokens})
             response.raise_for_status()
             output = response.json()["choices"][0]["message"]["content"]
             expected = row["messages"][-1]["content"]
@@ -68,4 +68,6 @@ if __name__ == "__main__":
     parser.add_argument("--model", required=True)
     parser.add_argument("--diagnostic-quarantine", action="store_true")
     parser.add_argument("--endpoint", default="http://127.0.0.1:18091")
+    # 160 is the historical protocol; long literal quotes in grounded sets need more room.
+    parser.add_argument("--max-tokens", type=int, default=160)
     asyncio.run(evaluate(parser.parse_args()))
