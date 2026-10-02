@@ -96,3 +96,16 @@ def test_cached_tokens_are_verified(tmp_path):
     np.asarray([1, 5], dtype=np.uint16).tofile(data / "train.bin")  # truncated
     with pytest.raises(ValueError, match="train.bin"):
         bp.verify_tokens(data, corpus, tok)
+
+
+def test_stage1_shape_is_about_125m_and_keeps_tokens_per_step():
+    from dataclasses import asdict
+
+    from transformers import LlamaConfig, LlamaForCausalLM
+    shape = bp.SHAPES["125m"]
+    model = LlamaForCausalLM(LlamaConfig(vocab_size=32_000, tie_word_embeddings=True, **asdict(shape)))
+    assert 120e6 < sum(p.numel() for p in model.parameters()) < 130e6
+    for name in ("30m", "125m"):
+        plan = bp.PLANS[name]
+        assert plan.micro_batch * plan.accumulation * plan.seq_len == 65_536
+    assert bp.PLANS["125m"].gradient_checkpointing and not bp.PLANS["30m"].gradient_checkpointing

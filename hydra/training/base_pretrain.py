@@ -32,6 +32,14 @@ class ModelShape:
     max_position_embeddings: int = 1024
 
 
+SHAPES = {
+    "30m": ModelShape(),
+    # Stage 1: SmolLM-135M-like deep-and-thin shape; ~124M parameters with the 32k tied vocabulary.
+    "125m": ModelShape(hidden_size=576, num_hidden_layers=30, num_attention_heads=9, num_key_value_heads=3,
+                       intermediate_size=1536, max_position_embeddings=1024),
+}
+
+
 @dataclass
 class TrainPlan:
     seq_len: int = 1024
@@ -46,6 +54,12 @@ class TrainPlan:
     eval_every: int = 250
     eval_batches: int = 50
     seed: int = 42
+    gradient_checkpointing: bool = False
+
+
+# Same 65,536 tokens per optimizer step. Measured on the 8 GiB RTX GPU: 125m at micro-batch 4 without
+# checkpointing peaks at 7.8 GB (~4.1k tok/s); micro-batch 8 with checkpointing peaks at 6.1 GB (~10.5k tok/s).
+PLANS = {"30m": TrainPlan(), "125m": TrainPlan(micro_batch=8, accumulation=8, gradient_checkpointing=True)}
 
 
 def tokenize(corpus: Path, tokenizer_dir: Path, output: Path) -> dict:
@@ -157,7 +171,7 @@ def evaluate(model, tokens: np.ndarray, plan: TrainPlan, device) -> float:
 
 
 def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, plan: TrainPlan,
-          max_steps: int | None = None, device: str | None = None) -> dict:
+          max_steps: int | None = None, device: str | None = None, stage: int = 0) -> dict:
     import torch
 
     if output.exists():
@@ -170,6 +184,9 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
     import sentencepiece as spm
     vocab = spm.SentencePieceProcessor(model_file=str(tokenizer_dir / "tokenizer.model")).get_piece_size()
     model = build_model(vocab, shape, tokenizer_dir).to(device)
+    if plan.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+        model.config.use_cache = False
     parameters = sum(p.numel() for p in model.parameters())
     tokens_per_step = plan.seq_len * plan.micro_batch * plan.accumulation
     total = max_steps or max(1, int(len(train_tokens) * plan.epochs / tokens_per_step))
@@ -208,7 +225,7 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
     for name in ("tokenizer.model", "tokenizer_config.json", "special_tokens_map.json"):
         shutil.copy2(tokenizer_dir / name, final / name)
     weights = final / "model.safetensors"
-    report = {"kind": "hydra-base", "stage": 0, "approved": False, "parameters": parameters, "shape": asdict(shape),
+    report = {"kind": "hydra-base", "stage": stage, "approved": False, "parameters": parameters, "shape": asdict(shape),
               "plan": asdict(plan), "steps": total, "tokens_seen": total * tokens_per_step,
               "train_tokens": int(len(train_tokens)), "device": str(device),
               "gpu": torch.cuda.get_device_name(0) if device.type == "cuda" else None,
@@ -230,6 +247,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=Path("models/hydra-base-v0-30m"))
     parser.add_argument("--max-steps", type=int, default=None)
     parser.add_argument("--tokenize-only", action="store_true")
+    parser.add_argument("--shape", choices=sorted(SHAPES), default="30m")
+    parser.add_argument("--stage", type=int, choices=(0, 1), default=0)
     args = parser.parse_args()
     if not (args.data / "tokens-manifest.json").exists():
         counts = tokenize(args.corpus, args.tokenizer, args.data)
@@ -242,5 +261,6 @@ if __name__ == "__main__":
     else:
         verify_tokens(args.data, args.corpus, args.tokenizer)
     if not args.tokenize_only:
-        result = train(args.data, args.tokenizer, args.output, ModelShape(), TrainPlan(), args.max_steps)
+        result = train(args.data, args.tokenizer, args.output, SHAPES[args.shape], PLANS[args.shape], args.max_steps,
+                       stage=args.stage)
         print(json.dumps({k: result[k] for k in ("parameters", "steps", "tokens_seen", "runtime_s", "history")}, indent=2))
