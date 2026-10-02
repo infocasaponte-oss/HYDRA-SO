@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-"""Operating metrics snapshots (SQLite; ``hydra.runtime.pg_stores`` has the PostgreSQL version)."""
+"""Operating metrics snapshots (SQLite; ``hydra.core.native_stores`` has the PostgreSQL version)."""
 from __future__ import annotations
 
 import json
