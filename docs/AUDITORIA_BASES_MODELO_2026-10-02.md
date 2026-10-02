@@ -60,7 +60,7 @@ Cómputo de preentrenamiento ≈ 6 × parámetros × tokens; regla orientativa d
 
 ## 6. Licencia propia y protección (decidido el 2 de octubre de 2026)
 
-HYDRA Base tendrá **licencia propietaria y protegida** (borrador: [docs/legal/LICENCIA_HYDRA_BASE_BORRADOR.md](legal/LICENCIA_HYDRA_BASE_BORRADOR.md)). Esto fija los datos:
+HYDRA Base tendrá **licencia propietaria y protegida** (borrador: [docs/legal/LICENCIA_PESOS_HYDRA_BASE.md](legal/LICENCIA_PESOS_HYDRA_BASE.md)). Esto fija los datos:
 
 - **Admitidos** (`hydra/training/base_data_policy.py`): dominio público, CC0, CC BY, MIT, BSD, ISC, Apache-2.0, reutilización del sector público (BOE, con cita) y datos generados por HYDRA. Se conservan sus avisos de atribución.
 - **Rechazados:** *share-alike* (**Wikipedia queda fuera**), *copyleft* (GPL), no comercial, «sin obras derivadas» y licencias desconocidas.
