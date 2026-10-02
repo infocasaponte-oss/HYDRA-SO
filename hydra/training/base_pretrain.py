@@ -201,7 +201,7 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
               "weights_sha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
               "tokenizer_sha256": hashlib.sha256((tokenizer_dir / "tokenizer.model").read_bytes()).hexdigest(),
               "data_manifest": json.loads((data_dir / "tokens-manifest.json").read_text(encoding="utf-8")),
-              "license": "HYDRA Base proprietary (docs/legal/LICENCIA_HYDRA_BASE_BORRADOR.md); weights never published"}
+              "license": "HYDRA Base proprietary (docs/legal/LICENCIA_PESOS_HYDRA_BASE.md); weights never published"}
     (output / "build-manifest.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     return report
 
