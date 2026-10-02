@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from hydra.runtime.artifacts import ArtifactRecord, ArtifactStore
+from hydra.artifacts.task_store import ArtifactRecord, ArtifactStore
 from hydra.coding.context import CodeContextSelector
 from hydra.runtime.code_verification import (
     VerificationPolicy,

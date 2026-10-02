@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from hydra import __version__
 from hydra.artifacts.blobs import open_blobs
 from hydra.core.eventlog import open_log_space
-from hydra.runtime.artifacts import ArtifactStore
+from hydra.artifacts.task_store import ArtifactStore
 from hydra.runtime.beliefs import BeliefStore
 from hydra.corpus.artifact_candidates import CorpusStore
 from hydra.runtime.bootstrap import bootstrap_runtime

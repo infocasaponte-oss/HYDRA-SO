@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from hydra.runtime.artifacts import ArtifactRecord, ArtifactStore
+from hydra.artifacts.task_store import ArtifactRecord, ArtifactStore
 from hydra.runtime.beliefs import Belief, BeliefStatus, BeliefStore, EvidenceRef
 from hydra.corpus.artifact_candidates import (
     CorpusGate,
@@ -13,7 +13,7 @@ from hydra.corpus.artifact_candidates import (
     RightsDeclaration,
 )
 from hydra.runtime.corpus_quality import verified_patch_quality
-from hydra.runtime.privacy import PrivacyScanner, PrivacyScanResult
+from hydra.corpus.artifact_privacy import PrivacyScanner, PrivacyScanResult
 
 
 class LearningCapture:
