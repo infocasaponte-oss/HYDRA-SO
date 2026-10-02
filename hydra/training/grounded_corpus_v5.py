@@ -30,7 +30,8 @@ from hydra.training.instruction_corpus_v4 import normalized
 from hydra.training.verified_corpus import sha256
 
 IMPORT_RULE_V5 = (" Enuméralos en el orden en que aparecen; en from X import Y cuenta solo el módulo X "
-                  "(no los nombres Y), y en from . import Y el módulo es .Y.")
+                  "(no los nombres Y), y en un import relativo sin módulo, como from . import Y o "
+                  "from .. import Y, el módulo son los puntos seguidos de Y (.Y, ..Y).")
 QUESTIONS = {family: tuple(q.replace(IMPORT_RULE, IMPORT_RULE_V5) for q in questions) if family == "code_imports"
              else questions for family, questions in QUESTIONS_V3.items()}
 QUOTAS_V5 = dict(QUOTAS) | {"code_imports": 480}
@@ -45,6 +46,10 @@ def import_traps(tree: ast.Module) -> bool:
             names = [a.name for a in node.names]
             if node.module is None or len(names) > 1 or node.module.split(".")[-1] in names:
                 return True
+            if "." in node.module:  # dotted package: the candidate invented parent packages
+                return True
+        elif any("." in a.name for a in node.names):
+            return True
         if any(a.asname for a in node.names):
             return True
     return modules >= 5
@@ -53,15 +58,26 @@ def import_traps(tree: ast.Module) -> bool:
 def code_candidates_v5(record: dict, absent_name: str):
     candidates, traps = code_candidates(record, absent_name)
     if candidates:
-        traps = dict(traps) | {"imports": import_traps(parse(candidates[0][2].split("```python\n", 1)[1]
-                                                             .rsplit("\n```", 1)[0]))}
+        code = candidates[0][2].split("```python\n", 1)[1].rsplit("\n```", 1)[0]
+        # keep v2's import traps (plain + from imports, nested imports) and add v5's
+        traps = dict(traps) | {"imports": bool(traps.get("imports")) or import_traps(parse(code))}
     return candidates, traps
 
 
-def sealed_holdout_ids(root: Path = Path("data")) -> set[str]:
-    """Documents of every sealed holdout: they must never enter a training corpus."""
+REPO_DATA = Path(__file__).resolve().parents[2] / "data"
+
+
+def sealed_holdout_ids(root: Path = REPO_DATA) -> set[str]:
+    """Documents of every sealed holdout: they must never enter a training corpus.
+
+    Anchored to the repository's data folder (not the working directory) and fails closed: a build
+    that finds no sealed holdout must pass ``exclude_ids`` explicitly.
+    """
+    holdouts = sorted(root.glob("hydra-grounded-holdout-*/holdout.jsonl"))
+    if not holdouts:
+        raise FileNotFoundError(f"no sealed holdout under {root}; pass exclude_ids explicitly")
     ids: set[str] = set()
-    for holdout in root.glob("hydra-grounded-holdout-*/holdout.jsonl"):
+    for holdout in holdouts:
         ids.update(json.loads(line)["provenance"]["document_id"]
                    for line in holdout.read_text(encoding="utf-8").splitlines() if line.strip())
     return ids
@@ -219,6 +235,8 @@ if __name__ == "__main__":
     parser.add_argument("--code", type=Path, default=Path("data/sources/code/stackv2_edu_python_sample.jsonl"))
     parser.add_argument("--tokenizer", type=Path, default=None, help="tokenizer.json of the base model")
     parser.add_argument("--max-tokens", type=int, default=768)
+    parser.add_argument("--holdout-root", type=Path, default=REPO_DATA,
+                        help="folder holding hydra-grounded-holdout-*/ (fails if none is found)")
     args = parser.parse_args()
-    print(json.dumps(build(args.output, args.boe, args.code, tokenizer=args.tokenizer, max_tokens=args.max_tokens),
-                     indent=2, ensure_ascii=False))
+    print(json.dumps(build(args.output, args.boe, args.code, tokenizer=args.tokenizer, max_tokens=args.max_tokens,
+                           exclude_ids=sealed_holdout_ids(args.holdout_root)), indent=2, ensure_ascii=False))

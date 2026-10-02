@@ -4,7 +4,7 @@
   "approved": false,
   "human_reviewed": false,
   "independent_test": false,
-  "generator_sha256": "0f69aa41bdc22075a05265a5489daa068256180c5ecbce8deff25d359b27d3ff",
+  "generator_sha256": "7918e89ac202526409de30f60c7cde71b8e27d7330881cea77c62a8f8770f914",
   "helpers_sha256": {
     "grounded_corpus_v1.py": "14759a64899c91e00821bb5682316ccb9f7d3b8ce58a15de4dd0aaa6f09f314c",
     "grounded_corpus_v2.py": "56862fe7bb3a37a45dfc4eaddac16f4b411309b02480aa448dd2e4fcd80db646",
@@ -57,30 +57,30 @@
   },
   "hard_negatives": {
     "code_functions": 160,
-    "code_imports": 240
+    "code_imports": 368
   },
   "rejections": {
-    "privacy_rejected": 133,
+    "privacy_rejected": 127,
     "verification_failed": 0,
     "utf8_rejected": 0,
-    "too_long": 5
+    "too_long": 4
   },
   "files": {
     "train.jsonl": {
       "examples": 1976,
-      "sha256": "8d3e1ffa8a7fa0c4c4cebc3a066a9f6266ca211a88ed62080dc6b6e420ecf5db"
+      "sha256": "508da40790ac0d6bc3ef5a044fdf6e971d25eb9a0b0068526f0091ec8c649a7f"
     },
     "validation.jsonl": {
       "examples": 179,
-      "sha256": "f066a16e703437390a8dae8ca682b428b899029225216a962e4f1647cf36e3ea"
+      "sha256": "b0cc38e7c6e6376f4dff68dc772c051098fcca2e7fdb6c196f5b3572f9e1e42d"
     },
     "calibration.jsonl": {
-      "examples": 140,
-      "sha256": "aa379474eb5bd465ff3c7a268cfa7f82d19621bc593232a0bceaf5939235d800"
+      "examples": 141,
+      "sha256": "30870470050bcf3e80a9302e0578b913049347048d1cefff3225faf2b8ea4858"
     },
     "test.jsonl": {
-      "examples": 185,
-      "sha256": "b83a3c442f26e653fa70e260584a708b4407c828335557efc6c9811085df1236"
+      "examples": 184,
+      "sha256": "50243318f2ed61d26e6323175ec24ccd157a0f50fff0d5cd0bc7b0a34265bc37"
     }
   },
   "excluded_sealed_holdout_documents": 195,
