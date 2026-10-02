@@ -73,6 +73,8 @@ from hydra.tools.definitions import ToolContext
 from hydra.verification.confidence import ConfidenceInputs, confidence_score
 from hydra.verification.consensus import agreement, pair_agreement
 from hydra.verification.uncertainty import VERIFY_SCHEMA, apply_verdict, assess_claims, segment_claims
+from hydra.verification.grounding import coverage as source_coverage
+from hydra.verification.grounding import repair as source_abstention
 from hydra.verification.verifier import VerificationResult, Verifier
 from hydra.workers.coder import CoderWorker
 from hydra.workers.critic import CriticWorker
@@ -423,6 +425,8 @@ class HydraKernel:
             await ctx.status(TaskStatus.SYNTHESIZING)
             answer = await self._synthesize(ctx, chosen, judged, verification, claims)
             await ctx.emit(EventType.SYNTHESIS_COMPLETED, "synthesizer", {"answer": answer})
+            answer, verification, confidence = await self._enforce_source_coverage(
+                ctx, answer, verification, confidence)
 
             records = self.provenance.build(claims, ctx.state, chosen, verification.verified,
                                             documents={"request": request.text})
@@ -790,6 +794,27 @@ class HydraKernel:
         await ctx.emit(EventType.VERIFICATION_COMPLETED, "verifier",
                        {**verification.model_dump(), "confidence": confidence, "target": claim})
         return verification, confidence
+
+    async def _enforce_source_coverage(self, ctx: TaskContext, answer: str, verification: VerificationResult,
+                                       confidence: float) -> tuple[str, VerificationResult, float]:
+        """A question about an article/code name absent from the supplied source gets a grounded
+        abstention instead of content the model cannot have read (whatever model answered)."""
+        failed = next((c for c in verification.checks
+                       if c.name == "source_coverage" and not c.passed), None)
+        if failed is None:
+            return answer, verification, confidence
+        cov = source_coverage(ctx.request)
+        if cov is None or not cov.missing:
+            return answer, verification, confidence
+        repaired = source_abstention(cov)
+        checked = self.verifier.verify(ctx.request, ctx.route, ctx.state, repaired)
+        ctx.degradations.append("La respuesta del modelo describía contenido ausente de la fuente "
+                                f"({failed.detail}); se sustituyó por una abstención fundamentada.")
+        await ctx.emit(EventType.VERIFICATION_COMPLETED, "verifier", {
+            **checked.model_dump(), "confidence": checked.confidence_signal, "target": "source_coverage_repair",
+            "replaced_answer": answer[:1000],
+        })
+        return repaired, checked, checked.confidence_signal
 
     async def _assess_claims(self, ctx: TaskContext, chosen: dict, confidence: float,
                              verification: VerificationResult) -> list[Claim]:
