@@ -46,7 +46,7 @@ def fetch(collection: str, count: int, root: Path) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--books", type=int, default=12)
-    parser.add_argument("--newspapers", type=int, default=300)
+    parser.add_argument("--newspapers", type=int, default=50)
     parser.add_argument("--root", type=Path, default=Path("data/sources/pleias"))
     args = parser.parse_args()
     print(json.dumps([fetch("spanish-pd-books", args.books, args.root),
