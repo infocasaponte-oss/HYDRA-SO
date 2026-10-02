@@ -35,8 +35,8 @@ class ModelShape:
 @dataclass
 class TrainPlan:
     seq_len: int = 1024
-    micro_batch: int = 16
-    accumulation: int = 4
+    micro_batch: int = 4  # 16 overflowed 8 GiB (32k-vocab fp32 logits) into shared memory: 13x slower
+    accumulation: int = 16
     learning_rate: float = 2e-3
     min_lr_ratio: float = 0.1
     warmup_fraction: float = 0.02
