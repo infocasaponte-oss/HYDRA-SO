@@ -510,5 +510,6 @@ if __name__ == "__main__":
     if args.build_lexicon:
         print(json.dumps(write_lexicon(sources, args.lexicon), indent=2, ensure_ascii=False))
         raise SystemExit(0)
-    summary = build(args.output, sources, base_quality.Contamination.from_paths(args.evaluation_sets), args.lexicon)
+    summary = build(args.output, sources, base_quality.Contamination.from_paths(args.evaluation_sets),
+                    args.lexicon if args.stage == 1 else None)
     print(json.dumps({k: summary[k] for k in ("totals", "sources")}, indent=2, ensure_ascii=False))

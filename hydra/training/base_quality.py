@@ -276,10 +276,12 @@ def minhash(text: str) -> np.ndarray:
     hashes = np.fromiter((xxhash.xxh32_intdigest(" ".join(words[i:i + SHINGLE]).encode())
                           for i in range(len(words) - SHINGLE + 1)), dtype=np.uint64)
     hashes = np.unique(hashes)
-    if len(hashes) > MAX_SHINGLES:  # hash-based subsample: the same shingles are kept in every document
-        hashes = hashes[hashes % np.uint64(len(hashes) // MAX_SHINGLES + 1) == 0]
     # (a*x + b) mod p with x < 2^32 and a, b < 2^31: the product stays below 2^63
-    return ((np.outer(hashes, _A) + _B) % _MERSENNE).min(axis=0).astype(np.uint32)
+    minimum = np.full(NUM_PERM, np.iinfo(np.uint64).max, dtype=np.uint64)
+    for start in range(0, len(hashes), 4096):
+        batch = hashes[start:start + 4096]
+        minimum = np.minimum(minimum, ((np.outer(batch, _A) + _B) % _MERSENNE).min(axis=0))
+    return minimum.astype(np.uint32)
 
 
 @dataclass
@@ -349,11 +351,13 @@ class Contamination:
         """Every evaluation file must exist: a missing one would silently weaken decontamination."""
         found = cls()
         for path in paths:
-            raw = path.read_text(encoding="utf-8")
-            found.source_sha256[path.as_posix()] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+            data = path.read_bytes()
+            raw = data.decode("utf-8-sig")
+            found.source_sha256[path.as_posix()] = hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
             records = [json.loads(line) for line in raw.splitlines() if line.strip()] if path.suffix == ".jsonl" \
                 else [json.loads(raw)]
             for record in records:
+                found.document_ids.update(_provenance_ids(record))
                 if isinstance(record, dict) and "messages" in record:
                     # The system message is the evaluated BOE source: that document is excluded by its
                     # identifier, while its legal boilerplate must not knock out unrelated laws.
@@ -367,6 +371,18 @@ class Contamination:
                         found.add_text(text)
             found.sources.append(path.as_posix())
         return found
+
+
+def _provenance_ids(value) -> set[str]:
+    """Capture explicit held-out source IDs, including Stack."""
+    if isinstance(value, dict):
+        ids = {value["document_id"]} if isinstance(value.get("document_id"), str) and value["document_id"] else set()
+        for child in value.values():
+            ids.update(_provenance_ids(child))
+        return ids
+    if isinstance(value, list):
+        return set().union(*(_provenance_ids(child) for child in value))
+    return set()
 
 
 def _strings(value) -> list[str]:

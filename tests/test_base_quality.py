@@ -67,6 +67,24 @@ def test_empty_ocr_lexicon_cannot_disable_the_filter():
         q.quality_problem(prose(13, 40), "pleias_parquet", frozenset())
 
 
+def test_long_shingle_boundary_does_not_change_shared_hash_sampling(monkeypatch):
+    monkeypatch.setattr(q, "MAX_SHINGLES", 200)
+    text = " ".join(f"token{i}" for i in range(200 + q.SHINGLE - 1))
+    assert np.mean(q.minhash(text) == q.minhash(text + " finalword")) > .95
+
+
+def test_bom_evaluation_preserves_hash_and_stack_provenance(tmp_path):
+    path = tmp_path / "evaluation.json"
+    record = {"provenance": {"document_id": "stack-private-row-123"}, "messages": [
+        {"role": "system", "content": "Python source only in this message"},
+        {"role": "user", "content": "What does this function do?"}]}
+    raw = b"\xef\xbb\xbf" + json.dumps(record).encode()
+    path.write_bytes(raw)
+    found = q.Contamination.from_paths([path])
+    assert found.problem("unrelated short source", "stack-private-row-123") == "eval_document"
+    assert found.source_sha256[path.as_posix()] == hashlib.sha256(raw).hexdigest()
+
+
 def test_lsh_collisions_preserve_all_candidate_signatures(monkeypatch):
     signatures = iter([np.zeros(q.NUM_PERM, dtype=np.uint32), np.ones(q.NUM_PERM, dtype=np.uint32),
                        np.array([1] * 90 + [2] * 22, dtype=np.uint32)])
