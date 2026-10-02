@@ -4,10 +4,5 @@
  ],
  "hydra/api/runtime_routes.py": [
   "hydra.runtime:api"
- ],
- "hydra/world/runtime_beliefs.py": [
-  "hydra.runtime.beliefs:Belief",
-  "hydra.runtime.beliefs:BeliefStatus",
-  "hydra.runtime.beliefs:BeliefStore"
  ]
 }

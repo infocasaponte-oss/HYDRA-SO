@@ -8,15 +8,17 @@ part in belief scoring, contradiction handling and the time machine."""
 
 from __future__ import annotations
 
-from hydra.runtime.beliefs import Belief, BeliefStatus, BeliefStore
+from hydra.world.task_beliefs import Belief, BeliefStatus, BeliefStore
 from hydra.world.model import EvidenceType, Observation
 
 _STRONG = {BeliefStatus.VERIFIED, BeliefStatus.SUPPORTED}
 
 
 class WorldBeliefStore(BeliefStore):
-    def __init__(self, world, path) -> None:
-        super().__init__(path)
+    def __init__(self, world, path, log=None) -> None:
+        """``log``: keep the store's log (the shared ``runtime/beliefs.jsonl`` stream on PostgreSQL);
+        without it, the file at ``path``."""
+        super().__init__(path, log=log)
         self.world = world
 
     def append(self, belief: Belief) -> Belief:

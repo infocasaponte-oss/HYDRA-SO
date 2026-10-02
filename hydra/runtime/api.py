@@ -15,7 +15,7 @@ from hydra import __version__
 from hydra.artifacts.blobs import open_blobs
 from hydra.core.eventlog import open_log_space
 from hydra.artifacts.task_store import ArtifactStore
-from hydra.runtime.beliefs import BeliefStore
+from hydra.world.task_beliefs import BeliefStore
 from hydra.corpus.artifact_candidates import CorpusStore
 from hydra.runtime.bootstrap import bootstrap_runtime
 from hydra.runtime.budgets import BudgetExceeded, RequestBudget
@@ -31,7 +31,7 @@ from hydra.deploy.deployment_controller import LEGACY_OFFSETS, EvidenceRejected
 from hydra.deploy.deployment_store import DeploymentStore
 from hydra.deploy.deployment_validation import DeploymentArtifactValidator
 from hydra.runtime.kernel import HydraKernel
-from hydra.runtime.learning_capture import LearningCapture
+from hydra.corpus.patch_capture import LearningCapture
 from hydra.model_factory.contracts import ModelVariant
 from hydra.model_factory.model_scout import HashCache, scan_models
 from hydra.observability.spans import OtlpSpanExporter
