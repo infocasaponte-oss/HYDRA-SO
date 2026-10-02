@@ -62,6 +62,8 @@ class ModelInvoker:
                                          "timeout_s": timeout})
         req = self.compiler.compile(model, req)
         await ctx.emit(EventType.MODEL_STARTED, role, {"model": model.id, "role": role})
+        # Reserve with no await in between, so a hedged pair cannot both pass on one free unit.
+        ctx.budget.reserve_model_call()
         try:
             resp = await asyncio.wait_for(provider.generate(model.physical_name, req), timeout=timeout + 1)
         except asyncio.TimeoutError as exc:
@@ -69,7 +71,7 @@ class ModelInvoker:
         resp.model_id = model.id
         resp = self.compiler.decompile(req, resp)
         cost = model.estimate_cost(resp.input_tokens, resp.output_tokens)
-        ctx.budget.charge_model(resp.input_tokens + resp.output_tokens, cost)
+        ctx.budget.charge_model(resp.input_tokens + resp.output_tokens, cost, reserved=True)
         self.registry.breaker.register_success(model.id, resp.latency_ms)
         return resp
 
