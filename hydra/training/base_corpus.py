@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hydra.corpus.gates import PrivacyGate
+from hydra.core.atomic import write_text_atomic
 from hydra.training import base_quality
 from hydra.training.base_data_policy import admit_record, attribution_notice
 
@@ -188,7 +189,12 @@ def _pleias_rows(folder: Path) -> tuple[Iterator[dict], str]:
     if len(selected) < count:
         raise ValueError(f"{folder}: {len(selected)} of {count} selected files downloaded")
     for name in selected:
-        local = folder / manifest["files"][name].get("local", name)  # short name for over-long ones
+        alias = manifest["files"][name].get("local", name)
+        if not isinstance(alias, str) or not alias or Path(alias).name != alias or "\\" in alias or "/" in alias:
+            raise ValueError("PleIAs local filename must remain inside its source directory")
+        local = folder / alias
+        if not local.resolve().is_relative_to(folder.resolve()):
+            raise ValueError("PleIAs local file escapes its source directory")
         if file_sha256(local) != manifest["files"][name]["sha256"]:
             raise ValueError(f"{local} does not match its manifest")
     digest = hashlib.sha256(f"{canonical_sha256(manifest_path)}\n{json.dumps(selected)}".encode()).hexdigest()
@@ -336,6 +342,8 @@ def build(output: Path, sources: list[SourceSpec], contamination: base_quality.C
     if output.exists():
         raise FileExistsError("use a new versioned corpus directory")
     words = frozenset(lexicon.read_text(encoding="utf-8").split()) if lexicon else None
+    if lexicon is not None and not words:
+        raise ValueError("release OCR lexicon must not be empty")
     output.mkdir(parents=True)
     gate = PrivacyGate(pseudonymize_persons=False)  # official texts name public officials by design
     seen: set[str] = set()
@@ -343,6 +351,7 @@ def build(output: Path, sources: list[SourceSpec], contamination: base_quality.C
     writers = {"train": ShardWriter(output, "train"), "validation": ShardWriter(output, "validation")}
     report: dict = {"version": output.name, "sources": [], "totals": {"documents": 0, "characters": 0},
                     "filters": filter_report(contamination, lexicon)}
+    generator_hash = canonical_sha256(Path(__file__))
     notice_sources = []
     attributions = gzip_text(output / "THIRD_PARTY_ATTRIBUTIONS.jsonl.gz")
     attribution_count = 0
@@ -412,9 +421,13 @@ def build(output: Path, sources: list[SourceSpec], contamination: base_quality.C
     report["notice_sha256"] = hashlib.sha256(notice.encode("utf-8")).hexdigest()
     report["attributions"] = {"file": "THIRD_PARTY_ATTRIBUTIONS.jsonl.gz", "records": attribution_count,
                               "sha256": file_sha256(output / "THIRD_PARTY_ATTRIBUTIONS.jsonl.gz")}
-    report["generator_sha256"] = hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
-    (output / "manifest.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8",
-                                          newline="\n")
+    if generator_hash != canonical_sha256(Path(__file__)) or report["filters"] != filter_report(contamination, lexicon):
+        raise ValueError("quality configuration changed during construction; corpus cannot be sealed")
+    if contamination is not None and any(canonical_sha256(Path(path)) != digest
+                                         for path, digest in contamination.source_sha256.items()):
+        raise ValueError("evaluation files changed during construction; corpus cannot be sealed")
+    report["generator_sha256"] = generator_hash
+    write_text_atomic(output / "manifest.json", json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     return report
 
 
@@ -431,7 +444,7 @@ def filter_report(contamination: base_quality.Contamination | None, lexicon: Pat
         "decontamination": None if contamination is None else {
             "ngram_words": base_quality.CONTAMINATION_NGRAM, "document_ids": len(contamination.document_ids),
             "ngrams": len(contamination.ngrams),
-            "sets": {path: canonical_sha256(Path(path)) for path in contamination.sources}},
+            "sets": dict(contamination.source_sha256)},
         "lexicon": None if lexicon is None else {"path": lexicon.as_posix(), "sha256": canonical_sha256(lexicon),
                                                  "words": len(lexicon.read_text(encoding="utf-8").split())},
         "quality_module_sha256": hashlib.sha256(
@@ -454,6 +467,14 @@ def write_lexicon(sources: list[SourceSpec], output: Path, boe_min: int = 3, ocr
             continue
         rows, inputs[spec.name] = source_rows(spec)
         for row in rows:
+            # Reference vocabulary must not learn from validation works either.
+            if not admit_record(record_licenses(spec.kind, row)).allowed:
+                continue
+            split_key = row.get("split_key")
+            text_hash = hashlib.sha256(normalize(row.get("text") or "").encode()).hexdigest()
+            split_hash = hashlib.sha256(str(split_key).encode()).hexdigest() if split_key else text_hash
+            if holdout(split_hash):
+                continue
             counts[spec.kind].update(w for w in re.findall(r"[^\W\d_]+", (row.get("text") or "").lower())
                                      if len(w) > 1)
     words = sorted({w for w, n in counts["boe"].items() if n >= boe_min}
@@ -461,6 +482,7 @@ def write_lexicon(sources: list[SourceSpec], output: Path, boe_min: int = 3, ocr
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text("\n".join(words) + "\n", encoding="utf-8", newline="\n")
     meta = {"words": len(words), "boe_min_count": boe_min, "ocr_min_count": ocr_min, "inputs_sha256": inputs,
+            "partition": "train-only", "holdout_percent": HOLDOUT_PERCENT,
             "sha256": canonical_sha256(output)}
     output.with_suffix(".json").write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8",
                                            newline="\n")

@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # Corpus de preentrenamiento HYDRA Base
 
 Pipeline: `hydra/training/base_corpus.py` (fuentes, licencias, privacidad, particiones, manifiesto) y
@@ -27,7 +28,7 @@ Pipeline: `hydra/training/base_corpus.py` (fuentes, licencias, privacidad, parti
 - **Markdown:** los delimitadores de bloques de código se repiten por diseño; la repetición se juzga
   sobre la prosa, sin los bloques.
 - **Libros PleIAs:** con un léxico de referencia (BOE más palabras con ≥ 30 apariciones en todo
-  PleIAs) la mediana de palabras desconocidas es 0,107; por encima de 0,15 el escaneo está
+  PleIAs, restringido ahora a obras de entrenamiento) la mediana previa de palabras desconocidas era 0,107; por encima de 0,15 el escaneo está
   visiblemente roto («ſ» leída como «f», palabras con letras separadas). Se conserva ~71 % de los trozos.
 - **Python:** ~7 % no compila en Python 3 (código Python 2); se descarta.
 
@@ -36,6 +37,14 @@ Pipeline: `hydra/training/base_corpus.py` (fuentes, licencias, privacidad, parti
 El léxico se congela una vez (`--build-lexicon`, `data/sources/lexicon/hydra-es-lexicon-v1.txt`) y su
 sha256 queda fijado en el manifiesto junto con los sha256 de cada conjunto de evaluación, de cada
 entrada, de cada fragmento y del propio módulo de calidad, y todos los umbrales aplicados.
+La nueva receta del léxico excluye validación y fuentes sin licencia admitida.
+Las tasas de conservación anteriores requieren recalibración con esta receta.
+El índice LSH conserva todos los candidatos de cada banda; el umbral 0,8 se
+aplica a una estimación MinHash, no garantiza detectar todos los pares al 80 %.
+Python se valida con `compile` sin ejecutar el código. El corpus solo se sella
+mediante manifiesto atómico si reglas, léxico y evaluaciones no cambiaron.
+Un filtro basado en palabras vacías no certifica el idioma, ni el léxico
+certifica la legibilidad: revisar muestras por fuente, época y longitud.
 
 ```bash
 python -m hydra.training.base_corpus --stage 1 --build-lexicon

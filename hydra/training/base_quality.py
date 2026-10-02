@@ -26,6 +26,7 @@ Every rejection carries a reason name that ``base_corpus`` counts per source in 
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import re
 from collections import Counter
@@ -132,7 +133,9 @@ def prose_problem(text: str, kind: str, lexicon: frozenset[str] | None = None) -
     best = max(sum(w in STOPWORDS[lang] for w in lowered) for lang in LANGUAGES[kind])
     if best < 2 or best / len(lowered) < rules.min_stopword_ratio:
         return "language"
-    if rules.max_oov is not None and lexicon:
+    if rules.max_oov is not None and lexicon is not None:
+        if not lexicon:
+            raise ValueError("OCR lexicon must not be empty")
         alphabetic = [w for w in lowered if w.isalpha()]
         if alphabetic and sum(w not in lexicon for w in alphabetic) / len(alphabetic) > rules.max_oov:
             return "ocr_noise"
@@ -225,6 +228,8 @@ _BLOB = re.compile(r"[A-Za-z0-9+/=]{256,}|(?:\\x[0-9a-fA-F]{2}){64,}|(?:0x[0-9a-
 
 
 def code_problem(text: str) -> str | None:
+    if not text.strip():
+        return "empty"
     lines = text.split("\n")
     if max(map(len, lines)) > 1000 or sum(map(len, lines)) / len(lines) > 100:
         return "long_lines"
@@ -235,7 +240,8 @@ def code_problem(text: str) -> str | None:
     if _BLOB.search(text):
         return "data_blob"
     try:
-        ast.parse(text)
+        tree = ast.parse(text)
+        compile(tree, "<corpus-validation>", "exec")  # validate only, never execute
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return "syntax"
     return None
@@ -278,7 +284,7 @@ def minhash(text: str) -> np.ndarray:
 
 @dataclass
 class NearDuplicateIndex:
-    bands: list[dict[int, int]] = field(default_factory=lambda: [{} for _ in range(BANDS)])
+    bands: list[dict[int, int | list[int]]] = field(default_factory=lambda: [{} for _ in range(BANDS)])
     signatures: list[np.ndarray] = field(default_factory=list)
 
     def check_and_add(self, text: str) -> bool:
@@ -286,14 +292,23 @@ class NearDuplicateIndex:
         signature = minhash(text)
         rows = NUM_PERM // BANDS
         keys = [xxhash.xxh64_intdigest(signature[b * rows:(b + 1) * rows].tobytes()) for b in range(BANDS)]
-        candidates = {band[key] for band, key in zip(self.bands, keys) if key in band}
+        candidates = set()
+        for band, key in zip(self.bands, keys):
+            if key in band:
+                bucket = band[key]
+                candidates.update([bucket] if isinstance(bucket, int) else bucket)
         for index in candidates:
             if float(np.mean(self.signatures[index] == signature)) >= NEAR_DUP_JACCARD:
                 return True
         position = len(self.signatures)
         self.signatures.append(signature)
         for band, key in zip(self.bands, keys):
-            band.setdefault(key, position)
+            if key not in band:
+                band[key] = position
+            elif isinstance(band[key], int):
+                band[key] = [band[key], position]
+            else:
+                band[key].append(position)
         return False
 
 
@@ -309,6 +324,7 @@ class Contamination:
     document_ids: set[str] = field(default_factory=set)
     ngrams: set[int] = field(default_factory=set)
     sources: list[str] = field(default_factory=list)
+    source_sha256: dict[str, str] = field(default_factory=dict)
 
     def add_text(self, text: str, spans: bool = True) -> None:
         self.document_ids.update(_BOE_ID.findall(text))
@@ -334,6 +350,7 @@ class Contamination:
         found = cls()
         for path in paths:
             raw = path.read_text(encoding="utf-8")
+            found.source_sha256[path.as_posix()] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
             records = [json.loads(line) for line in raw.splitlines() if line.strip()] if path.suffix == ".jsonl" \
                 else [json.loads(raw)]
             for record in records:
