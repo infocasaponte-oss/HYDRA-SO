@@ -13,7 +13,7 @@ import json
 import random
 from pathlib import Path
 
-from hydra.training.base_corpus import iter_texts
+from hydra.training.base_corpus import canonical_sha256, iter_texts
 
 VOCAB_SIZE = 32_000
 CHAT_TOKENS = ["<|im_start|>", "<|im_end|>", "<|fim_prefix|>", "<|fim_middle|>", "<|fim_suffix|>"]
@@ -57,10 +57,10 @@ def train(corpus: Path, output: Path, vocab_size: int = VOCAB_SIZE, max_chars: i
     model = output / "tokenizer.model"
     manifest = {"kind": "sentencepiece-bpe", "vocab_size": vocab_size, "chat_tokens": CHAT_TOKENS,
                 "special": {"unk": 0, "bos": 1, "eos": 2, "pad": 3}, "byte_fallback": True,
-                "corpus_manifest_sha256": hashlib.sha256((corpus / "manifest.json").read_bytes()).hexdigest(),
+                "corpus_manifest_sha256": canonical_sha256(corpus / "manifest.json"),
                 "tokenizer_model_sha256": hashlib.sha256(model.read_bytes()).hexdigest(), **stats}
     write_hf_files(output)
-    (output / "tokenizer-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    (output / "tokenizer-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
     return manifest
 
 
@@ -106,5 +106,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     result = train(args.corpus, args.output, args.vocab_size)
     result["comparison"] = compare(args.output, args.corpus, args.reference)
-    (args.output / "tokenizer-manifest.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    (args.output / "tokenizer-manifest.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8",
+                                                         newline="\n")
     print(json.dumps(result, indent=2))

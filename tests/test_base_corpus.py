@@ -56,3 +56,23 @@ def test_quality_rules_and_partial_lines(tmp_path):
     with gzip.open(shard, "wt", encoding="utf-8") as stream:
         stream.write('{"text": "hola"}\n')
     assert bc.normalize("a\r\n\n\n\n\nb  \n") == "a\n\n\nb"
+
+
+def test_full_document_privacy_attribution_and_reproducible_shards(tmp_path):
+    code = tmp_path / "py.jsonl"
+    filler = "".join(f"def f_{i}(x):\n    return x + {i}\n\n" for i in range(3000))  # > 50,000 characters
+    rows = [{"id": "late-secret", "text": filler + "TOKEN = 'AKIAABCDEFGHIJKLMNOP'\n", "detected_licenses": ["MIT"],
+             "repo_name": "o/r", "path": "/s.py"},
+            {"id": "clean", "text": filler, "detected_licenses": ["MIT"], "repo_name": "o/r", "path": "/c.py",
+             "revision_id": "abc"}]
+    write(code, rows)
+    sources = [bc.SourceSpec("Py", code, "stack_python", "https://example.org/py")]
+    first = bc.build(tmp_path / "a", sources)
+    assert first["sources"][0]["rejected"].get("credential") == 1 and first["sources"][0]["kept"] == 1
+    assert first["attributions"]["records"] == 1
+    with gzip.open(tmp_path / "a" / "THIRD_PARTY_ATTRIBUTIONS.jsonl.gz", "rt", encoding="utf-8") as stream:
+        entry = json.loads(stream.readline())
+    assert entry["repository"] == "o/r" and entry["path"] == "/c.py" and entry["license"] == "MIT"
+    second = bc.build(tmp_path / "b", sources)
+    assert first["files"] == second["files"]  # identical records -> identical gzip bytes
+    assert first["sources"][0]["input_sha256"] == bc.snapshot(code)[1]

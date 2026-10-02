@@ -16,6 +16,8 @@ def test_wsd_schedule_warms_up_holds_and_decays():
 
 
 def test_no_weight_decay_on_embeddings_and_norms():
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")  # training extras are not installed in CI
     from transformers import LlamaConfig, LlamaForCausalLM
 
     model = LlamaForCausalLM(LlamaConfig(vocab_size=64, hidden_size=16, intermediate_size=32, num_hidden_layers=1,
@@ -28,6 +30,8 @@ def test_no_weight_decay_on_embeddings_and_norms():
 
 def test_tokenize_and_train_a_tiny_model_end_to_end(tmp_path):
     spm = pytest.importorskip("sentencepiece")
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
     sentences = [f"El artículo {i} regula la materia número {i * 7} de la ley de prueba." for i in range(400)]
     corpus = tmp_path / "corpus"
     corpus.mkdir()
@@ -48,8 +52,14 @@ def test_tokenize_and_train_a_tiny_model_end_to_end(tmp_path):
     data = tmp_path / "data"
     counts = bp.tokenize(corpus, tok, data)
     assert counts["train"]["tokens"] > 0 and counts["validation"]["tokens"] > 0
-    assert np.fromfile(data / "train.bin", dtype=np.uint16).max() < 400
-    (data / "tokens-manifest.json").write_text(json.dumps(counts), encoding="utf-8")
+    tokens = np.fromfile(data / "train.bin", dtype=np.uint16)
+    assert tokens.max() < 400
+    assert tokens[0] == 1 and (tokens == 1).sum() == (tokens == 2).sum()  # every document is BOS ... EOS
+    import hashlib
+    manifest = {"corpus_manifest_sha256": bc.canonical_sha256(corpus / "manifest.json"),
+                "tokenizer_sha256": hashlib.sha256((tok / "tokenizer.model").read_bytes()).hexdigest(), **counts}
+    (data / "tokens-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    assert bp.verify_tokens(data, corpus, tok)["train"]["tokens"] == counts["train"]["tokens"]
     shape = bp.ModelShape(hidden_size=32, num_hidden_layers=2, num_attention_heads=2, num_key_value_heads=1,
                           intermediate_size=64, max_position_embeddings=64)
     plan = bp.TrainPlan(seq_len=32, micro_batch=4, accumulation=1, eval_every=3, eval_batches=2)
@@ -61,3 +71,28 @@ def test_tokenize_and_train_a_tiny_model_end_to_end(tmp_path):
     with pytest.raises(FileExistsError):
         bp.train(data, tok, tmp_path / "model", shape, plan, max_steps=1, device="cpu")
     assert list(bc.iter_texts(corpus, "validation"))
+
+
+def test_cached_tokens_are_verified(tmp_path):
+    import hashlib
+
+    data, corpus, tok = tmp_path / "data", tmp_path / "corpus", tmp_path / "tok"
+    for folder in (data, corpus, tok):
+        folder.mkdir()
+    (corpus / "manifest.json").write_text("{}", encoding="utf-8")
+    (tok / "tokenizer.model").write_bytes(b"model-a")
+    np.asarray([1, 5, 2], dtype=np.uint16).tofile(data / "train.bin")
+    np.asarray([1, 6, 2], dtype=np.uint16).tofile(data / "validation.bin")
+    manifest = {"corpus_manifest_sha256": bc.canonical_sha256(corpus / "manifest.json"),
+                "tokenizer_sha256": hashlib.sha256(b"model-a").hexdigest(),
+                "train": {"sha256": hashlib.sha256((data / "train.bin").read_bytes()).hexdigest()},
+                "validation": {"sha256": hashlib.sha256((data / "validation.bin").read_bytes()).hexdigest()}}
+    (data / "tokens-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    bp.verify_tokens(data, corpus, tok)
+    (tok / "tokenizer.model").write_bytes(b"model-b")
+    with pytest.raises(ValueError, match="different tokenizer"):
+        bp.verify_tokens(data, corpus, tok)
+    (tok / "tokenizer.model").write_bytes(b"model-a")
+    np.asarray([1, 5], dtype=np.uint16).tofile(data / "train.bin")  # truncated
+    with pytest.raises(ValueError, match="train.bin"):
+        bp.verify_tokens(data, corpus, tok)

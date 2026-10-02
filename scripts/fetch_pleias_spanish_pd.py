@@ -3,12 +3,14 @@
 
 Both collections declare public domain in all regions (authors dead > 70 years, EU Copyright
 Directive art. 14), so they pass ``base_data_policy`` as "public-domain". Files land in
-``data/sources/pleias/<collection>/`` with a manifest of sha256 per file; the selection is a
-fixed, sorted prefix so a re-run resumes and reproduces the same slice.
+``data/sources/pleias/<collection>/`` with a manifest of sha256 per file. The dataset revision
+(commit sha) is resolved once and pinned in the manifest, so listing and downloads always use the
+same immutable state and a resumed run cannot mix revisions. Interrupted downloads are retried.
 """
 import argparse
 import hashlib
 import json
+import time
 from pathlib import Path
 
 from huggingface_hub import HfApi, hf_hub_download
@@ -24,22 +26,42 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def download(repo: str, name: str, revision: str, target: Path, attempts: int = 6) -> Path:
+    for attempt in range(1, attempts + 1):
+        try:
+            return Path(hf_hub_download(repo, name, repo_type="dataset", revision=revision, local_dir=target))
+        except Exception as exc:  # broken connections are common on multi-hundred-MB files
+            if attempt == attempts:
+                raise
+            print(f"retry {attempt}/{attempts - 1} for {name}: {type(exc).__name__}", flush=True)
+            time.sleep(min(300, 15 * 2 ** attempt))
+    raise AssertionError("unreachable")
+
+
 def fetch(collection: str, count: int, root: Path) -> dict:
     repo = COLLECTIONS[collection]
-    files = sorted(f for f in HfApi().list_repo_files(repo, repo_type="dataset") if f.endswith(".parquet"))[:count]
     target = root / collection
     target.mkdir(parents=True, exist_ok=True)
     manifest_path = target / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {
         "repo": repo, "license": "public-domain", "files": {}}
+    api = HfApi()
+    # Pin the revision on first use; files fetched before pinning are re-verified against it.
+    revision = manifest.get("revision") or api.dataset_info(repo).sha
+    if "revision" not in manifest:
+        manifest["revision"] = revision
+    files = sorted(f for f in api.list_repo_files(repo, repo_type="dataset", revision=revision)
+                   if f.endswith(".parquet"))[:count]
+    manifest["selection"] = {"rule": "sorted parquet prefix", "count": count}
     for name in files:
         if name in manifest["files"] and (target / name).exists():
             continue
-        local = Path(hf_hub_download(repo, name, repo_type="dataset", local_dir=target))
+        local = download(repo, name, revision, target)
         manifest["files"][name] = {"bytes": local.stat().st_size, "sha256": sha256(local)}
-        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"{collection}: {name} ({local.stat().st_size / 1e6:.0f} MB)", flush=True)
-    return {"collection": collection, "files": len(manifest["files"]),
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+    return {"collection": collection, "revision": revision, "files": len(manifest["files"]),
             "gb": round(sum(f["bytes"] for f in manifest["files"].values()) / 1e9, 2)}
 
 

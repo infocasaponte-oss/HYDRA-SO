@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import io
 import json
 import re
 import unicodedata
@@ -51,9 +52,19 @@ def record_licenses(kind: str, row: dict) -> list[str]:
         return ["es-public-sector-reuse"]  # BOE datos abiertos: reutilización con cita de la fuente
     if kind == "stack_python":
         return list(row.get("detected_licenses") or [])
-    if kind == "stack_markdown":
+    if kind == "stack_markdown":  # fetcher rows carry detected_licenses; older rows a "license" string
+        if row.get("detected_licenses"):
+            return list(row["detected_licenses"])
         return [lic.strip() for lic in str(row.get("license") or "").split(",") if lic.strip()]
     raise ValueError(f"unknown source kind {kind}")
+
+
+def record_attribution(kind: str, row: dict, licenses: str) -> dict | None:
+    """Per-file attribution kept for permissive code/docs (MIT/Apache/BSD notices name the work)."""
+    if kind == "boe":
+        return None
+    return {"repository": row.get("repo_name"), "path": row.get("path"), "url": row.get("url"),
+            "revision": row.get("revision_id"), "license": licenses}
 
 
 def document_id(kind: str, row: dict) -> str:
@@ -92,12 +103,41 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def snapshot(path: Path) -> tuple[bytes, str]:
+    """The exact complete-line bytes that will be parsed, and their sha256 (a source may be growing)."""
+    data = path.read_bytes()
+    data = data[:data.rfind(b"\n") + 1]
+    return data, hashlib.sha256(data).hexdigest()
+
+
 def read_rows(path: Path) -> Iterator[dict]:
     """Complete JSON lines only (a source may still be growing)."""
-    with path.open("rb") as stream:
-        for raw in stream:
-            if raw.endswith(b"\n") and raw.strip():
-                yield json.loads(raw)
+    data, _ = snapshot(path)
+    for raw in data.splitlines():
+        if raw.strip():
+            yield json.loads(raw)
+
+
+def scan_privacy(gate: PrivacyGate, text: str, chunk: int = 50_000, overlap: int = 512) -> tuple[bool, bool]:
+    """Scan the whole document in overlapping chunks (secrets can sit anywhere in a long file)."""
+    credential = pii = False
+    for start in range(0, max(1, len(text)), chunk):
+        _, found_credential, found_pii = gate.scan_text(text[max(0, start - overlap):start + chunk])
+        credential, pii = credential or found_credential, pii or found_pii
+        if credential:
+            break
+    return credential, pii
+
+
+def gzip_text(path: Path):
+    """Text gzip writer with a fixed header timestamp, so identical records give identical bytes."""
+    return io.TextIOWrapper(gzip.GzipFile(filename="", mode="wb", fileobj=path.open("wb"), mtime=0),
+                            encoding="utf-8", newline="\n")
+
+
+def canonical_sha256(path: Path) -> str:
+    """Digest of a JSON/text artifact with LF endings, matching the repository's normalised copy."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 class ShardWriter:
@@ -110,7 +150,7 @@ class ShardWriter:
         if self.stream is None or self.count >= SHARD_DOCS:
             self.close()
             name = f"{self.split}-{self.index:05d}.jsonl.gz"
-            self.stream = gzip.open(self.folder / name, "wt", encoding="utf-8", newline="\n")
+            self.stream = gzip_text(self.folder / name)
             self.files[name] = {"documents": 0}
             self.index += 1
             self.count = 0
@@ -133,11 +173,17 @@ def build(output: Path, sources: list[SourceSpec]) -> dict:
     writers = {"train": ShardWriter(output, "train"), "validation": ShardWriter(output, "validation")}
     report: dict = {"version": "hydra-base-corpus-v0", "sources": [], "totals": {"documents": 0, "characters": 0}}
     notice_sources = []
+    attributions = gzip_text(output / "THIRD_PARTY_ATTRIBUTIONS.jsonl.gz")
+    attribution_count = 0
     for spec in sources:
-        stats = {"name": spec.name, "path": str(spec.path), "kind": spec.kind, "input_sha256": file_sha256(spec.path),
+        data, input_sha = snapshot(spec.path)  # hash exactly the bytes that are parsed
+        stats = {"name": spec.name, "path": str(spec.path), "kind": spec.kind, "input_sha256": input_sha,
                  "read": 0, "kept": 0, "characters": 0, "rejected": {}}
         licenses_kept: set[str] = set()
-        for row in read_rows(spec.path):
+        for raw in data.splitlines():
+            if not raw.strip():
+                continue
+            row = json.loads(raw)
             stats["read"] += 1
             decision = admit_record(record_licenses(spec.kind, row))
             reason = None if decision.allowed else "license"
@@ -145,7 +191,7 @@ def build(output: Path, sources: list[SourceSpec]) -> dict:
             if reason is None:
                 reason = quality_problem(text)
             if reason is None:
-                _, credential, pii = gate.scan_text(text[:50_000])
+                credential, pii = scan_privacy(gate, text)
                 reason = "credential" if credential else "personal_data" if pii else None
             doc_hash = hashlib.sha256(text.encode("utf-8")).hexdigest() if reason is None else ""
             if reason is None and doc_hash in seen:
@@ -158,6 +204,11 @@ def build(output: Path, sources: list[SourceSpec]) -> dict:
             writers["validation" if holdout(doc_hash) else "train"].write({
                 "text": text, "source": spec.name, "document_id": document_id(spec.kind, row),
                 "license": decision.license, "sha256": doc_hash})
+            attribution = record_attribution(spec.kind, row, decision.license)
+            if attribution is not None:
+                attributions.write(json.dumps({"source": spec.name, "document_id": document_id(spec.kind, row),
+                                               **attribution}, ensure_ascii=False) + "\n")
+                attribution_count += 1
             stats["kept"] += 1
             stats["characters"] += len(text)
         report["sources"].append(stats)
@@ -169,13 +220,19 @@ def build(output: Path, sources: list[SourceSpec]) -> dict:
         writer.close()
         for name, entry in writer.files.items():
             files[name] = {**entry, "sha256": file_sha256(output / name)}
+    attributions.close()
     report["files"] = files
     report["holdout_percent"] = HOLDOUT_PERCENT
-    notice = attribution_notice(notice_sources)
+    notice = attribution_notice(notice_sources) + (
+        f"\nPer-file attribution (repository, path, revision, licence) for {attribution_count} retained "
+        "code and documentation files: THIRD_PARTY_ATTRIBUTIONS.jsonl.gz\n")
     (output / "THIRD_PARTY_DATA_NOTICE.txt").write_text(notice, encoding="utf-8", newline="\n")
     report["notice_sha256"] = hashlib.sha256(notice.encode("utf-8")).hexdigest()
+    report["attributions"] = {"file": "THIRD_PARTY_ATTRIBUTIONS.jsonl.gz", "records": attribution_count,
+                              "sha256": file_sha256(output / "THIRD_PARTY_ATTRIBUTIONS.jsonl.gz")}
     report["generator_sha256"] = hashlib.sha256(Path(__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
-    (output / "manifest.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    (output / "manifest.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8",
+                                          newline="\n")
     return report
 
 

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import numpy as np
 
-from hydra.training.base_corpus import iter_texts
+from hydra.training.base_corpus import canonical_sha256, iter_texts
 
 
 @dataclass
@@ -76,10 +76,26 @@ def tokenize(corpus: Path, tokenizer_dir: Path, output: Path) -> dict:
 def _write(stream, sp, texts: list[str]) -> int:
     ids = []
     for encoded in sp.encode(texts):
+        # BOS + document + EOS: the exported tokenizer adds BOS at inference, so training sees it too.
+        ids.append(sp.bos_id())
         ids.extend(encoded)
         ids.append(sp.eos_id())
     np.asarray(ids, dtype=np.uint16).tofile(stream)
     return len(ids)
+
+
+def verify_tokens(data_dir: Path, corpus: Path, tokenizer_dir: Path) -> dict:
+    """Refuse cached token files that no longer match their manifest, the corpus or the tokenizer."""
+    manifest = json.loads((data_dir / "tokens-manifest.json").read_text(encoding="utf-8"))
+    for split in ("train", "validation"):
+        if hashlib.sha256((data_dir / f"{split}.bin").read_bytes()).hexdigest() != manifest[split]["sha256"]:
+            raise ValueError(f"cached {split}.bin does not match tokens-manifest.json")
+    if manifest["tokenizer_sha256"] != hashlib.sha256((tokenizer_dir / "tokenizer.model").read_bytes()).hexdigest():
+        raise ValueError("cached tokens were produced with a different tokenizer")
+    if manifest["corpus_manifest_sha256"] not in {canonical_sha256(corpus / "manifest.json"),
+                                                  hashlib.sha256((corpus / "manifest.json").read_bytes()).hexdigest()}:
+        raise ValueError("cached tokens were produced from a different corpus")
+    return manifest
 
 
 def wsd_lr(step: int, total: int, plan: TrainPlan) -> float:
@@ -202,7 +218,7 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
               "tokenizer_sha256": hashlib.sha256((tokenizer_dir / "tokenizer.model").read_bytes()).hexdigest(),
               "data_manifest": json.loads((data_dir / "tokens-manifest.json").read_text(encoding="utf-8")),
               "license": "HYDRA Base proprietary (docs/legal/LICENCIA_PESOS_HYDRA_BASE.md); weights never published"}
-    (output / "build-manifest.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    (output / "build-manifest.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8", newline="\n")
     return report
 
 
@@ -217,11 +233,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if not (args.data / "tokens-manifest.json").exists():
         counts = tokenize(args.corpus, args.tokenizer, args.data)
-        manifest = {"corpus_manifest_sha256": hashlib.sha256((args.corpus / "manifest.json").read_bytes()).hexdigest(),
+        manifest = {"corpus_manifest_sha256": canonical_sha256(args.corpus / "manifest.json"),
                     "tokenizer_sha256": hashlib.sha256((args.tokenizer / "tokenizer.model").read_bytes()).hexdigest(),
-                    **counts}
-        (args.data / "tokens-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+                    "document_framing": "bos+document+eos", **counts}
+        (args.data / "tokens-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8",
+                                                        newline="\n")
         print(json.dumps(manifest, indent=2))
+    else:
+        verify_tokens(args.data, args.corpus, args.tokenizer)
     if not args.tokenize_only:
         result = train(args.data, args.tokenizer, args.output, ModelShape(), TrainPlan(), args.max_steps)
         print(json.dumps({k: result[k] for k in ("parameters", "steps", "tokens_seen", "runtime_s", "history")}, indent=2))

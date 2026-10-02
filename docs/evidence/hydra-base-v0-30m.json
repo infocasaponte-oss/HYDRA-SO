@@ -114,7 +114,7 @@
   "weights_sha256": "e64772e1beb6a1d5ffc8475d5f8fa09904f8d005ba0ff15034c62d820d6a934f",
   "tokenizer_sha256": "06657d6aa9b9c3fb9f6cbc09769dd0b80801c2e9a464f83f21433e8fa3576f10",
   "data_manifest": {
-    "corpus_manifest_sha256": "9009d1edd664ef5c85d75f923252bf75bb6d7fe6380f3dc7a2cda0145eedf382",
+    "corpus_manifest_sha256": "5f284cff2d42316b70ce9467f2c6d6ee8a94f6af25010de60d6e6afe2aa53172",
     "tokenizer_sha256": "06657d6aa9b9c3fb9f6cbc09769dd0b80801c2e9a464f83f21433e8fa3576f10",
     "train": {
       "tokens": 203185864,
@@ -126,20 +126,28 @@
     }
   },
   "license": "HYDRA Base proprietary (docs/legal/LICENCIA_PESOS_HYDRA_BASE.md); weights never published",
+  "document_framing": "document+eos (no BOS); exported tokenizer has add_bos_token=false to match",
   "gguf": {
     "file": "HYDRA-BASE-v0-f16.gguf",
     "type": "f16",
     "bytes": 61116032,
-    "sha256": "ef27ae58c89325611f628ed501fda276f927dba59532d838fe72880eec8ca666",
+    "sha256": "5d622fb1d6cf0d649cc9a3f837cf7c653e38e0974715d29bd0825eb8bf65eeaf",
+    "add_bos_token": false,
     "converter": "runtime/llama.cpp/convert_hf_to_gguf.py (b11146), SentencePiece vocab, no pre-tokenizer registration"
   },
   "samples_seed42_temp0.7": {
-    "Artículo 1. Objeto. Esta ley tiene por objeto": "Artículo 1. Objeto. Esta ley tiene por objeto:\r\ni) El establecimiento de medidas de fomento de la producción de bebidas alcohólicas, de acuerdo con lo establecido por la normativa de la Comunidad Autónoma de Extremadura.\r\nj) El establecimiento de medidas de fomento de la producción de bebidas alcohólicas, de acuerdo con lo establecido por la normativa de la Comunidad Autónoma",
-    "def calcular_media(valores):": "def calcular_media(valores):\r\n        if valores:\r\n            return\r\n        else:\r\n            return\r\n\r\n    return\r\n\r\ndef get_base_text(input_file, path, color_name, title_path, color_name, color_name):\r\n    # If the file is valid,"
+    "Artículo 1. Objeto. Esta ley tiene por objeto": "Artículo 1. Objeto. Esta ley tiene por objeto regular el derecho de acceso a los servicios de telecomunicaciones y su acceso, en especial, a la prestación de los servicios de telecomunicaciones a través de servicios de telecomunicación.\r\nArtículo 11. Definiciones.\r\nA los efectos de esta ley, se entenderá por:\r\na) Autoridad de",
+    "def calcular_media(valores):": "def calcular_media(valores):\r\n        #        if valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[valores[val"
+  },
+  "evidence_links": {
+    "corpus_manifest_sha256_lf": "5f284cff2d42316b70ce9467f2c6d6ee8a94f6af25010de60d6e6afe2aa53172",
+    "tokenizer_manifest_sha256_lf": "fac32c2a800e2eff8765ea2cbc4f38ffbfd52c4dcd92bc69d6d64ee626840d6b"
   },
   "findings": [
     "End-to-end pipeline validated: licence-checked corpus -> own SentencePiece tokenizer -> Llama pretraining -> GGUF -> llama.cpp generation.",
-    "Held-out perplexity 12.39 after 203M tokens (one epoch); stage-0 quality is pipeline validation only: fluent legal register but repetitive, Python-shaped code without logic.",
+    "Held-out perplexity 12.39 after 203M tokens (one epoch); stage-0 quality is pipeline validation only.",
+    "v0 was pretrained without a BOS token per document; its exported tokenizer/GGUF disable automatic BOS so inference matches training. base_pretrain now frames documents as BOS+document+EOS for later runs.",
+    "Evidence links use LF-canonical hashes (the repository normalises JSON to LF).",
     "Weights stay local (models/ is gitignored) under docs/legal/LICENCIA_PESOS_HYDRA_BASE.md."
   ]
 }
