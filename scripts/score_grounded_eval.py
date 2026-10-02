@@ -38,6 +38,10 @@ def ticks(text: str) -> list[str]:
 def repeal_polarity(text: str) -> bool | None:
     """True = repealed, False = not repealed, None = unclear."""
     t = norm(text)
+    # "Su estado es «No»" answers "the repeal status" with the metadata value itself.
+    status = re.search(r"(?:estado|derogaci[óo]n|derogada)[^.«]{0,30}«\s*(s[íi]|no)\s*»", t)
+    if status:
+        return status.group(1) != "no"
     if re.search(r"derogada: no|\bno\b[^.]{0,40}derogad|sin derogar|no consta como derogad|^no\b", t):
         return False
     if re.search(r"derogada: sí|^sí\b|consta como derogad|está derogad", t):
