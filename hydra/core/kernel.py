@@ -75,7 +75,9 @@ from hydra.verification.confidence import ConfidenceInputs, confidence_score
 from hydra.verification.consensus import agreement, pair_agreement
 from hydra.verification.uncertainty import VERIFY_SCHEMA, apply_verdict, assess_claims, segment_claims
 from hydra.verification.grounding import coverage as source_coverage
+from hydra.verification.grounding import has_source
 from hydra.verification.grounding import repair as source_abstention
+from hydra.verification.grounding import strip_unsourced_urls
 from hydra.verification.verifier import VerificationResult, Verifier
 from hydra.workers.coder import CoderWorker
 from hydra.workers.critic import CriticWorker
@@ -434,6 +436,11 @@ class HydraKernel:
             await ctx.emit(EventType.SYNTHESIS_COMPLETED, "synthesizer", {"answer": answer})
             answer, verification, confidence = await self._enforce_source_coverage(
                 ctx, answer, verification, confidence)
+            if has_source(request.last_user_text) and not chosen.get("research"):
+                answer, invented = strip_unsourced_urls(answer, request.text)
+                if invented:
+                    ctx.degradations.append("Se retiraron enlaces que no aparecen en la fuente aportada: "
+                                            + ", ".join(invented))
 
             records = self.provenance.build(claims, ctx.state, chosen, verification.verified,
                                             documents={"request": request.text})

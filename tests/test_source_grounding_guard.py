@@ -108,3 +108,17 @@ def test_official_numbers_dates_and_codes_are_not_arithmetic():
     for text, value in (("¿Cuánto es 12/4?", 3.0), ("¿2+2?", 4.0), ("calcula 100/2000", 0.05),
                         ("Resta 20-5 por favor", 15.0)):
         assert expected_value(text)[1] == value
+
+
+def test_invented_source_links_are_removed_but_links_in_the_source_are_kept():
+    from hydra.verification.grounding import strip_unsourced_urls
+    source = "Artículo 5. Subsanación.\nDiez días. Más en https://www.boe.es/eli/es/l/2015/10/01/39\n\n¿Plazo?"
+    answer = ("La subsanación se hace en diez días. Fuente: https://www.jurisprudencia.gob.es/ser/x?id=1 "
+              "Ver https://www.boe.es/eli/es/l/2015/10/01/39.")
+    cleaned, invented = strip_unsourced_urls(answer, source)
+    assert invented == ["https://www.jurisprudencia.gob.es/ser/x?id=1"]
+    assert cleaned == "La subsanación se hace en diez días. Ver https://www.boe.es/eli/es/l/2015/10/01/39."
+    assert strip_unsourced_urls("Sin enlaces.", source) == ("Sin enlaces.", [])
+    code = "Arreglado:\n```python\ndef add(a, b):\n    return a + b\n```\nFuente: https://example.org/inventada"
+    cleaned, _ = strip_unsourced_urls(code, "def add(a, b):\n    return a - b\n")
+    assert cleaned == "Arreglado:\n```python\ndef add(a, b):\n    return a + b\n```"

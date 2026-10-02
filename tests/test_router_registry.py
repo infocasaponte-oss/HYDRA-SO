@@ -157,3 +157,44 @@ def test_ollama_provider_lists_installed_models():
     provider.client = httpx.AsyncClient(base_url="http://ollama", transport=httpx.MockTransport(
         lambda request: httpx.Response(500)))
     assert asyncio.run(provider.installed_models()) is None  # unknown, never "nothing installed"
+
+
+SOURCE = "Artículo 3. Plazos.\nEl plazo máximo para resolver será de tres meses.\n\n¿Cuál es el plazo máximo?"
+
+
+def _specialist_registry() -> ModelRegistry:
+    return ModelRegistry([model("v8", chat=0.6, tools=0.3), model("v5", chat=0.5, tools=0.3, specialty="grounded")],
+                         CircuitBreaker())
+
+
+@pytest.mark.parametrize("text", [SOURCE, "```python\ndef suma(a, b):\n    return a + b\n```\n¿Qué devuelve `suma`?"])
+async def test_requests_with_source_go_to_the_grounded_specialist(text):
+    route = await CognitiveRouter().route(req(text))
+    assert route.signals.get("source.grounded") == 1.0
+    assert [m.id for m in _specialist_registry().select(req(text), route)] == ["v5"]
+
+
+async def test_requests_without_source_never_reach_the_specialist():
+    route = await CognitiveRouter().route(req("¿Cuál es el plazo para recurrir una multa?"))
+    assert "source.grounded" not in route.signals
+    assert [m.id for m in _specialist_registry().select(req("x"), route)] == ["v8"]
+
+
+async def test_only_the_latest_message_decides_and_the_generalist_is_the_fallback():
+    followup = HydraRequest(messages=[Message(role="user", content=SOURCE), Message(role="assistant", content="Tres meses."),
+                                      Message(role="user", content="Gracias, ¿y en general cómo recurro?")])
+    assert "source.grounded" not in (await CognitiveRouter().route(followup)).signals
+    registry = _specialist_registry()
+    route = await CognitiveRouter().route(req(SOURCE))
+    registry.models["v5"].enabled = False
+    assert [m.id for m in registry.select(req(SOURCE), route)] == ["v8"]
+
+
+def test_grounded_catalog_pairs_v8_generalist_with_v5_specialist():
+    from pathlib import Path
+    catalog = ModelRegistry.from_yaml(Path(__file__).resolve().parents[1] / "config/models.hydra-v8-v5-grounded-llamacpp.yaml",
+                                      CircuitBreaker())
+    by_id = {m.id: m for m in catalog.all()}
+    v5 = by_id["hydra-program-v5-grounded-specialist"]
+    assert v5.specialty == "grounded" and v5.endpoint.endswith(":18092/v1") and v5.local
+    assert by_id["hydra-instruction-v8-direct-candidate"].specialty is None

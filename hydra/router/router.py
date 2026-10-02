@@ -19,6 +19,8 @@ from hydra.core.contracts import (
     TaskType,
 )
 from hydra.router.observer import DecisionObserver
+from hydra.router.scoring import SOURCE_SIGNAL
+from hydra.verification.grounding import has_source
 from hydra.router.decision_authority import DecisionAuthority
 
 log = logging.getLogger("hydra.router")
@@ -137,6 +139,9 @@ class CognitiveRouter:
         risk = min(1.0, 0.1 + 0.25 * _hits(text, HIGH_RISK))
 
         signals = {f"kw.{t.value}": float(n) for t, n in hits.items()}
+        # Only the latest message: a source pasted turns ago must not pin the whole chat to a specialist.
+        if has_source(request.last_user_text):
+            signals[SOURCE_SIGNAL] = 1.0
         return RoutingDecision(
             task_type=task,
             complexity=complexity,

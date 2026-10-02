@@ -70,6 +70,10 @@ class ModelProfile(BaseModel):
     input_cost: float = 0  # per 1M tokens
     output_cost: float = 0  # per 1M tokens
 
+    specialty: str | None = None
+    """'grounded': a specialist chosen only (and always, while eligible) for requests that bring
+    their own source material; generalist models leave it unset."""
+
     enabled: bool = True
     current_load: float = Field(default=0, ge=0, le=1)
     queue_depth: int = 0

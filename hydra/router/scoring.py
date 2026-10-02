@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from hydra.registry.models import ModelProfile
 
 
+SOURCE_SIGNAL = "source.grounded"
+"""Router signal: the latest message supplies source material (legal articles or code)."""
+
+
 class ScoringWeights(BaseModel):
     quality: float = 0.45
     specialization: float = 0.20
@@ -104,7 +108,13 @@ def filter_models(
         if model.context_window < needed_ctx:
             continue
         candidates.append(model)
-    return candidates
+    # Grounded specialists answer only requests that bring their own source, and take all of them
+    # while one is eligible; otherwise the generalists answer (also the fallback when it is down).
+    grounded = route.signals.get(SOURCE_SIGNAL, 0) > 0
+    specialists = [m for m in candidates if m.specialty == "grounded"]
+    if grounded and specialists:
+        return specialists
+    return [m for m in candidates if m.specialty != "grounded"]
 
 
 def rank_models(
