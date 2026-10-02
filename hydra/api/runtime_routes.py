@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-"""Mount the HYDRA-SO runtime line (``hydra.runtime.api``) into the unified gateway.
+"""Mount the native compatibility API (``hydra.api.native``) into the unified gateway.
 
 Platform routes win on (path, method) collisions:
 
@@ -44,7 +44,7 @@ def _shape(path: str) -> str:
 
 
 def runtime_module() -> ModuleType:
-    from hydra.runtime import api
+    from hydra.api import native as api
 
     return api
 

@@ -882,7 +882,7 @@ def register_platform_routes(app: FastAPI, rt, secured, admin_secured=None) -> N
             gauges["hydra_capture_outbox_pending"] = stats["pending"]
             gauges["hydra_capture_outbox_dead_letters"] = stats["dead_letters"]
         if runtime.settings.runtime_api:  # HYDRA-SO runtime line (transactional outbox)
-            from hydra.runtime import api as runtime_api
+            from hydra.api import native as runtime_api
             from hydra.core.outbox_metrics import collect_outbox_metrics
 
             line = collect_outbox_metrics(runtime_api.capture_uow.outbox)
