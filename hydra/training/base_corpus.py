@@ -73,8 +73,19 @@ def record_licenses(kind: str, row: dict) -> list[str]:
     if kind == "acquisition":
         # "license" (CC-BY-4.0) or "license_declared" ("PSF-2.0; examples 0BSD"): every part must pass
         declared = str(row.get("license") or row.get("license_declared") or "")
-        return [part.split()[-1] for part in re.split(r"[;,]", declared) if part.strip()]
+        return license_ids(declared)
     raise ValueError(f"unknown source kind {kind}")
+
+
+LICENSE_OPERATORS = frozenset({"OR", "AND", "WITH"})
+
+
+def license_ids(declared: str) -> list[str]:
+    """Every licence id in a declaration ("GPL-3.0 OR MIT" -> both, so the copyleft one is still
+    checked). Lowercase qualifier words ("examples", "docs") are not ids; ids carry a capital or a digit."""
+    tokens = re.split(r"[;,()\s]+", declared)
+    return [t for t in tokens if t and t.upper() not in LICENSE_OPERATORS
+            and (t == "public-domain" or any(c.isupper() or c.isdigit() for c in t))]
 
 
 def record_attribution(kind: str, row: dict, licenses: str) -> dict | None:
@@ -130,7 +141,7 @@ def chunk_paragraphs(text: str, size: int = 16_000) -> list[str]:
     """Split long works at paragraph/line boundaries into ~size-character segments."""
     chunks, current = [], []
     length = 0
-    for paragraph in text.split("\n"):
+    for paragraph in _bounded_lines(text, size):
         if length + len(paragraph) > size and current:
             chunks.append("\n".join(current))
             current, length = [], 0
@@ -139,6 +150,17 @@ def chunk_paragraphs(text: str, size: int = 16_000) -> list[str]:
     if current:
         chunks.append("\n".join(current))
     return [c for c in chunks if c.strip()]
+
+
+def _bounded_lines(text: str, size: int) -> Iterator[str]:
+    """Lines no longer than size: a badly line-broken OCR line is cut at the last space before the limit."""
+    for line in text.split("\n"):
+        while len(line) > size:
+            cut = line.rfind(" ", 0, size)
+            cut = cut if cut > size // 2 else size
+            yield line[:cut]
+            line = line[cut:].lstrip(" ")
+        yield line
 
 
 def source_rows(spec: SourceSpec) -> tuple[Iterator[dict], str]:
@@ -155,34 +177,44 @@ def _pleias_rows(folder: Path) -> tuple[Iterator[dict], str]:
     """Parquet files listed (and pinned by sha256 and revision) in the fetcher's manifest."""
     manifest_path = folder / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    for name, entry in manifest["files"].items():
-        if file_sha256(folder / name) != entry["sha256"]:
+    # The selection is a sorted prefix of the repository listing; a larger earlier run may have left
+    # extra files in the manifest, so only the current prefix is read, and it must be complete.
+    count = manifest["selection"]["count"]
+    selected = sorted(manifest["files"])[:count]
+    if len(selected) < count:
+        raise ValueError(f"{folder}: {len(selected)} of {count} selected files downloaded")
+    for name in selected:
+        if file_sha256(folder / name) != manifest["files"][name]["sha256"]:
             raise ValueError(f"{folder / name} does not match its manifest")
+    digest = hashlib.sha256(f"{canonical_sha256(manifest_path)}\n{json.dumps(selected)}".encode()).hexdigest()
 
     def rows():
         import pyarrow.parquet as pq
 
-        for name in sorted(manifest["files"]):
+        for name in selected:
             parquet = pq.ParquetFile(folder / name)
             for group in range(parquet.num_row_groups):
                 for book in parquet.read_row_group(group, columns=["identifier", "title", "text"]).to_pylist():
                     cleaned = clean_ocr(book.get("text") or "")
                     if cleaned is None:
-                        yield {"document_id": f"{book['identifier']}#rejected", "text": ""}
+                        yield {"document_id": f"{book['identifier']}#rejected", "text": "", "chunk": 0}
                         continue
                     for index, chunk in enumerate(chunk_paragraphs(cleaned)):
+                        # split_key: every chunk of one work lands in the same split (no leakage)
                         yield {"document_id": f"{book['identifier']}#{index}", "title": book.get("title"),
-                               "text": chunk}
-    return rows(), canonical_sha256(manifest_path)
+                               "text": chunk, "chunk": index, "split_key": str(book["identifier"])}
+    return rows(), digest
 
 
 def _acquisition_rows(root: Path) -> tuple[Iterator[dict], str]:
     """technical-clear.jsonl of every reviewed batch; the digest covers each file's bytes."""
     files = sorted(root.glob("*/technical-clear.jsonl"))
+    if not files:
+        raise ValueError(f"no reviewed acquisition batch (*/technical-clear.jsonl) under {root}")
     digest = hashlib.sha256()
     snapshots = []
     for path in files:
-        data, file_digest = snapshot(path)
+        data, file_digest = snapshot_final(path)
         digest.update(f"{path.parent.name}/{path.name}:{file_digest}\n".encode())
         snapshots.append(data)
     return (json.loads(raw) for data in snapshots for raw in data.splitlines() if raw.strip()), digest.hexdigest()
@@ -222,6 +254,19 @@ def snapshot(path: Path) -> tuple[bytes, str]:
     """The exact complete-line bytes that will be parsed, and their sha256 (a source may be growing)."""
     data = path.read_bytes()
     data = data[:data.rfind(b"\n") + 1]
+    return data, hashlib.sha256(data).hexdigest()
+
+
+def snapshot_final(path: Path) -> tuple[bytes, str]:
+    """Like snapshot, for finished files: a valid last record without a trailing newline is kept."""
+    data = path.read_bytes()
+    tail = data[data.rfind(b"\n") + 1:]
+    if tail.strip():
+        try:
+            json.loads(tail)
+            data += b"\n"
+        except ValueError:
+            data = data[:len(data) - len(tail)]
     return data, hashlib.sha256(data).hexdigest()
 
 
@@ -296,7 +341,11 @@ def build(output: Path, sources: list[SourceSpec]) -> dict:
                  "read": 0, "kept": 0, "characters": 0, "rejected": {}}
         licenses_kept: set[str] = set()
         for row in rows:
-            stats["read"] += 1
+            # "read" counts source works: a work split into chunks counts once (chunks counted apart)
+            if row.get("chunk", 0) == 0:
+                stats["read"] += 1
+            if "chunk" in row:
+                stats["chunks"] = stats.get("chunks", 0) + 1
             if spec.kind == "pleias_parquet" and row["document_id"].endswith("#rejected"):
                 stats["rejected"]["ocr"] = stats["rejected"].get("ocr", 0) + 1
                 continue
@@ -316,7 +365,8 @@ def build(output: Path, sources: list[SourceSpec]) -> dict:
                 continue
             seen.add(doc_hash)
             licenses_kept.update(decision.license.split(", "))
-            writers["validation" if holdout(doc_hash) else "train"].write({
+            split_hash = hashlib.sha256(row["split_key"].encode()).hexdigest() if row.get("split_key") else doc_hash
+            writers["validation" if holdout(split_hash) else "train"].write({
                 "text": text, "source": spec.name, "document_id": document_id(spec.kind, row),
                 "license": decision.license, "sha256": doc_hash})
             attribution = record_attribution(spec.kind, row, decision.license)
