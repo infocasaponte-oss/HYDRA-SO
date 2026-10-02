@@ -12,7 +12,7 @@ from hydra.corpus.artifact_candidates import (
     QualityTier,
     RightsDeclaration,
 )
-from hydra.runtime.corpus_quality import verified_patch_quality
+from hydra.corpus.patch_quality import verified_patch_quality
 from hydra.corpus.artifact_privacy import PrivacyScanner, PrivacyScanResult
 
 

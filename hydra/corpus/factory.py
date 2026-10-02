@@ -28,6 +28,9 @@ from pydantic import BaseModel, Field, field_validator
 from hydra.core.hashing import hash_obj, now_iso, sha256_file
 from hydra.corpus.records import Classification, CorpusRecord, RecordType
 from hydra.corpus.store import CorpusStore, write_table
+from hydra.corpus.artifact_datasets import DatasetFactory as ArtifactDatasetFactory
+from hydra.corpus.artifact_datasets import DatasetManifest as ArtifactDatasetManifest
+from hydra.corpus.artifact_candidates import CorpusRecord as ArtifactCorpusRecord
 
 
 class SyntheticPolicy(BaseModel):
@@ -215,6 +218,12 @@ LICENSE_CLASS = {"proprietary": "proprietary", "internal": "internal", "mit": "p
 
 
 class DatasetFactory:
+    def release_artifacts(
+        self, name: str, records: list[ArtifactCorpusRecord], *, root: str | Path
+    ) -> ArtifactDatasetManifest:
+        """Freeze an artifact-candidate manifest; this does not export training text."""
+        return ArtifactDatasetFactory(root).release(name, records)
+
     def __init__(self, store: CorpusStore, ledger=None) -> None:
         self.store = store
         self.ledger = ledger
