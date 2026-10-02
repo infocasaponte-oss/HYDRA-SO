@@ -21,8 +21,11 @@ class HydBusyError(RuntimeError):
 
 
 def implementation_digest() -> str:
+    """Hash of the code that computes probabilities, confidence and abstention. The controller
+    (scheduling, telemetry) is excluded: changing it cannot alter a calibrated answer, so it must
+    not silently invalidate calibration or authority evidence."""
     digest = hashlib.sha256()
-    for name in ("model.py", "engine.py", "controller.py", "neural.py"):
+    for name in ("model.py", "engine.py", "neural.py"):
         digest.update(name.encode())
         digest.update(Path(__file__).with_name(name).read_bytes().replace(b"\r\n", b"\n"))
     return digest.hexdigest()
@@ -81,7 +84,17 @@ class HydController:
                 selected="abstain" if answer["abstained"] else answer["choice"],
                 probabilities=answer["probabilities"], confidence=answer["selection_probability"],
                 reason="hyd." + answer["reason"], elapsed_ms=(time.perf_counter() - start) * 1000)
-        except (ValueError, TypeError, OverflowError, RuntimeError, TimeoutError):
+        except HydBusyError:
+            # Capacity, not input: telemetry must not count load shedding as malformed requests.
+            return DecisionObservation(status="skipped", model=self.model, reason="hyd.busy",
+                                       elapsed_ms=(time.perf_counter() - start) * 1000)
+        except TimeoutError:
+            return DecisionObservation(status="timeout", model=self.model, reason="hyd.deadline",
+                                       elapsed_ms=(time.perf_counter() - start) * 1000)
+        except RuntimeError:
+            return DecisionObservation(status="error", model=self.model, reason="hyd.backend_failure",
+                                       elapsed_ms=(time.perf_counter() - start) * 1000)
+        except (ValueError, TypeError, OverflowError):
             return DecisionObservation(status="error", model=self.model, reason="hyd.invalid_input",
                                        elapsed_ms=(time.perf_counter() - start) * 1000)
 

@@ -203,3 +203,18 @@ def test_standalone_service_discovery_and_auth(tmp_path):
     response = client.get("/v1/models", headers={"Authorization": "Bearer hyd-test-key"})
     assert response.status_code == 200
     assert response.json()["models"][0]["name"] == "hyd-latest"
+
+
+@pytest.mark.parametrize("error,status,reason", [
+    ("busy", "skipped", "hyd.busy"), (TimeoutError(), "timeout", "hyd.deadline"),
+    (RuntimeError("cuda"), "error", "hyd.backend_failure"), (ValueError("bad"), "error", "hyd.invalid_input")])
+async def test_observation_reasons_separate_load_deadline_backend_and_input(error, status, reason):
+    from hydra.core.contracts import HydraRequest, Message
+    from hydra.hyd.controller import HydBusyError
+    hyd = controller()
+
+    async def failing(*args, **kwargs):
+        raise HydBusyError("busy") if error == "busy" else error
+    hyd.decide = failing
+    observation = await hyd.observe(HydraRequest(messages=[Message(role="user", content="Hola, ¿qué tal?")]))
+    assert (observation.status, observation.reason) == (status, reason)
