@@ -28,6 +28,8 @@ PERMITTED: dict[str, str] = {
     "Apache-2.0": "Conservar los avisos de licencia y NOTICE de Apache-2.0.",
     # Ley 37/2007 y RD 1495/2011: reutilización con cita de la fuente, sin desnaturalizar el dato.
     "es-public-sector-reuse": "Citar la fuente (p. ej. «Fuente: Agencia Estatal BOE») y la fecha de actualización.",
+    # Decisión 2011/833/UE: reutilización de documentos de la Comisión y EUR-Lex con atribución.
+    "eu-reuse-2011-833": "Citar «© Unión Europea, https://eur-lex.europa.eu» e indicar si se ha modificado.",
 }
 
 # Patterns whose terms would bind the weights or forbid this use.
