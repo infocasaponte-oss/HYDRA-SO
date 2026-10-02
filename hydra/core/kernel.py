@@ -36,6 +36,7 @@ from hydra.analysis.counterfactual import CounterfactualEngine, CounterfactualSt
 from hydra.artifacts.engine import ArtifactEngine
 from hydra.cache.semantic import SemanticCache
 from hydra.core.budget import BudgetExceeded, BudgetTracker, budget_for
+from hydra.core.inference_budget import use_inference_budget
 from hydra.core.context import TaskContext
 from hydra.core.contracts import (
     Claim,
@@ -235,8 +236,14 @@ class HydraKernel:
     # =====================================================================================
     async def run(self, request: HydraRequest, task_id: UUID | None = None, *,
                   shadow: bool = False, learn: bool = True) -> HydraResponse:
-        ctx = TaskContext(request=request, bus=self.bus,
-                          budget=BudgetTracker(budget_for(request, self.config.time_scale)))
+        budget = BudgetTracker(budget_for(request, self.config.time_scale))
+        # Native executors reached from this task reserve from the same model-call counter.
+        with use_inference_budget(budget.calls):
+            return await self._run(request, task_id, shadow=shadow, learn=learn, budget=budget)
+
+    async def _run(self, request: HydraRequest, task_id: UUID | None, *,
+                   shadow: bool, learn: bool, budget: BudgetTracker) -> HydraResponse:
+        ctx = TaskContext(request=request, bus=self.bus, budget=budget)
         if task_id is not None:
             ctx.task_id = task_id
         ctx.shadow, ctx.learn, ctx.prompts = shadow, learn and not shadow, dict(self.config.prompts)

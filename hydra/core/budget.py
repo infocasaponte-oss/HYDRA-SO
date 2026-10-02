@@ -8,6 +8,7 @@ import time
 from pydantic import BaseModel
 
 from hydra.core.contracts import ExecutionMode, HydraRequest
+from hydra.core.inference_budget import InferenceBudget
 
 
 class CognitiveBudget(BaseModel):
@@ -69,11 +70,21 @@ class BudgetTracker:
         self.budget = budget
         self.started = time.monotonic()
         self.tokens = 0
-        self.model_calls = 0
+        # Model calls live in the same counter the native executors use, so a task's
+        # cognitive, physical and logical inference share one budget.
+        self.calls = InferenceBudget(budget.max_model_calls)
         self.tool_calls = 0
         self.cost = 0.0
         self.steps = 0
         self.escalations = 0
+
+    @property
+    def model_calls(self) -> int:
+        return self.calls.used
+
+    def _sync_limit(self) -> InferenceBudget:
+        self.calls.limit = self.budget.max_model_calls
+        return self.calls
 
     @property
     def elapsed_s(self) -> float:
@@ -84,7 +95,21 @@ class BudgetTracker:
         return max(0.0, self.budget.max_seconds - self.elapsed_s)
 
     def can_call_model(self, n: int = 1) -> bool:
-        return self.model_calls + n <= self.budget.max_model_calls and not self.exhausted
+        calls = self._sync_limit()
+        return calls.used + n <= calls.limit and not self.exhausted
+
+    def reserve_model_call(self) -> None:
+        """Reserve before calling, so concurrent (hedged) calls cannot overrun the budget.
+
+        Pair with ``release_model_call`` when the attempt fails: only successful calls count,
+        so a FAST task (one call) can still retry after a failure.
+        """
+        if self.exhausted or not self._sync_limit().reserve():
+            raise BudgetExceeded("model call budget exhausted")
+
+    def release_model_call(self) -> None:
+        """Return the unit of a failed or cancelled attempt."""
+        self.calls.release(1)
 
     def can_call_tool(self) -> bool:
         return self.tool_calls < self.budget.max_tool_calls and not self.exhausted
@@ -92,8 +117,9 @@ class BudgetTracker:
     def can_escalate(self) -> bool:
         return self.escalations < self.budget.max_escalations and self.can_call_model()
 
-    def charge_model(self, tokens: int, cost: float) -> None:
-        self.model_calls += 1
+    def charge_model(self, tokens: int, cost: float, *, reserved: bool = False) -> None:
+        if not reserved:
+            self.calls.used += 1
         self.tokens += tokens
         self.cost += cost
 
