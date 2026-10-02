@@ -1,0 +1,145 @@
+{
+  "kind": "hydra-base",
+  "stage": 0,
+  "approved": false,
+  "parameters": 30158400,
+  "shape": {
+    "hidden_size": 320,
+    "num_hidden_layers": 18,
+    "num_attention_heads": 5,
+    "num_key_value_heads": 1,
+    "intermediate_size": 896,
+    "max_position_embeddings": 1024
+  },
+  "plan": {
+    "seq_len": 1024,
+    "micro_batch": 4,
+    "accumulation": 16,
+    "learning_rate": 0.002,
+    "min_lr_ratio": 0.1,
+    "warmup_fraction": 0.02,
+    "decay_fraction": 0.2,
+    "weight_decay": 0.1,
+    "epochs": 1.0,
+    "eval_every": 250,
+    "eval_batches": 50,
+    "seed": 42
+  },
+  "steps": 3100,
+  "tokens_seen": 203161600,
+  "train_tokens": 203185864,
+  "gpu": "NVIDIA GeForce RTX 3060 Ti",
+  "peak_allocated_bytes": 3756633088,
+  "runtime_s": 6877.8,
+  "history": [
+    {
+      "step": 250,
+      "train_loss": 4.5863,
+      "val_loss": 4.8561,
+      "val_perplexity": 128.53
+    },
+    {
+      "step": 500,
+      "train_loss": 3.561,
+      "val_loss": 3.9953,
+      "val_perplexity": 54.34
+    },
+    {
+      "step": 750,
+      "train_loss": 3.2514,
+      "val_loss": 3.4142,
+      "val_perplexity": 30.39
+    },
+    {
+      "step": 1000,
+      "train_loss": 2.861,
+      "val_loss": 3.1771,
+      "val_perplexity": 23.98
+    },
+    {
+      "step": 1250,
+      "train_loss": 2.8967,
+      "val_loss": 3.0329,
+      "val_perplexity": 20.76
+    },
+    {
+      "step": 1500,
+      "train_loss": 2.8372,
+      "val_loss": 2.9395,
+      "val_perplexity": 18.91
+    },
+    {
+      "step": 1750,
+      "train_loss": 2.6234,
+      "val_loss": 2.856,
+      "val_perplexity": 17.39
+    },
+    {
+      "step": 2000,
+      "train_loss": 2.5338,
+      "val_loss": 2.8053,
+      "val_perplexity": 16.53
+    },
+    {
+      "step": 2250,
+      "train_loss": 2.6049,
+      "val_loss": 2.759,
+      "val_perplexity": 15.78
+    },
+    {
+      "step": 2500,
+      "train_loss": 2.2386,
+      "val_loss": 2.7225,
+      "val_perplexity": 15.22
+    },
+    {
+      "step": 2750,
+      "train_loss": 2.3014,
+      "val_loss": 2.6293,
+      "val_perplexity": 13.86
+    },
+    {
+      "step": 3000,
+      "train_loss": 2.1725,
+      "val_loss": 2.546,
+      "val_perplexity": 12.76
+    },
+    {
+      "step": 3100,
+      "train_loss": 2.1264,
+      "val_loss": 2.5173,
+      "val_perplexity": 12.39
+    }
+  ],
+  "weights_sha256": "e64772e1beb6a1d5ffc8475d5f8fa09904f8d005ba0ff15034c62d820d6a934f",
+  "tokenizer_sha256": "06657d6aa9b9c3fb9f6cbc09769dd0b80801c2e9a464f83f21433e8fa3576f10",
+  "data_manifest": {
+    "corpus_manifest_sha256": "9009d1edd664ef5c85d75f923252bf75bb6d7fe6380f3dc7a2cda0145eedf382",
+    "tokenizer_sha256": "06657d6aa9b9c3fb9f6cbc09769dd0b80801c2e9a464f83f21433e8fa3576f10",
+    "train": {
+      "tokens": 203185864,
+      "sha256": "5fd7f85f09839f389bad89284749541fd6374ecf8c3cdc6bda01396264f3aebc"
+    },
+    "validation": {
+      "tokens": 2097392,
+      "sha256": "e559d7d9e7cbcb4b007a18c75603a2ef9fa261a90919674ee119253612063704"
+    }
+  },
+  "license": "HYDRA Base proprietary (docs/legal/LICENCIA_PESOS_HYDRA_BASE.md); weights never published",
+  "gguf": {
+    "file": "HYDRA-BASE-v0-f16.gguf",
+    "type": "f16",
+    "bytes": 61116032,
+    "sha256": "ef27ae58c89325611f628ed501fda276f927dba59532d838fe72880eec8ca666",
+    "converter": "runtime/llama.cpp/convert_hf_to_gguf.py (b11146), SentencePiece vocab, no pre-tokenizer registration"
+  },
+  "samples_seed42_temp0.7": {
+    "Artículo 1. Objeto. Esta ley tiene por objeto": "Artículo 1. Objeto. Esta ley tiene por objeto:\r\ni) El establecimiento de medidas de fomento de la producción de bebidas alcohólicas, de acuerdo con lo establecido por la normativa de la Comunidad Autónoma de Extremadura.\r\nj) El establecimiento de medidas de fomento de la producción de bebidas alcohólicas, de acuerdo con lo establecido por la normativa de la Comunidad Autónoma",
+    "def calcular_media(valores):": "def calcular_media(valores):\r\n        if valores:\r\n            return\r\n        else:\r\n            return\r\n\r\n    return\r\n\r\ndef get_base_text(input_file, path, color_name, title_path, color_name, color_name):\r\n    # If the file is valid,"
+  },
+  "findings": [
+    "End-to-end pipeline validated: licence-checked corpus -> own SentencePiece tokenizer -> Llama pretraining -> GGUF -> llama.cpp generation.",
+    "Held-out perplexity 12.39 after 203M tokens (one epoch); stage-0 quality is pipeline validation only: fluent legal register but repetitive, Python-shaped code without logic.",
+    "Weights stay local (models/ is gitignored) under docs/legal/LICENCIA_PESOS_HYDRA_BASE.md."
+  ]
+}
