@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from hydra.runtime.artifacts import ArtifactRecord
+from hydra.artifacts.task_store import ArtifactRecord
 from hydra.runtime.code_agent import CodeAgentResult
 
 

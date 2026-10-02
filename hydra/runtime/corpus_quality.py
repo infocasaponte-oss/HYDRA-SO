@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from __future__ import annotations
 
-from hydra.runtime.artifacts import ArtifactRecord
+from hydra.artifacts.task_store import ArtifactRecord
 
 
 def verified_patch_quality(artifacts: list[ArtifactRecord]) -> str:
