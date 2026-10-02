@@ -9,7 +9,7 @@ from uuid import UUID
 
 from hydra.runtime.artifacts import ArtifactRecord, ArtifactStore
 from hydra.core.durable_events import JsonlEventStore
-from hydra.runtime.patching import PatchTool
+from hydra.coding.patching import PatchTool
 from hydra.runtime.sandbox import OciSandbox
 
 

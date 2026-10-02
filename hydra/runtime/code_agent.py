@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import UUID
 
 from hydra.runtime.artifacts import ArtifactRecord, ArtifactStore
-from hydra.runtime.code_context import CodeContextSelector
+from hydra.coding.context import CodeContextSelector
 from hydra.runtime.code_verification import (
     VerificationPolicy,
     VerificationReport,
@@ -17,11 +17,11 @@ from hydra.runtime.code_verification import (
     extract_targeted_test,
 )
 from hydra.core.durable_events import JsonlEventStore
-from hydra.runtime.patching import PatchTool
+from hydra.coding.patching import PatchTool
 from hydra.runtime.provider import LocalLLM
 from hydra.runtime.sandbox import OciSandbox
 from hydra.tools.task_workspace import ConfinedRoot as Workspace
-from hydra.runtime.workspace_hash import workspace_sha256
+from hydra.coding.workspace_hash import workspace_sha256
 from hydra.runtime.workspaces import TaskWorkspace, WorkspaceManager
 
 
