@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from hydra.core.atomic import write_text_atomic
 from hydra.core.hashing import canonical_json, now_iso, sha256_hex
 from hydra.edge.profiles import HardwareProfile, detect_profile, llama_server_args
-from hydra.runtime.gpu_telemetry import PeakVramMonitor
+from hydra.model_factory.physical.gpu_telemetry import PeakVramMonitor
 
 PROMPT = "Reply with exactly ten short English words about local AI inference."
 

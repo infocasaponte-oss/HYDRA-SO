@@ -19,7 +19,9 @@ detalle do que falta.
 | F4g-1 admisión de artefactos e almacenamento de candidatos do corpus | ⏳ #71 (aberta) |
 | F4c observabilidade | ✅ #72 |
 | F4d/F4e policy e ferramentas | ✅ #73: `Workspace` (confinamento de rutas, o único en produción) → `hydra.tools.task_workspace.ConfinedRoot`; o resto, candidato a retirar (D2, táboa en §2.1) |
-| F4k-1 bucle de código e replay de auditoría | ⏳ esta PR: `code_context`, `patching`, `coding_request`, `workspace_hash` → `hydra/coding/`; `replay`, `replay_integrity`, `replay_executor` → `hydra/audit/`. `code_agent` e `code_replay` esperan a F4i (artefactos) e F5 (provedor `LocalLLM`), para non volver importar o runtime dende a plataforma |
+| F4k-1 bucle de código e replay de auditoría | ✅ #74: `code_context`, `patching`, `coding_request`, `workspace_hash` → `hydra/coding/`; `replay`, `replay_integrity`, `replay_executor` → `hydra/audit/`. `code_agent` e `code_replay` esperan a F4i (artefactos) e F5 (provedor `LocalLLM`), para non volver importar o runtime dende a plataforma |
+| F4i-3 / F4g-2 almacén de tarefas, privacidade, publicacións e calidade de parches | ✅ #75, #76 (Codex) |
+| F4h-1 fábrica: variantes físicas | ⏳ esta PR: 16 módulos (construír, executar, medir, seleccionar, promover, rexistrar) → `hydra/model_factory/physical/`. Homónimos de `model_factory/manifest` (`ModelVariant`, `BenchmarkResult`), `optimizer.pareto_frontier` e `training/autoquant.AutoQuant`: distintos modelos de variante, non se fusionan (D6) |
 | `hydra/runtime/` | 98 módulos e 5.822 liñas (antes 7.837) |
 
 ## 0. Estado actual (auditado)
@@ -166,6 +168,7 @@ Depende da decisión D1.
 | D3 | Raíz `.` en `resolve_repository` como repositorio válido? | Non: só subdirectorios |
 | D4 | Agregar entre nodos as métricas dos brazos do lab? | Si, como contadores sumables |
 | D5 | Borrar as táboas reservadas antigas? | Só cunha migración manual documentada |
+| D6 | Unificar a variante física (`contracts.ModelVariant`) e a do router (`manifest.ModelVariant`) nun só modelo? | Non agora: son dous ciclos de vida distintos (artefacto despregado fronte a candidato que optimiza o router). Revisalo en F5 |
 
 ## 8. Orde e tamaño estimado
 
