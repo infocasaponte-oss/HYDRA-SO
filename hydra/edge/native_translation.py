@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from hydra.core.request_budget import RequestBudget
@@ -18,7 +19,11 @@ class GlossaryStore:
         safe = "".join(c for c in glossary_id if c.isalnum() or c in "-_.")
         if not safe or safe != glossary_id:
             raise ValueError("Invalid glossary id")
-        return self.root / f"{safe}.json"
+        base = os.path.realpath(self.root)
+        candidate = os.path.realpath(os.path.join(base, f"{safe}.json"))
+        if not candidate.startswith(base.rstrip(os.sep) + os.sep):
+            raise ValueError("Glossary path escapes its root")
+        return Path(candidate)
 
     def save(self, glossary_id: str, terms: dict[str, str]) -> dict:
         payload = {"id": glossary_id, "terms": dict(sorted(terms.items()))}

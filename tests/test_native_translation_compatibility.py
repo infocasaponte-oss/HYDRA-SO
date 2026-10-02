@@ -12,6 +12,22 @@ def test_legacy_translation_is_same_implementation():
     assert translation is native_translation
 
 
+def test_glossary_rejects_symlink_outside_root(tmp_path):
+    root = tmp_path / "glossaries"
+    store = native_translation.GlossaryStore(root)
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"terms": {"private": "value"}}', encoding="utf-8")
+    try:
+        (root / "escape.json").symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation unavailable")
+    with pytest.raises(ValueError, match="escapes"):
+        store.load("escape")
+    with pytest.raises(ValueError, match="escapes"):
+        store.save("escape", {"overwrite": "denied"})
+    assert "private" in outside.read_text(encoding="utf-8")
+
+
 @pytest.mark.asyncio
 async def test_translation_keeps_chunk_order_and_glossary(tmp_path):
     llm = AsyncMock()
