@@ -58,5 +58,6 @@
     }
   },
   "policy": "report aggregate and per-family scores only; never train or tune on these cases",
-  "limitations": "code files may appear in HYDRA Base v0 pretraining data; BOE norms do not"
+  "limitations": "code files may appear in HYDRA Base v0 pretraining data; BOE norms do not",
+  "valid_for": "candidates trained before its wordings were published in PR #101 (2026-10-02): hydra-program-v3/v4/v5-grounded; later candidates use grounded-holdout-v2 (private wordings)"
 }
