@@ -36,3 +36,19 @@ def test_gateway_routes_runtime_beliefs_to_its_world_model(settings):
         store = runtime_api.learning.beliefs
         assert isinstance(store, WorldBeliefStore) and store.world is app.state.runtime.world
     assert runtime_api.learning.beliefs is original
+
+
+async def test_gateway_belief_store_keeps_the_shared_log(runtime, tmp_path):
+    """Regression (F3d): swapping in WorldBeliefStore must not fall back to a local file when the runtime
+    line writes its beliefs to a shared stream."""
+    from hydra.core.eventlog import FileLog
+    from hydra.world.task_beliefs import BeliefStore
+
+    shared = FileLog(tmp_path / "shared-stream.jsonl", BeliefStore.STREAM)  # stands for the PostgreSQL stream
+    previous = BeliefStore(tmp_path / "local.jsonl", log=shared)
+    store = WorldBeliefStore(runtime.world, previous.path, log=previous.log)
+    store.append(Belief(task_id=uuid4(), claim="patch verified", status=BeliefStatus.VERIFIED,
+                        evidence=[EvidenceRef(artifact_id=uuid4(), sha256="a" * 64, kind="patch")],
+                        verifier="hydra.code.verification.v2"))
+    assert store.log is shared and len(shared) == 1
+    assert not (tmp_path / "local.jsonl").exists()

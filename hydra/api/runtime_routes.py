@@ -98,7 +98,7 @@ async def runtime_lifespan(enabled: bool, api_key: str = "", ledger=None, anchor
     if world is not None:
         from hydra.world.runtime_beliefs import WorldBeliefStore
 
-        runtime.learning.beliefs = WorldBeliefStore(world, previous_beliefs.path)
+        runtime.learning.beliefs = WorldBeliefStore(world, previous_beliefs.path, log=previous_beliefs.log)
     worker = getattr(runtime.app.state, "outbox_worker_task", None)
     running = worker is not None and not worker.done()  # already started by another app in this process
 
