@@ -2,7 +2,7 @@
 """Cognitive spans recorded around the steps of a runtime-line task (routing, planning, inference,
 verification...), with two destinations:
 
-* a ``TraceStore`` (``traces.jsonl``, or ``hydra.runtime.pg_stores.PostgresTraceStore`` shared by the
+* a ``TraceStore`` (``traces.jsonl``, or ``hydra.core.native_stores.PostgresTraceStore`` shared by the
   cluster), read by the operating metrics;
 * optionally an OTLP/HTTP collector (``HYDRA_OTEL_ENDPOINT``), the same one the platform's event-driven
   ``hydra.observability.tracing.CognitiveTracer`` exports to. Spans are queued and sent by a background
@@ -55,7 +55,7 @@ class TraceStore:
 
     def recent(self, limit: int = 10_000) -> list[dict]:
         """The last ``limit`` spans (operating metrics). On PostgreSQL
-        (``hydra.runtime.pg_stores.PostgresTraceStore``) they are the spans of the whole cluster."""
+        (``hydra.core.native_stores.PostgresTraceStore``) they are the spans of the whole cluster."""
         if not self.path.exists():
             return []
         lines = [line for line in self.path.read_text(encoding="utf-8").splitlines() if line]

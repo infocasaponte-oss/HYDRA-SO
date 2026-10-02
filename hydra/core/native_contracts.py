@@ -68,3 +68,9 @@ class HydraResult(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     trace_id: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# Public schema names keep the legacy module, while annotations resolve here.
+# Resolve explicitly so importing the canonical module first is safe.
+for _model in (CognitiveBudget, HydraTask, Route, HydraResult):
+    _model.model_rebuild(_types_namespace=globals())

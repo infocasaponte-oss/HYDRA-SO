@@ -53,7 +53,7 @@ from hydra.deploy.events import RuntimeEventEmitter
 from hydra.deploy.runtime_evidence import RuntimeEvidenceStore
 from hydra.deploy.executor import RuntimeExecutor
 from hydra.deploy.runtime_health import RuntimeHealth
-from hydra.runtime.pg_stores import open_runtime_stores
+from hydra.core.native_stores import open_runtime_stores
 from hydra.runtime.sandbox import OciSandbox
 from hydra.runtime.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.runtime.security_audit import SecurityAudit
