@@ -39,13 +39,35 @@ def safe_arith(expr: str) -> float | int | None:
         return None
 
 
+MATH_CUE = re.compile(r"cu[áa]nto (?:es|da|son|vale)|calcul|resultado|opera|how much|comput|evaluat|=", re.I)
+# "Ley 5/2007", "TRM/844/2026" (official numbers) and "4/11/2003" (dates) are not divisions.
+NUMBER_OR_DATE = re.compile(r"\d+(?:/\d+)*/(?:1[89]|20)\d\d")
+
+
+def _part_of_identifier(text: str, start: int, end: int) -> bool:
+    """Digits glued to letters, slashes or hyphenated codes (BOE-A-2003-20254, TRM/844/2026)."""
+    before = text[start - 1] if start > 0 else " "
+    after = text[end] if end < len(text) else " "
+    if before.isalnum() or before in "/_" or after.isalnum() or after in "/_":
+        return True
+    return before == "-" and start > 1 and text[start - 2].isalnum()
+
+
 def expected_value(question: str) -> tuple[str, float] | None:
-    """The arithmetic expression in a question and its exact value, if any."""
-    m = ARITH.search(question)
-    if not m:
-        return None
-    value = safe_arith(m.group(1))
-    return (m.group(1).strip(), float(value)) if value is not None else None
+    """The arithmetic expression in a question and its exact value, if any.
+
+    Official numbers, dates and codes are skipped unless the question explicitly asks to calculate.
+    """
+    explicit = MATH_CUE.search(question) is not None
+    for m in ARITH.finditer(question):
+        expr = m.group(1)
+        if not explicit and (_part_of_identifier(question, m.start(1), m.end(1))
+                             or NUMBER_OR_DATE.fullmatch(expr.strip().lstrip("-"))):
+            continue
+        value = safe_arith(expr)
+        if value is not None:
+            return expr.strip(), float(value)
+    return None
 
 
 def answer_matches(answer: str, value: float, rel: float = 1e-6) -> bool:

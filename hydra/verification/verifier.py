@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from hydra.blackboard.state import BlackboardState
 from hydra.core.contracts import HydraRequest, RoutingDecision, TaskType
+from hydra.verification.grounding import abstains, coverage
 from hydra.verification.math_check import answer_matches, expected_value
 
 REFUSAL = re.compile(
@@ -111,6 +112,17 @@ class Verifier:
                      detail="" if ok else f"{expr} = {shown}, not found in the answer")
 
     @staticmethod
+    def source_coverage(answer: str, request: HydraRequest) -> Check | None:
+        """Question about an article/code name the supplied source lacks -> the answer must abstain."""
+        cov = coverage(request)
+        if cov is None or not cov.missing:
+            return None
+        ok = abstains(answer)
+        asked = [f"artículo {n}" for n in cov.missing_articles] + [f"`{n}`" for n in cov.missing_names]
+        return Check(layer="grounding", name="source_coverage", passed=ok, score=1.0 if ok else 0.0,
+                     detail="" if ok else f"answers about {', '.join(asked)}, absent from the supplied source")
+
+    @staticmethod
     def tool_validation(state: BlackboardState, model_id: str | None = None) -> Check | None:
         def mine(r: dict) -> bool:
             return model_id is None or str(r.get("requested_by", "")).endswith(f":{model_id}")
@@ -158,13 +170,18 @@ class Verifier:
         ev = self.evidence(state, claim_id)
         crit, issues = self.critic(state, claim_id)
         math = self.numeric(answer, request)
-        checks += [c for c in (math, tool, ev, crit) if c is not None]
+        source = self.source_coverage(answer, request)
+        if source is not None and source.passed:
+            # The question asks about something the source lacks: abstaining is the right answer.
+            checks = [c.model_copy(update={"passed": True, "score": 1.0, "detail": "grounded abstention"})
+                      if c.name == "answers_the_question" else c for c in checks]
+        checks += [c for c in (math, source, tool, ev, crit) if c is not None]
 
-        hard_fail = any(not c.passed for c in checks if c.layer in ("deterministic", "math"))
+        hard_fail = any(not c.passed for c in checks if c.layer in ("deterministic", "math", "grounding"))
         layer_scores: dict[str, list[float]] = {}
         for c in checks:
             layer_scores.setdefault(c.layer, []).append(c.score)
-        weights = {"deterministic": 0.3, "math": 0.4, "tool": 0.3, "evidence": 0.2, "critic": 0.2}
+        weights = {"deterministic": 0.3, "math": 0.4, "grounding": 0.4, "tool": 0.3, "evidence": 0.2, "critic": 0.2}
         num = sum(weights[layer] * (sum(v) / len(v)) for layer, v in layer_scores.items())
         den = sum(weights[layer] for layer in layer_scores)
         score = round(num / den, 4) if den else 0.0
@@ -175,7 +192,7 @@ class Verifier:
         passed = not hard_fail and score >= self.pass_threshold
         # "verified" means an independent layer beyond format checks confirmed it.
         # Tool execution proves retrieval/execution succeeded, not that the answer is correct.
-        independent = [c for c in checks if c.layer in ("math", "evidence", "critic")]
+        independent = [c for c in checks if c.layer in ("math", "grounding", "evidence", "critic")]
         verified = passed and bool(independent) and all(c.passed for c in independent)
         return VerificationResult(
             passed=passed, score=score, verified=verified, checks=checks, uncertainties=uncertainties,
