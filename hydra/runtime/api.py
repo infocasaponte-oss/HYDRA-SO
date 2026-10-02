@@ -30,7 +30,7 @@ from hydra.deploy.deployment_controller import DeploymentController
 from hydra.deploy.deployment_controller import LEGACY_OFFSETS, EvidenceRejected
 from hydra.deploy.deployment_store import DeploymentStore
 from hydra.deploy.deployment_validation import DeploymentArtifactValidator
-from hydra.runtime.kernel import HydraKernel
+from hydra.core.native_kernel import HydraKernel
 from hydra.corpus.patch_capture import LearningCapture
 from hydra.model_factory.contracts import ModelVariant
 from hydra.model_factory.model_scout import HashCache, scan_models
