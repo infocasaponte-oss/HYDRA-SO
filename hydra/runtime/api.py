@@ -58,7 +58,7 @@ from hydra.runtime.sandbox import OciSandbox
 from hydra.runtime.security import SecurityConfig, require_admin_access, require_api_access
 from hydra.runtime.security_audit import SecurityAudit
 from hydra.deploy.traffic_router import TrafficRouter
-from hydra.runtime.translation import GlossaryStore, TranslationService
+from hydra.edge.native_translation import GlossaryStore, TranslationService
 from hydra.runtime.workspaces import WorkspaceManager
 
 llm = LocalLLM(settings.llm_url)
