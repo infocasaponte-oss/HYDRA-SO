@@ -161,7 +161,13 @@ Depende da decisión D1.
 7. **Kubernetes:** storage class RWX, `hydra keys export` coas claves **actuais** e o Secret
    `hydra-keys`.
 
-## 7. Decisións pendentes
+## 7. Decisións (resoltas para F5)
+
+O propietario delegou a decisión en Codex. Resolución e orde de implementación:
+[DECISIONS_F5_2026-10-02.md](DECISIONS_F5_2026-10-02.md).
+As recomendacións históricas da táboa seguinte quedan substituídas por esa
+resolución: D1 conserva contratos, D2 retira por etapas, D3 acepta a raíz e
+D6 mantén variantes separadas. D4 e D5 conservan a recomendación.
 
 | ID | Pregunta | Recomendación |
 |---|---|---|
