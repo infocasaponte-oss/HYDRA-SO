@@ -186,7 +186,7 @@ class Settings(BaseSettings):
     runtime_anchor_interval_s: float = 300.0
     """Anchor the runtime event/provenance chain heads in the signed ledger this often (0 = only on shutdown)."""
 
-    # Runtime line (hydra.runtime.config.Settings is a view of these; same HYDRA_* variables as before).
+    # Runtime line (hydra.core.native_config.Settings is a view of these; same HYDRA_* variables as before).
     api_host: str = "127.0.0.1"
     api_port: int = 8080
     llm_url: str = "http://127.0.0.1:8081/v1"
