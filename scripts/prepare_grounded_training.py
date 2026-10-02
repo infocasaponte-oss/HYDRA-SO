@@ -75,8 +75,11 @@ def main():
     args.recipe.write_text(json.dumps(recipe, indent=2) + "\n", encoding="utf-8")
     report.update(recipe=str(args.recipe), max_steps=steps, epochs=args.epochs,
                   corpus_manifest_sha256=sha256(args.corpus / "manifest.json"))
-    Path("docs/evidence/training-program-v2-grounded-corpus.json").write_text(
-        json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    # docs/evidence/training-<recipe name>-corpus.json, so each run keeps its own evidence.
+    evidence = Path("docs/evidence") / f"training-{args.recipe.stem.removeprefix('hydra-')}-corpus.json"
+    if evidence.exists():
+        raise FileExistsError(f"{evidence} already records another run")
+    evidence.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
 
 
