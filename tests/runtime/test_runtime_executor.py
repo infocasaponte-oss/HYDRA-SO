@@ -2,6 +2,7 @@
 import asyncio
 
 import pytest
+from hydra.core.inference_budget import inference_budget, ModelCallBudgetExceeded
 
 from hydra.runtime.deployment import Deployment, DeploymentState
 from hydra.runtime.deployment_registry import DeploymentRegistry
@@ -26,6 +27,59 @@ def deployment(state: DeploymentState, generation: int) -> Deployment:
         state=state,
         generation=generation,
     )
+
+
+@pytest.mark.asyncio
+async def test_one_call_budget_keeps_primary_and_skips_shadow():
+    registry = DeploymentRegistry()
+    active = deployment(DeploymentState.ACTIVE, 1)
+    registry.add(active)
+    registry.add(deployment(DeploymentState.SHADOW, 2))
+    calls = []
+
+    async def call(variant_id, prompt, max_tokens):
+        calls.append(variant_id)
+        return "answer"
+
+    health = RuntimeHealth()
+    executor = RuntimeExecutor(TrafficRouter(registry, health), health, call)
+    with inference_budget(1) as budget:
+        result = await executor.execute(
+            capability="reasoning.general", trace_id="trace", prompt="hi", max_tokens=64,
+        )
+    assert result.answer == "answer"
+    assert result.shadow_variant_id is None
+    assert calls == [str(active.variant_id)]
+    assert budget.used == 1
+
+
+@pytest.mark.asyncio
+async def test_physical_and_logical_calls_share_budget():
+    from unittest.mock import AsyncMock
+    from uuid import uuid4
+    from hydra.registry.native import ModelRegistry
+    from hydra.scheduler.native import ExecutionPlan, PlanStep, StepKind
+    from hydra.scheduler.native_executor import Executor
+    from hydra.verification.verifier import Verifier
+
+    registry = DeploymentRegistry()
+    registry.add(deployment(DeploymentState.ACTIVE, 1))
+
+    async def call(*args):
+        return "answer"
+
+    health = RuntimeHealth()
+    logical = AsyncMock()
+    with inference_budget(1):
+        await RuntimeExecutor(TrafficRouter(registry, health), health, call).execute(
+            capability="reasoning.general", trace_id="trace", prompt="hi", max_tokens=64,
+        )
+        plan = ExecutionPlan(task_id=uuid4(), steps=[PlanStep(
+            kind=StepKind.MODEL, capability="chat.multilingual", instruction="hello",
+        )])
+        with pytest.raises(ModelCallBudgetExceeded):
+            await Executor(logical, ModelRegistry(), Verifier()).execute(plan, 64)
+    logical.chat.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -149,3 +203,27 @@ async def test_canary_failure_is_recorded_even_when_the_fallback_fails(tmp_path)
         await executor.execute(capability="reasoning.general", trace_id="t", prompt="p", max_tokens=8)
     measured = evidence.canary_evidence(str(canary.variant_id))
     assert measured.requests == 1 and measured.error_rate == 1.0
+
+
+@pytest.mark.asyncio
+async def test_exhausted_budget_does_not_blame_an_uncalled_fallback(tmp_path):
+    registry = DeploymentRegistry()
+    active = deployment(DeploymentState.ACTIVE, 1)
+    canary = deployment(DeploymentState.CANARY, 2)
+    registry.add(active)
+    registry.add(canary)
+    calls = []
+
+    async def call(variant_id: str, prompt: str, max_tokens: int) -> str:
+        calls.append(variant_id)
+        raise RuntimeError("canary down")
+
+    health = RuntimeHealth()
+    evidence = RuntimeEvidenceStore(tmp_path / "evidence.jsonl")
+    executor = RuntimeExecutor(TrafficRouter(registry, health, canary_percent=100), health, call, evidence)
+    with inference_budget(1), pytest.raises(ModelCallBudgetExceeded):
+        await executor.execute(capability="reasoning.general", trace_id="t", prompt="p", max_tokens=8)
+    assert calls == [str(canary.variant_id)]  # the active variant was never invoked
+    record = next(evidence.records())
+    assert record["canary_error"] is True
+    assert record["primary_error"] is None  # unknown, not failed
