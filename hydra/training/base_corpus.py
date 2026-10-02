@@ -204,16 +204,27 @@ def _pleias_rows(folder: Path) -> tuple[Iterator[dict], str]:
 
         for name in selected:
             parquet = pq.ParquetFile(folder / manifest["files"][name].get("local", name))
+            fields = parquet.schema_arrow.names
+            if "text" not in fields or not ({"identifier", "id"} & set(fields)):
+                raise ValueError(f"{name}: unsupported PleIAs schema")
+            columns = [field for field in ("identifier", "id", "title", "text") if field in fields]
             for group in range(parquet.num_row_groups):
-                for book in parquet.read_row_group(group, columns=["identifier", "title", "text"]).to_pylist():
+                for book in parquet.read_row_group(group, columns=columns).to_pylist():
+                    identity = book.get("identifier") if "identifier" in fields else book.get("id")
+                    if identity is None or not str(identity).strip():
+                        raise ValueError(f"{name}: missing PleIAs record identity")
+                    document_id = str(identity) if "identifier" in fields else f"{name}:{identity}"
+                    # Newspaper rows may describe issues/pages of one title: keep the entire
+                    # source file together to avoid train/validation leakage across issues.
+                    split_key = document_id if "identifier" in fields else name
                     cleaned = clean_ocr(base_quality.repair_ocr(book.get("text") or ""))
                     if cleaned is None:
-                        yield {"document_id": f"{book['identifier']}#rejected", "text": "", "chunk": 0}
+                        yield {"document_id": f"{document_id}#rejected", "text": "", "chunk": 0, "split_key": split_key}
                         continue
                     for index, chunk in enumerate(chunk_paragraphs(cleaned)):
                         # split_key: every chunk of one work lands in the same split (no leakage)
-                        yield {"document_id": f"{book['identifier']}#{index}", "title": book.get("title"),
-                               "text": chunk, "chunk": index, "split_key": str(book["identifier"])}
+                        yield {"document_id": f"{document_id}#{index}", "title": book.get("title"),
+                               "text": chunk, "chunk": index, "split_key": split_key}
     return rows(), digest
 
 
