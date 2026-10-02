@@ -76,3 +76,30 @@ def test_full_document_privacy_attribution_and_reproducible_shards(tmp_path):
     second = bc.build(tmp_path / "b", sources)
     assert first["files"] == second["files"]  # identical records -> identical gzip bytes
     assert first["sources"][0]["input_sha256"] == bc.snapshot(code)[1]
+
+
+def test_ocr_cleaning_and_chunking():
+    prose = "La presente obra trata de la historia de los puertos y de su comercio con las Indias. " * 40
+    noisy = "\n".join(["_", "ja", "fe", ". ,.", "^ <g"] * 10) + "\n" + prose
+    cleaned = bc.clean_ocr(noisy)
+    assert cleaned and "ja\n" not in cleaned and "historia de los puertos" in cleaned
+    assert bc.clean_ocr("\n".join(["x ^ ~ 7 /"] * 200)) is None  # mostly debris
+    assert bc.clean_ocr("The quick brown fox jumps over the lazy dog again and again. " * 40) is None  # not Spanish
+    chunks = bc.chunk_paragraphs("\n".join(["párrafo " * 50] * 100), size=2000)
+    assert len(chunks) > 1 and all(len(c) <= 2500 for c in chunks)
+
+
+def test_acquisition_licences_are_parsed_and_policy_checked(tmp_path):
+    batch = tmp_path / "acq" / "2026-10-02-x-review-v1"
+    batch.mkdir(parents=True)
+    prose = "Esta lección explica cómo se administran los datos en un proyecto de investigación. " * 10
+    write(batch / "technical-clear.jsonl", [
+        {"document_id": "a", "text": prose, "license": "CC-BY-4.0", "source_url": "https://e.org/a",
+         "attribution": "Autora A"},
+        {"document_id": "b", "text": prose + "b", "license_declared": "PSF-2.0; examples 0BSD"},
+        {"document_id": "c", "text": prose + "c", "license_declared": "MIT"}])
+    assert bc.record_licenses("acquisition", {"license_declared": "PSF-2.0; examples 0BSD"}) == ["PSF-2.0", "0BSD"]
+    report = bc.build(tmp_path / "out", [bc.SourceSpec("Acq", tmp_path / "acq", "acquisition", "x")])
+    stats = report["sources"][0]
+    assert stats["kept"] == 2 and stats["rejected"] == {"license": 1}  # PSF-2.0 is not on the list
+    assert report["attributions"]["records"] == 2
