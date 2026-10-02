@@ -16,6 +16,30 @@ _OPS = {
 ARITH = re.compile(r"(-?\d+(?:\.\d+)?(?:\s*[-+*/×x÷^%]\s*-?\d+(?:\.\d+)?)+)")
 NUM = re.compile(r"-?\d+(?:[.,]\d+)?")
 
+# Spanish operator words between two bare numbers ("17 por 23", "17 dividido entre 23", "17 más 5").
+# The right-hand number must end the expression: prose such as "3 por 100 de 200", "5 por ciento",
+# "10 por 2 horas", "15 entre 3 y 5" or "3 entre 5 personas" is left untouched.
+_WORD_OPS = (("multiplicado por", "*"), ("dividido entre", "/"), ("dividido por", "/"), ("por", "*"),
+             ("entre", "/"), ("más", "+"), ("mas", "+"), ("menos", "-"))
+_OP_WORD = "|".join(w.replace(" ", r"\s+") for w, _ in _WORD_OPS)
+_SPANISH_OP = re.compile(
+    r"(?<![\w/.,])(?<![\w/.,]-)(?P<a>-?\d+(?:\.\d+)?)\s+(?P<op>" + _OP_WORD + r")\s+(?=-?\d+(?:\.\d+)?"
+    r"(?![\w%/.,]|\s*%|\s+(?:y|e|o|a|al|hasta)\s+-?\d|\s+por\s+(?:ciento|mil)\b"
+    r"|\s+(?!(?:" + _OP_WORD + r"|y|e|es|son|da|igual|equivale)\b)[^\W\d_]))", re.I)
+
+
+def normalize_operator_words(text: str) -> str:
+    """Rewrite unambiguous Spanish operator words between bare numbers ("17 por 23" -> "17 * 23")."""
+    ops = {w: sym for w, sym in _WORD_OPS}
+
+    def sub(m: re.Match) -> str:
+        return f"{m.group('a')} {ops[' '.join(m.group('op').lower().split())]} "
+
+    previous = None
+    while previous != text:  # chains such as "2 por 3 más 4"
+        previous, text = text, _SPANISH_OP.sub(sub, text)
+    return text
+
 
 def safe_arith(expr: str) -> float | int | None:
     expr = expr.replace("×", "*").replace("x", "*").replace("÷", "/").replace("^", "**")
@@ -42,6 +66,8 @@ def safe_arith(expr: str) -> float | int | None:
 MATH_CUE = re.compile(r"cu[áa]nto (?:es|da|son|vale)|calcul|resultado|opera|how much|comput|evaluat|=", re.I)
 # "Ley 5/2007", "TRM/844/2026" (official numbers) and "4/11/2003" (dates) are not divisions.
 NUMBER_OR_DATE = re.compile(r"\d+(?:/\d+)*/(?:1[89]|20)\d\d")
+# A bare expression, optionally as a question ("¿17 * 23?").
+PURE_QUESTION = re.compile(r"\s*¿?\s*-?\d[\d\s.+\-*/×÷^()]*\??\s*")
 
 
 def _part_of_identifier(text: str, start: int, end: int) -> bool:
@@ -59,6 +85,9 @@ def expected_value(question: str) -> tuple[str, float] | None:
     Official numbers, dates and codes are skipped unless the question explicitly asks to calculate.
     """
     explicit = MATH_CUE.search(question) is not None
+    normalized = normalize_operator_words(question)
+    if explicit or PURE_QUESTION.fullmatch(normalized):
+        question = normalized
     for m in ARITH.finditer(question):
         expr = m.group(1)
         if not explicit and (_part_of_identifier(question, m.start(1), m.end(1))

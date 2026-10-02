@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from hydra.verification.math_check import safe_arith
+from hydra.verification.math_check import normalize_operator_words, safe_arith
 
 
 class CapabilityProvider(BaseModel):
@@ -43,6 +43,9 @@ class SolverResult(BaseModel):
 QUESTION = re.compile(r"(?i)^\s*(?:¿\s*)?(?:cu[aá]nto\s+(?:es|son|da)|calcula(?:r)?|what\s+is|compute|calculate|"
                       r"evaluate|eval[uú]a)\s*:?\s*(?P<expr>.+?)\s*\??\s*$")
 PURE_EXPR = re.compile(r"^[\d\s.,+\-*/×÷x^()%]+$")
+# "¿Cuánto es 17 por 23? Solo el resultado." -> the trailing format request is not part of the expression.
+ONLY_RESULT = re.compile(r"(?i)(?<=[?.,])\s*(?:s[oó]lo|[uú]nicamente|just|only)\s+(?:el\s+|the\s+)?"
+                         r"(?:resultado|n[uú]mero|result|number|answer)\s*[.!]?\s*$")
 PERCENT = re.compile(r"(?i)^\s*(?:¿\s*)?(?:cu[aá]nto\s+es\s+(?:el\s+)?|what\s+is\s+)?(?P<p>\d+(?:[.,]\d+)?)\s*%\s*"
                      r"(?:de|of)\s+(?P<n>\d+(?:[.,]\d+)?)\s*\??\s*$")
 EQUATION = re.compile(r"(?i)^\s*(?:resuelve|solve|despeja|halla\s+x\s+en)\s*:?\s*(?P<eq>[^=]+=[^=]+?)\s*\.?\s*$")
@@ -95,6 +98,7 @@ class DeterministicSolvers:
                             answer=json.dumps(result,ensure_ascii=False,separators=(",", ":")))
 
     def _arith(self, text: str) -> SolverResult | None:
+        text = normalize_operator_words(ONLY_RESULT.sub("", text))
         m = QUESTION.match(text)
         expr = m.group("expr") if m else (text if PURE_EXPR.match(text) and re.search(r"\d\s*[-+*/×÷x^]\s*\d", text)
                                           else None)

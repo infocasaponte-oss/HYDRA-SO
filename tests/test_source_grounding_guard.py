@@ -110,6 +110,27 @@ def test_official_numbers_dates_and_codes_are_not_arithmetic():
         assert expected_value(text)[1] == value
 
 
+def test_spanish_operator_words_are_checked_as_arithmetic():
+    from hydra.verification.math_check import expected_value
+
+    for text, value in (("¿Cuánto es 17 por 23? Solo el resultado.", 391.0), ("17 por 23", 391.0),
+                        ("17 multiplicado por 23", 391.0), ("17 dividido entre 4", 4.25), ("17 entre 4", 4.25),
+                        ("17 más 5", 22.0), ("17 menos 5", 12.0), ("calcula 2 por 3 más 4", 10.0)):
+        assert expected_value(text)[1] == value, text
+    for text in ("¿Qué pasa entre 3 y 5?", "el 5 por ciento de 200", "el 5 por 100 de 200", "10 por 2 horas",
+                 "elige 15 entre 3 y 5", "3 entre 5 personas", "Ley 5/2007 por 2", "BOE-A-2003-20254 más 5"):
+        assert expected_value(text) is None, text
+
+
+def test_division_answer_to_a_multiplication_fails_the_numeric_check():
+    question = "¿Cuánto es 17 por 23? Solo el resultado."
+    wrong = Verifier.numeric("0.7391304347826087", req(None, question))
+    assert wrong is not None and not wrong.passed and "391" in wrong.detail
+    assert Verifier.numeric("391", req(None, question)).passed
+    assert not Verifier.numeric("0.7391304347826087", req(None, "17 por 23")).passed
+    assert Verifier.numeric("0.7391304347826087", req(None, "17 entre 23")).passed
+
+
 def test_invented_source_links_are_removed_but_links_in_the_source_are_kept():
     from hydra.verification.grounding import strip_unsourced_urls
     source = "Artículo 5. Subsanación.\nDiez días. Más en https://www.boe.es/eli/es/l/2015/10/01/39\n\n¿Plazo?"
