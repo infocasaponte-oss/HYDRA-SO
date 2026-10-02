@@ -11,7 +11,7 @@ from hydra.runtime.executor import ExecutionOutput, Executor
 from hydra.runtime.model_registry import ModelRegistry
 from hydra.runtime.observability import CognitiveTracer
 from hydra.runtime.planner import Planner
-from hydra.runtime.provider import LocalLLM
+from hydra.providers.local_llm import LocalLLM
 from hydra.runtime.router import CapabilityRouter
 from hydra.runtime.runtime_bridge import RuntimeBridge
 from hydra.runtime.state import validate_transition

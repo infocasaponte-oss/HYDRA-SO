@@ -6,7 +6,7 @@ from pathlib import Path
 
 from hydra.runtime.budgets import RequestBudget
 from hydra.core.runtime_paths import runtime_path
-from hydra.runtime.provider import LocalLLM
+from hydra.providers.local_llm import LocalLLM
 
 
 class GlossaryStore:

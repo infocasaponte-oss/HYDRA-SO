@@ -19,8 +19,8 @@ from hydra.world.task_beliefs import BeliefStore
 from hydra.corpus.artifact_candidates import CorpusStore
 from hydra.runtime.bootstrap import bootstrap_runtime
 from hydra.runtime.budgets import BudgetExceeded, RequestBudget
-from hydra.runtime.code_agent import CodeAgent
-from hydra.runtime.code_replay import build_code_replay_evidence
+from hydra.coding.agent import CodeAgent
+from hydra.coding.replay_evidence import build_code_replay_evidence
 from hydra.runtime.code_verification import VerificationMode, VerificationPolicy
 from hydra.coding.request import CodingRequest, resolve_repository
 from hydra.runtime.config import settings
@@ -43,7 +43,7 @@ from hydra.runtime.physical_inference import PhysicalInferenceClient
 from hydra.core.durable_events import JsonlEventStore
 from hydra.core.runtime_paths import runtime_path
 from hydra.provenance.ledger import ProvenanceLedger, ProvenanceRecord
-from hydra.runtime.provider import LocalLLM
+from hydra.providers.local_llm import LocalLLM
 from hydra.runtime.rate_limit import RateLimit, SlidingWindowRateLimiter
 from hydra.deploy.readiness import evaluate_readiness
 from hydra.audit.replay import ReplayManifest, ReplayStore
