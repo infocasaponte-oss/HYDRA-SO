@@ -17,7 +17,7 @@ from hydra.core.eventlog import open_log_space
 from hydra.artifacts.task_store import ArtifactStore
 from hydra.world.task_beliefs import BeliefStore
 from hydra.corpus.artifact_candidates import CorpusStore
-from hydra.runtime.bootstrap import bootstrap_runtime
+from hydra.core.native_bootstrap import bootstrap_runtime
 from hydra.runtime.budgets import BudgetExceeded, RequestBudget
 from hydra.coding.agent import CodeAgent
 from hydra.coding.replay_evidence import build_code_replay_evidence

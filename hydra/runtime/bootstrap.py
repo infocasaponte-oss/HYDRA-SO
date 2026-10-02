@@ -1,16 +1,9 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-from __future__ import annotations
+"""Compatibility module alias for hydra.core.native_bootstrap."""
+import sys
 
-from dataclasses import dataclass
+from hydra.core import native_bootstrap as _implementation
+from hydra.core.native_bootstrap import BootstrapResult, bootstrap_runtime
 
-from hydra.core.outbox_worker import OutboxWorker
-from hydra.runtime.startup_recovery import RecoveryResult, recover_pending
-
-
-@dataclass(frozen=True)
-class BootstrapResult:
-    recovery: RecoveryResult
-
-
-def bootstrap_runtime(worker: OutboxWorker) -> BootstrapResult:
-    return BootstrapResult(recovery=recover_pending(worker))
+__all__ = ['BootstrapResult', 'bootstrap_runtime']
+sys.modules[__name__] = _implementation
