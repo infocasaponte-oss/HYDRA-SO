@@ -315,5 +315,18 @@
     "Targeted families improved: v1 test code_imports 5->10/12, code_functions 17->20/21.",
     "boe_repealed regressed (v1 test 9->6/9, v2 test 12->8/12): garbled answers to the held-out imperative wording; grounded-v3 adds eight training wordings per family.",
     "Regression: identical failure set to the base (True)."
-  ]
+  ],
+  "scorer_sha256": "99551c740363bfe1192ee479701ecdc1ebc21f2ec60fc0b3099113987755ace5",
+  "evaluator_sha256": "7f96d349ca897ff48aa2f7baae51a0c77cfe5628d65bf761798fdef74c2a3f27",
+  "errata": [
+    "hydra/training/grounded_corpus_v3.py's docstring quotes code_imports 9/12, code_functions 19/21 and boe_repealed 4/9 for hydra-program-v3-grounded on the v1 test; those come from the discarded run (two evaluation chains on port 18091). The accepted clean run is this file: 10/12, 20/21, 6/9. The generator is left unchanged because its sha256 is pinned by the grounded-v3 corpus and the v4 training corpus manifests.",
+    "Scored with the scorer before the repeal-status fix (aaf35e9); grounded-v3-candidate-v4-evaluation.json rescored all candidates with the fixed scorer."
+  ],
+  "test_roles": {
+    "grounded_v1_test": "development/regression: inspected while diagnosing candidates; not an independent test",
+    "grounded_v2_test": "development/regression: inspected while diagnosing candidates; not an independent test",
+    "grounded_v4_test": "development/regression: its wording (index 3) was inspected before v4 was designed",
+    "regression": "frozen parent regression set"
+  },
+  "independent_test": false
 }

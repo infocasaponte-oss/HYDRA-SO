@@ -344,5 +344,14 @@
     "Candidate v5 (trained on grounded-v4) is the best on every grounded test: v1 149/154, v2 164/171, v4 162/169 (v4 candidate 159, v3 158, base 101).",
     "Repeal family with 'Sí' cases in the test: v5 9/9; the regression set fails the same 24/48 cases as the base.",
     "Remaining weak spot: code_imports 14/19 on the v4 test."
-  ]
+  ],
+  "scorer_sha256": "d4b7be51927b319634bdeba495c899a758c80a0265137bb070c0519cbec6747b",
+  "evaluator_sha256": "7f96d349ca897ff48aa2f7baae51a0c77cfe5628d65bf761798fdef74c2a3f27",
+  "test_roles": {
+    "grounded_v1_test": "development/regression: inspected while diagnosing candidates; not an independent test",
+    "grounded_v2_test": "development/regression: inspected while diagnosing candidates; not an independent test",
+    "grounded_v4_test": "development/regression: its wording (index 3) was inspected before v4 was designed",
+    "regression": "frozen parent regression set"
+  },
+  "independent_test": false
 }
