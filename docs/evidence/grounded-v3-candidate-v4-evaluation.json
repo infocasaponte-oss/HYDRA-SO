@@ -125,5 +125,14 @@
     "The scorer missed answers of the form 'Su estado es «No»' (correct, grounded); fixed in scripts/score_grounded_eval.py and all candidates rescored.",
     "The repeal family cannot measure polarity: ~6 % 'Sí' in grounded-v1..v3 training, 0-1 'Sí' cases in their tests; a model that always answers 'No' scores perfectly. grounded-v4 balances it (80 Sí / 120 No).",
     "v4 candidate regressed on code_imports (10->8/12) and code_methods (6->4/6) on the v1 test; regression set unchanged (24/48, same failures as the base)."
-  ]
+  ],
+  "scorer_sha256": "d4b7be51927b319634bdeba495c899a758c80a0265137bb070c0519cbec6747b",
+  "evaluator_sha256": "7f96d349ca897ff48aa2f7baae51a0c77cfe5628d65bf761798fdef74c2a3f27",
+  "test_roles": {
+    "grounded_v1_test": "development/regression: inspected while diagnosing candidates; not an independent test",
+    "grounded_v2_test": "development/regression: inspected while diagnosing candidates; not an independent test",
+    "grounded_v4_test": "development/regression: its wording (index 3) was inspected before v4 was designed",
+    "regression": "frozen parent regression set"
+  },
+  "independent_test": false
 }
