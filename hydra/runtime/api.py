@@ -17,7 +17,7 @@ from hydra.core.eventlog import open_log_space
 from hydra.artifacts.task_store import ArtifactStore
 from hydra.world.task_beliefs import BeliefStore
 from hydra.corpus.artifact_candidates import CorpusStore
-from hydra.runtime.bootstrap import bootstrap_runtime
+from hydra.core.native_bootstrap import bootstrap_runtime
 from hydra.core.request_budget import RequestBudget, RequestBudgetExceeded as BudgetExceeded
 from hydra.coding.agent import CodeAgent
 from hydra.coding.replay_evidence import build_code_replay_evidence
@@ -55,8 +55,8 @@ from hydra.deploy.executor import RuntimeExecutor
 from hydra.deploy.runtime_health import RuntimeHealth
 from hydra.core.native_stores import open_runtime_stores
 from hydra.tools.oci_sandbox import OciSandbox
-from hydra.runtime.security import SecurityConfig, require_admin_access, require_api_access
-from hydra.runtime.security_audit import SecurityAudit
+from hydra.api.native_access import SecurityConfig, require_admin_access, require_api_access
+from hydra.audit.access import SecurityAudit
 from hydra.deploy.traffic_router import TrafficRouter
 from hydra.edge.native_translation import GlossaryStore, TranslationService
 from hydra.runtime.workspaces import WorkspaceManager
