@@ -1,0 +1,58 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+import gzip
+import json
+
+import pytest
+
+from hydra.training import base_corpus as bc
+
+LONG = "Artículo 1. Objeto.\n" + "Esta ley regula el procedimiento administrativo común de las administraciones. " * 5
+
+
+def write(path, rows):
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+
+
+def test_policy_privacy_quality_and_dedup_filters(tmp_path):
+    boe = tmp_path / "boe.jsonl"
+    write(boe, [{"document_id": "BOE-A-1", "text": LONG}, {"document_id": "BOE-A-2", "text": LONG},  # duplicate
+                {"document_id": "BOE-A-3", "text": "corto"}])
+    code = tmp_path / "py.jsonl"
+    body = "".join(f"def suma_{i}(a, b):\n    return a + b + {i}\n\n" for i in range(12))
+    write(code, [{"id": "a", "text": body, "detected_licenses": ["MIT"]},
+                 {"id": "b", "text": body + "# gpl\n", "detected_licenses": ["GPL-3.0"]},
+                 {"id": "c", "text": body + "# key\nAWS_SECRET='AKIAABCDEFGHIJKLMNOP'\n", "detected_licenses": ["MIT"]},
+                 {"id": "d", "text": body + "# none\n", "detected_licenses": []}])
+    md = tmp_path / "md.jsonl"
+    write(md, [{"url": "u1", "text": "# Guía\n" + "Instala el paquete y configura el entorno. " * 10,
+                "license": "MIT,Apache-2.0"}])
+    sources = [bc.SourceSpec("BOE", boe, "boe", "https://www.boe.es/datosabiertos/"),
+               bc.SourceSpec("Py", code, "stack_python", "https://example.org/py"),
+               bc.SourceSpec("Md", md, "stack_markdown", "https://example.org/md")]
+    report = bc.build(tmp_path / "out", sources)
+    by_name = {s["name"]: s for s in report["sources"]}
+    assert by_name["BOE"]["kept"] == 1 and by_name["BOE"]["rejected"] == {"duplicate": 1, "too_short": 1}
+    assert by_name["Py"]["kept"] == 1 and by_name["Py"]["rejected"]["license"] == 2
+    assert by_name["Py"]["rejected"].get("credential", 0) + by_name["Py"]["rejected"].get("personal_data", 0) == 1
+    assert by_name["Md"]["kept"] == 1
+    texts = list(bc.iter_texts(tmp_path / "out")) + list(bc.iter_texts(tmp_path / "out", "validation"))
+    assert len(texts) == 3 and not any("AKIA" in t for t in texts)
+    notice = (tmp_path / "out" / "THIRD_PARTY_DATA_NOTICE.txt").read_text(encoding="utf-8")
+    assert "es-public-sector-reuse" in notice and "MIT" in notice and "Apache-2.0" in notice
+    for name, entry in report["files"].items():
+        assert entry["sha256"] == bc.file_sha256(tmp_path / "out" / name)
+    with pytest.raises(FileExistsError):
+        bc.build(tmp_path / "out", sources)
+
+
+def test_quality_rules_and_partial_lines(tmp_path):
+    assert bc.quality_problem("x" * 50) == "too_short"
+    assert bc.quality_problem("\n".join(["misma línea repetida"] * 40)) == "repetitive"
+    assert bc.quality_problem(LONG) is None
+    growing = tmp_path / "g.jsonl"
+    growing.write_bytes(b'{"text": "a"}\n{"text": "b')
+    assert list(bc.read_rows(growing)) == [{"text": "a"}]
+    shard = tmp_path / "s.jsonl.gz"
+    with gzip.open(shard, "wt", encoding="utf-8") as stream:
+        stream.write('{"text": "hola"}\n')
+    assert bc.normalize("a\r\n\n\n\n\nb  \n") == "a\n\n\nb"
