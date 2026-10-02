@@ -86,6 +86,12 @@ def _hits(text: str, words: tuple[str, ...]) -> int:
 
 
 class CognitiveRouter:
+    def route_native(self, task):
+        """Route the published native contract without applying request-schema defaults."""
+        from hydra.router.native import CapabilityRouter
+
+        return CapabilityRouter().route(task)
+
     def __init__(self, classifier=None, classifier_model: str | None = None,
                  *, observer: DecisionObserver | None = None,
                  authority: DecisionAuthority | None = None) -> None:

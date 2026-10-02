@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 from __future__ import annotations
 
-from hydra.runtime.contracts import TaskStatus
+from hydra.core.native_contracts import TaskStatus
 
 _ALLOWED = {
     TaskStatus.CREATED: {TaskStatus.ROUTING, TaskStatus.CANCELLED, TaskStatus.FAILED},

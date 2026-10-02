@@ -5,14 +5,14 @@ import hashlib
 from uuid import uuid4
 
 from hydra.runtime.capture_uow import CaptureUnitOfWork, TaskCommit
-from hydra.runtime.contracts import HydraResult, HydraTask, Route, TaskStatus
+from hydra.core.native_contracts import HydraResult, HydraTask, Route, TaskStatus
 from hydra.core.durable_events import JsonlEventStore
 from hydra.runtime.executor import ExecutionOutput, Executor
 from hydra.runtime.model_registry import ModelRegistry
 from hydra.runtime.observability import CognitiveTracer
-from hydra.runtime.planner import Planner
+from hydra.scheduler.native import Planner
 from hydra.providers.local_llm import LocalLLM
-from hydra.runtime.router import CapabilityRouter
+from hydra.router.native import CapabilityRouter
 from hydra.runtime.runtime_bridge import RuntimeBridge
 from hydra.runtime.state import validate_transition
 from hydra.runtime.verifier import Verifier
