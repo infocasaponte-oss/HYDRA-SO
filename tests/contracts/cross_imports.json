@@ -5,14 +5,6 @@
  "hydra/api/runtime_routes.py": [
   "hydra.runtime:api"
  ],
- "hydra/edge/autobuild.py": [
-  "hydra.runtime.gpu_telemetry:PeakVramMonitor"
- ],
- "hydra/model_factory/deploy_bridge.py": [
-  "hydra.runtime.benchmarking:BenchmarkResult",
-  "hydra.runtime.promotion_gate:PromotionPolicy",
-  "hydra.runtime.promotion_gate:apply_promotion_gate"
- ],
  "hydra/world/runtime_beliefs.py": [
   "hydra.runtime.beliefs:Belief",
   "hydra.runtime.beliefs:BeliefStatus",
