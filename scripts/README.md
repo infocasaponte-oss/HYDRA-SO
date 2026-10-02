@@ -43,7 +43,7 @@ Descripción tomada del docstring o de la cabecera de cada fichero.
 | `run_studio_validated.py` | Local Studio using the current source and a calibrated shadow classifier. |
 | `serve_kev_candidate.py` | Serve an explicitly selected completed local Kev experiment on CUDA. |
 | `start_hydra.ps1` | Sirve un candidato HYDRA.gguf construido (comprueba `build-manifest.json`). |
-| `start_hydra_direct.ps1` | Arranca llama-server CUDA fijado (b11146) con el GGUF v8 verificado por hash. |
+| `start_hydra_direct.ps1` | Arranca llama-server CUDA fijado (b11146) con el GGUF v8 verificado por hash; con `-GroundedSpecialist` también el v5 (especialista con fuente) en 18092. |
 | `start_kev_local.ps1` | Arranca Kev local desde el checkout aislado y la revisión fijada. |
 | `start_llama_server.sh` | Start llama-server with the profile chosen by the AutoBuilder (.env) and HYDRA's gateway on top. |
 | `train_instruction_v2_when_free.py` | Wait for free GPU memory, then run the pinned build without stopping other services. |

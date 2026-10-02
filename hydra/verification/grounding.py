@@ -38,6 +38,30 @@ class Coverage:
         return bool(self.missing_articles or self.missing_names)
 
 
+def has_source(text: str) -> bool:
+    """True when the text supplies source material: legal "Artículo N." headings or code definitions."""
+    return bool(ARTICLE_HEADER.search(text) or CODE_DEF.search(text))
+
+
+URL = re.compile(r"https?://[^\s<>()«»\"']+")
+_CITED_URL = r"[ \t]*(?:\(?(?:Fuente|Source|Ver|Véase)[ \t]*:[ \t]*)?{url}\)?\.?"
+
+
+def strip_unsourced_urls(answer: str, source: str) -> tuple[str, list[str]]:
+    """Remove URLs (and their "Fuente:" label) that the supplied source does not contain: a model
+    trained on cited sources invents a plausible link when the source has none. Only the removed
+    spans change; indentation and code elsewhere in the answer are left as they are."""
+    known = {u.rstrip(".,;:") for u in URL.findall(source)}
+    invented = [u for u in dict.fromkeys(URL.findall(answer)) if u.rstrip(".,;:") not in known]
+    if not invented:
+        return answer, []
+    for url in invented:
+        # Markdown link: keep its text, drop only the target.
+        answer = re.sub(rf"\[([^\]]*)\]\({re.escape(url)}\)", r"\1", answer)
+        answer = re.sub(_CITED_URL.format(url=re.escape(url)), "", answer)
+    return answer.strip(), invented
+
+
 def _norm(number: str) -> str:
     return re.sub(r"\s+", " ", number.strip().lower())
 
