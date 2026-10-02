@@ -127,6 +127,7 @@ class HydraKernel:
                             output = await executor.execute(
                                 plan,
                                 task.budget.max_output_tokens,
+                                max_model_calls=task.budget.max_model_calls,
                             )
                         else:
                             output = ExecutionOutput(
@@ -138,6 +139,7 @@ class HydraKernel:
                         output = await executor.execute(
                             plan,
                             task.budget.max_output_tokens,
+                            max_model_calls=task.budget.max_model_calls,
                         )
         except Exception:
             self._transition(task, TaskStatus.FAILED, trace_id)

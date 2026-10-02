@@ -10,6 +10,10 @@ from hydra.verification.verifier import TextVerification as VerificationResult
 from hydra.verification.verifier import Verifier
 
 
+class ModelCallBudgetExceeded(RuntimeError):
+    pass
+
+
 class UnsafePlan(RuntimeError):
     pass
 
@@ -32,9 +36,15 @@ class Executor:
         self.registry = registry
         self.verifier = verifier
 
-    async def execute(self, plan: ExecutionPlan, max_tokens: int) -> ExecutionOutput:
+    async def execute(
+        self, plan: ExecutionPlan, max_tokens: int, *, max_model_calls: int | None = None
+    ) -> ExecutionOutput:
         if any(step.side_effects or step.kind == StepKind.TOOL for step in plan.steps):
             raise UnsafePlan("Tool/side-effect execution requires HYDRA Sandbox")
+
+        model_steps = sum(step.kind == StepKind.MODEL for step in plan.steps)
+        if max_model_calls is not None and model_steps > max_model_calls:
+            raise ModelCallBudgetExceeded("Execution plan exceeds model-call budget")
 
         answer = ""
         model_id = ""
