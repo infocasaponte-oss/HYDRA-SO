@@ -221,6 +221,7 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
             log.flush()
     log.close()
     final = output / "final"
+    model.config.use_cache = True  # checkpointing disables it for training only; inference needs the KV cache
     model.save_pretrained(final, safe_serialization=True)
     for name in ("tokenizer.model", "tokenizer_config.json", "special_tokens_map.json"):
         shutil.copy2(tokenizer_dir / name, final / name)

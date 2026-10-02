@@ -101,7 +101,9 @@ def test_cached_tokens_are_verified(tmp_path):
 def test_stage1_shape_is_about_125m_and_keeps_tokens_per_step():
     from dataclasses import asdict
 
-    from transformers import LlamaConfig, LlamaForCausalLM
+    pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")  # training extras are not installed in CI
+    LlamaConfig, LlamaForCausalLM = transformers.LlamaConfig, transformers.LlamaForCausalLM
     shape = bp.SHAPES["125m"]
     model = LlamaForCausalLM(LlamaConfig(vocab_size=32_000, tie_word_embeddings=True, **asdict(shape)))
     assert 120e6 < sum(p.numel() for p in model.parameters()) < 130e6
