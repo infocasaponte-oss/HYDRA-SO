@@ -5,6 +5,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from contextlib import suppress
 
 from hydra.deploy.runtime_evidence import RuntimeEvidenceStore
 from hydra.deploy.runtime_health import RuntimeHealth
@@ -54,80 +55,88 @@ class RuntimeExecutor:
         canary_error: bool | None = None
         canary_latency_ms: float | None = None
         shadow_task = self._start_shadow(decision, prompt, max_tokens)
-        started = time.perf_counter()
         try:
-            answer = await self.inference_call(primary_id, prompt, max_tokens)
-        except Exception:
-            self.health.failure(primary_id)
-            if primary is decision.canary:
-                canary_error = True  # the canary failed this request; the active variant answers it
-                started = time.perf_counter()
-                try:
-                    answer, primary_id = await self._fallback(decision, prompt, max_tokens)
-                except Exception:
-                    # The request fails, but the canary failure is still evidence: without this
-                    # record a canary that fails together with its fallback would look error-free.
-                    if shadow_task is not None:
-                        shadow_task.cancel()
-                    if self.evidence_store is not None:
-                        self.evidence_store.append(
-                            trace_id=trace_id,
-                            capability=capability,
-                            primary_variant_id=str(decision.primary.variant_id),
-                            primary_output="",
-                            primary_error=True,
-                            canary_variant_id=canary_id,
-                            canary_error=True,
-                        )
+            started = time.perf_counter()
+            try:
+                answer = await self.inference_call(primary_id, prompt, max_tokens)
+            except Exception:
+                self.health.failure(primary_id)
+                if primary is decision.canary:
+                    canary_error = True  # the canary failed this request; the active variant answers it
+                    started = time.perf_counter()
+                    try:
+                        answer, primary_id = await self._fallback(decision, prompt, max_tokens)
+                    except Exception:
+                        # The request fails, but the canary failure is still evidence: without this
+                        # record a canary that fails together with its fallback would look error-free.
+                        if shadow_task is not None:
+                            shadow_task.cancel()
+                        if self.evidence_store is not None:
+                            self.evidence_store.append(
+                                trace_id=trace_id,
+                                capability=capability,
+                                primary_variant_id=str(decision.primary.variant_id),
+                                primary_output="",
+                                primary_error=True,
+                                canary_variant_id=canary_id,
+                                canary_error=True,
+                            )
+                        raise
+                else:
                     raise
             else:
-                raise
-        else:
-            self.health.success(primary_id)
-            if primary is decision.canary:
-                canary_error = False
-                canary_latency_ms = _elapsed_ms(started)
-        primary_latency_ms = _elapsed_ms(started)
+                self.health.success(primary_id)
+                if primary is decision.canary:
+                    canary_error = False
+                    canary_latency_ms = _elapsed_ms(started)
+            primary_latency_ms = _elapsed_ms(started)
 
-        shadow_id = None
-        shadow_answer = None
-        shadow_error: bool | None = None
-        shadow_latency_ms: float | None = None
-        if shadow_task is not None:
-            shadow_id = str(decision.shadow.variant_id) if decision.shadow else None
-            try:
-                shadow_answer, shadow_latency_ms = await shadow_task
-                shadow_error = False
-                if shadow_id:
-                    self.health.success(shadow_id)
-            except Exception:  # noqa: BLE001
-                shadow_error = True
-                if shadow_id:
-                    self.health.failure(shadow_id)
+            shadow_id = None
+            shadow_answer = None
+            shadow_error: bool | None = None
+            shadow_latency_ms: float | None = None
+            if shadow_task is not None:
+                shadow_id = str(decision.shadow.variant_id) if decision.shadow else None
+                try:
+                    shadow_answer, shadow_latency_ms = await shadow_task
+                    shadow_error = False
+                    if shadow_id:
+                        self.health.success(shadow_id)
+                except Exception:  # noqa: BLE001
+                    shadow_error = True
+                    if shadow_id:
+                        self.health.failure(shadow_id)
 
-        if self.evidence_store is not None:
-            self.evidence_store.append(
-                trace_id=trace_id,
-                capability=capability,
+            if self.evidence_store is not None:
+                self.evidence_store.append(
+                    trace_id=trace_id,
+                    capability=capability,
+                    primary_variant_id=primary_id,
+                    primary_output=answer,
+                    shadow_variant_id=shadow_id,
+                    shadow_output=shadow_answer,
+                    primary_latency_ms=primary_latency_ms,
+                    shadow_error=shadow_error,
+                    shadow_latency_ms=shadow_latency_ms,
+                    canary_variant_id=canary_id,
+                    canary_error=canary_error,
+                    canary_latency_ms=canary_latency_ms,
+                )
+
+            return RuntimeExecution(
+                answer=answer,
                 primary_variant_id=primary_id,
-                primary_output=answer,
                 shadow_variant_id=shadow_id,
-                shadow_output=shadow_answer,
-                primary_latency_ms=primary_latency_ms,
-                shadow_error=shadow_error,
-                shadow_latency_ms=shadow_latency_ms,
+                shadow_answer=shadow_answer,
                 canary_variant_id=canary_id,
-                canary_error=canary_error,
-                canary_latency_ms=canary_latency_ms,
             )
-
-        return RuntimeExecution(
-            answer=answer,
-            primary_variant_id=primary_id,
-            shadow_variant_id=shadow_id,
-            shadow_answer=shadow_answer,
-            canary_variant_id=canary_id,
-        )
+        finally:
+            if shadow_task is not None:
+                if not shadow_task.done():
+                    shadow_task.cancel()
+                # Retrieve failures too, including when primary inference failed first.
+                with suppress(asyncio.CancelledError, Exception):
+                    await shadow_task
 
     def _start_shadow(
         self,
