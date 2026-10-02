@@ -14,6 +14,8 @@ from hydra.core.budget import CognitiveBudget
 from hydra.core.contracts import ExecutionMode, HydraRequest, RoutingDecision
 from hydra.core.errors import RetryAction
 from hydra.registry.models import ModelProfile
+from hydra.core.native_contracts import HydraTask, Route
+from hydra.scheduler.native import ExecutionPlan as NativeExecutionPlan, Planner as NativePlanner
 
 
 class ExecutionStep(BaseModel):
@@ -42,6 +44,10 @@ ADEQUATE_QUALITY = 0.6
 
 
 class Planner:
+    def create_native(self, task: HydraTask, route: Route) -> NativeExecutionPlan:
+        """Preserve the published native DAG, including non-executable tool steps."""
+        return NativePlanner().build(task, route)
+
     def create(
         self,
         route: RoutingDecision,

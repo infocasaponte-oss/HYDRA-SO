@@ -24,7 +24,7 @@ from hydra.coding.replay_evidence import build_code_replay_evidence
 from hydra.runtime.code_verification import VerificationMode, VerificationPolicy
 from hydra.coding.request import CodingRequest, resolve_repository
 from hydra.runtime.config import settings
-from hydra.runtime.contracts import HydraTask
+from hydra.core.native_contracts import HydraTask
 from hydra.deploy.deployment import Deployment
 from hydra.deploy.deployment_controller import DeploymentController
 from hydra.deploy.deployment_controller import LEGACY_OFFSETS, EvidenceRejected

@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hydra.runtime.model_registry import ModelRegistry
-from hydra.runtime.planner import ExecutionPlan, StepKind
+from hydra.scheduler.native import ExecutionPlan, StepKind
 from hydra.providers.local_llm import LocalLLM
 from hydra.runtime.verifier import VerificationResult, Verifier
 
