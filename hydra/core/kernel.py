@@ -437,7 +437,8 @@ class HydraKernel:
             answer, verification, confidence = await self._enforce_source_coverage(
                 ctx, answer, verification, confidence)
             if has_source(request.last_user_text) and not chosen.get("research"):
-                answer, invented = strip_unsourced_urls(answer, request.text)
+                # Only the source in the latest message: earlier turns may hold invented links.
+                answer, invented = strip_unsourced_urls(answer, request.last_user_text)
                 if invented:
                     ctx.degradations.append("Se retiraron enlaces que no aparecen en la fuente aportada: "
                                             + ", ".join(invented))

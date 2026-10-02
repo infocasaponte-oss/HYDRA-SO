@@ -56,6 +56,8 @@ def strip_unsourced_urls(answer: str, source: str) -> tuple[str, list[str]]:
     if not invented:
         return answer, []
     for url in invented:
+        # Markdown link: keep its text, drop only the target.
+        answer = re.sub(rf"\[([^\]]*)\]\({re.escape(url)}\)", r"\1", answer)
         answer = re.sub(_CITED_URL.format(url=re.escape(url)), "", answer)
     return answer.strip(), invented
 

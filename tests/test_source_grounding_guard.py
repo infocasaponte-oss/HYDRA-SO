@@ -122,3 +122,5 @@ def test_invented_source_links_are_removed_but_links_in_the_source_are_kept():
     code = "Arreglado:\n```python\ndef add(a, b):\n    return a + b\n```\nFuente: https://example.org/inventada"
     cleaned, _ = strip_unsourced_urls(code, "def add(a, b):\n    return a - b\n")
     assert cleaned == "Arreglado:\n```python\ndef add(a, b):\n    return a + b\n```"
+    cleaned, invented = strip_unsourced_urls("Plazo de diez días ([BOE](https://inventada.example/x)).", "Artículo 1. X.")
+    assert cleaned == "Plazo de diez días (BOE)." and invented == ["https://inventada.example/x"]

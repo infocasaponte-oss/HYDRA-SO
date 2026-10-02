@@ -108,13 +108,15 @@ def filter_models(
         if model.context_window < needed_ctx:
             continue
         candidates.append(model)
-    # Grounded specialists answer only requests that bring their own source, and take all of them
-    # while one is eligible; otherwise the generalists answer (also the fallback when it is down).
-    grounded = route.signals.get(SOURCE_SIGNAL, 0) > 0
-    specialists = [m for m in candidates if m.specialty == "grounded"]
-    if grounded and specialists:
-        return specialists
+    # Grounded specialists never answer requests without their own source; with a source they are
+    # ranked first (rank_models) and the generalists stay behind them as the runtime fallback.
+    if route.signals.get(SOURCE_SIGNAL, 0) > 0:
+        return candidates
     return [m for m in candidates if m.specialty != "grounded"]
+
+
+def _preferred_specialist(model: ModelProfile, route: RoutingDecision) -> bool:
+    return model.specialty == "grounded" and route.signals.get(SOURCE_SIGNAL, 0) > 0
 
 
 def rank_models(
@@ -124,6 +126,6 @@ def rank_models(
 ) -> list[ModelProfile]:
     return sorted(
         (m for m in models if m.enabled),
-        key=lambda m: score_model(m, route, request),
+        key=lambda m: (_preferred_specialist(m, route), score_model(m, route, request)),
         reverse=True,
     )

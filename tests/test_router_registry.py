@@ -171,7 +171,8 @@ def _specialist_registry() -> ModelRegistry:
 async def test_requests_with_source_go_to_the_grounded_specialist(text):
     route = await CognitiveRouter().route(req(text))
     assert route.signals.get("source.grounded") == 1.0
-    assert [m.id for m in _specialist_registry().select(req(text), route)] == ["v5"]
+    # v5 first; v8 stays behind it so a failing specialist call still has a fallback.
+    assert [m.id for m in _specialist_registry().select(req(text), route)] == ["v5", "v8"]
 
 
 async def test_requests_without_source_never_reach_the_specialist():
