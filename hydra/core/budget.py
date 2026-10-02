@@ -101,10 +101,15 @@ class BudgetTracker:
     def reserve_model_call(self) -> None:
         """Reserve before calling, so concurrent (hedged) calls cannot overrun the budget.
 
-        A failed or cancelled attempt keeps its unit: it already reached a model.
+        Pair with ``release_model_call`` when the attempt fails: only successful calls count,
+        so a FAST task (one call) can still retry after a failure.
         """
         if self.exhausted or not self._sync_limit().reserve():
             raise BudgetExceeded("model call budget exhausted")
+
+    def release_model_call(self) -> None:
+        """Return the unit of a failed or cancelled attempt."""
+        self.calls.release(1)
 
     def can_call_tool(self) -> bool:
         return self.tool_calls < self.budget.max_tool_calls and not self.exhausted

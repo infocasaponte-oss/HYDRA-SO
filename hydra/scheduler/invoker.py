@@ -65,11 +65,17 @@ class ModelInvoker:
         # Reserve with no await in between, so a hedged pair cannot both pass on one free unit.
         ctx.budget.reserve_model_call()
         try:
-            resp = await asyncio.wait_for(provider.generate(model.physical_name, req), timeout=timeout + 1)
-        except asyncio.TimeoutError as exc:
-            raise ModelError(f"{model.id}: timeout", ErrorKind.TIMEOUT) from exc
-        resp.model_id = model.id
-        resp = self.compiler.decompile(req, resp)
+            try:
+                resp = await asyncio.wait_for(provider.generate(model.physical_name, req), timeout=timeout + 1)
+            except asyncio.TimeoutError as exc:
+                raise ModelError(f"{model.id}: timeout", ErrorKind.TIMEOUT) from exc
+            resp.model_id = model.id
+            resp = self.compiler.decompile(req, resp)
+        except BaseException:
+            # Only successful calls count: a failed or cancelled (hedge loser) attempt returns its
+            # unit, so FAST mode keeps its retry after a failure.
+            ctx.budget.release_model_call()
+            raise
         cost = model.estimate_cost(resp.input_tokens, resp.output_tokens)
         ctx.budget.charge_model(resp.input_tokens + resp.output_tokens, cost, reserved=True)
         self.registry.breaker.register_success(model.id, resp.latency_ms)

@@ -61,16 +61,21 @@ async def test_kernel_run_exposes_its_budget_to_native_executors():
 
 
 @pytest.mark.asyncio
-async def test_failed_attempt_through_the_invoker_consumes_its_unit():
+async def test_failed_attempt_returns_its_unit_so_fast_mode_can_retry():
     from hydra.core.context import TaskContext
-    from hydra.core.contracts import ModelRequest
+    from hydra.core.contracts import ModelRequest, ModelResponse
     from hydra.scheduler.invoker import ModelInvoker
 
-    class Failing:
-        async def generate(self, model_id, request):
-            raise RuntimeError("provider down")
+    class FlakyOnce:
+        calls = 0
 
-    budget = tracker()
+        async def generate(self, model_id, request):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("provider down")
+            return ModelResponse(content="ok", model_id=model_id, latency_ms=1.0, input_tokens=3, output_tokens=2)
+
+    budget = tracker(ExecutionMode.FAST)  # a single model call
     ctx = TaskContext(request=HydraRequest(messages=[Message(role="user", content="hola")]),
                       bus=SimpleNamespace(), budget=budget)
 
@@ -78,8 +83,52 @@ async def test_failed_attempt_through_the_invoker_consumes_its_unit():
         return None
 
     ctx.emit = emit
-    model = SimpleNamespace(id="m", provider="p", physical_name="m", runtime_options={})
-    invoker = ModelInvoker({"p": Failing()}, SimpleNamespace(), compiler=SimpleNamespace(compile=lambda m, r: r))
+    model = SimpleNamespace(id="m", provider="p", physical_name="m", runtime_options={},
+                            estimate_cost=lambda i, o: 0.0)
+    registry = SimpleNamespace(breaker=SimpleNamespace(register_success=lambda *a: None))
+    invoker = ModelInvoker({"p": FlakyOnce()}, registry,
+                           compiler=SimpleNamespace(compile=lambda m, r: r, decompile=lambda r, resp: resp))
+    request = ModelRequest(messages=[{"role": "user", "content": "x"}])
     with pytest.raises(RuntimeError):
-        await invoker._call_once(ctx, model, ModelRequest(messages=[{"role": "user", "content": "x"}]), "worker")
+        await invoker._call_once(ctx, model, request, "worker")
+    assert budget.model_calls == 0 and budget.can_call_model()  # the failure was refunded
+    response = await invoker._call_once(ctx, model, request, "worker")  # the retry fits
+    assert response.content == "ok" and budget.model_calls == 1 and not budget.can_call_model()
+
+
+@pytest.mark.asyncio
+async def test_in_flight_call_holds_its_unit_against_a_hedged_twin():
+    import asyncio
+
+    from hydra.core.context import TaskContext
+    from hydra.core.contracts import ModelRequest, ModelResponse
+    from hydra.scheduler.invoker import ModelInvoker
+
+    release = asyncio.Event()
+
+    class Slow:
+        async def generate(self, model_id, request):
+            await release.wait()
+            return ModelResponse(content="ok", model_id=model_id, latency_ms=1.0)
+
+    budget = tracker(ExecutionMode.FAST)
+    ctx = TaskContext(request=HydraRequest(messages=[Message(role="user", content="hola")]),
+                      bus=SimpleNamespace(), budget=budget)
+
+    async def emit(*args, **kwargs):
+        return None
+
+    ctx.emit = emit
+    model = SimpleNamespace(id="m", provider="p", physical_name="m", runtime_options={},
+                            estimate_cost=lambda i, o: 0.0)
+    registry = SimpleNamespace(breaker=SimpleNamespace(register_success=lambda *a: None))
+    invoker = ModelInvoker({"p": Slow()}, registry,
+                           compiler=SimpleNamespace(compile=lambda m, r: r, decompile=lambda r, resp: resp))
+    first = asyncio.create_task(invoker._call_once(ctx, model, ModelRequest(messages=[{"role": "user", "content": "x"}]), "w"))
+    for _ in range(3):
+        await asyncio.sleep(0)
+    with pytest.raises(BudgetExceeded):
+        await invoker._call_once(ctx, model, ModelRequest(messages=[{"role": "user", "content": "y"}]), "w")
+    release.set()
+    await first
     assert budget.model_calls == 1
