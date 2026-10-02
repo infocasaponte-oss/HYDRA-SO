@@ -1,4 +1,6 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+import asyncio
+
 import pytest
 
 from hydra.runtime.deployment import Deployment, DeploymentState
@@ -24,6 +26,42 @@ def deployment(state: DeploymentState, generation: int) -> Deployment:
         state=state,
         generation=generation,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_primary", [False, True])
+async def test_primary_failure_or_cancellation_cleans_up_shadow(cancel_primary):
+    registry = DeploymentRegistry()
+    active = deployment(DeploymentState.ACTIVE, 1)
+    shadow = deployment(DeploymentState.SHADOW, 2)
+    registry.add(active)
+    registry.add(shadow)
+    started = asyncio.Event()
+    stopped = asyncio.Event()
+
+    async def call(variant_id, prompt, max_tokens):
+        if variant_id == str(shadow.variant_id):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.set()
+        await started.wait()
+        if cancel_primary:
+            await asyncio.Event().wait()
+        raise RuntimeError("primary failed")
+
+    health = RuntimeHealth()
+    executor = RuntimeExecutor(TrafficRouter(registry, health), health, call)
+    task = asyncio.create_task(executor.execute(
+        capability="reasoning.general", trace_id="trace", prompt="hello", max_tokens=64,
+    ))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    if cancel_primary:
+        task.cancel()
+    with pytest.raises(asyncio.CancelledError if cancel_primary else RuntimeError):
+        await task
+    assert stopped.is_set()
 
 
 @pytest.mark.asyncio
