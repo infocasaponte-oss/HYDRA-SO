@@ -203,3 +203,27 @@ async def test_canary_failure_is_recorded_even_when_the_fallback_fails(tmp_path)
         await executor.execute(capability="reasoning.general", trace_id="t", prompt="p", max_tokens=8)
     measured = evidence.canary_evidence(str(canary.variant_id))
     assert measured.requests == 1 and measured.error_rate == 1.0
+
+
+@pytest.mark.asyncio
+async def test_exhausted_budget_does_not_blame_an_uncalled_fallback(tmp_path):
+    registry = DeploymentRegistry()
+    active = deployment(DeploymentState.ACTIVE, 1)
+    canary = deployment(DeploymentState.CANARY, 2)
+    registry.add(active)
+    registry.add(canary)
+    calls = []
+
+    async def call(variant_id: str, prompt: str, max_tokens: int) -> str:
+        calls.append(variant_id)
+        raise RuntimeError("canary down")
+
+    health = RuntimeHealth()
+    evidence = RuntimeEvidenceStore(tmp_path / "evidence.jsonl")
+    executor = RuntimeExecutor(TrafficRouter(registry, health, canary_percent=100), health, call, evidence)
+    with inference_budget(1), pytest.raises(ModelCallBudgetExceeded):
+        await executor.execute(capability="reasoning.general", trace_id="t", prompt="p", max_tokens=8)
+    assert calls == [str(canary.variant_id)]  # the active variant was never invoked
+    record = next(evidence.records())
+    assert record["canary_error"] is True
+    assert record["primary_error"] is None  # unknown, not failed

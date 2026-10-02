@@ -13,11 +13,16 @@ class InferenceBudget:
     limit: int
     used: int = 0
 
-    def reserve(self) -> bool:
-        if self.used >= self.limit:
+    def reserve(self, count: int = 1) -> bool:
+        """All-or-nothing: reserve ``count`` units only if all of them remain."""
+        if count < 0 or self.used + count > self.limit:
             return False
-        self.used += 1
+        self.used += count
         return True
+
+    def release(self, count: int) -> None:
+        """Return units reserved for calls that were never attempted."""
+        self.used = max(0, self.used - max(0, count))
 
 
 _current: ContextVar[InferenceBudget | None] = ContextVar("hydra_inference_budget", default=None)
@@ -31,6 +36,26 @@ def inference_budget(limit: int):
         yield budget
     finally:
         _current.reset(token)
+
+
+def reserve_model_calls(count: int) -> int:
+    """Reserve every call of a plan up front against the remaining shared budget.
+
+    Returns the units reserved (0 outside a budget context). Raises before any inference
+    when the plan cannot complete, instead of failing after spending earlier steps.
+    """
+    budget = _current.get()
+    if budget is None or count <= 0:
+        return 0
+    if not budget.reserve(count):
+        raise ModelCallBudgetExceeded("Execution plan exceeds remaining model-call budget")
+    return count
+
+
+def release_model_calls(count: int) -> None:
+    budget = _current.get()
+    if budget is not None:
+        budget.release(count)
 
 
 def reserve_model_call(*, optional: bool = False) -> bool:

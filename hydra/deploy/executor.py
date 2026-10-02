@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from contextlib import suppress
 
-from hydra.core.inference_budget import reserve_model_call
+from hydra.core.inference_budget import ModelCallBudgetExceeded, reserve_model_call
 from hydra.deploy.runtime_evidence import RuntimeEvidenceStore
 from hydra.deploy.runtime_health import RuntimeHealth
 from hydra.deploy.traffic_router import TrafficDecision, TrafficRouter
@@ -68,18 +68,21 @@ class RuntimeExecutor:
                     started = time.perf_counter()
                     try:
                         answer, primary_id = await self._fallback(decision, prompt, max_tokens)
-                    except Exception:
+                    except Exception as exc:
                         # The request fails, but the canary failure is still evidence: without this
                         # record a canary that fails together with its fallback would look error-free.
                         if shadow_task is not None:
                             shadow_task.cancel()
                         if self.evidence_store is not None:
+                            # Budget exhausted before the fallback call: the active variant was
+                            # never invoked, so its outcome is unknown, not a failure.
+                            fallback_called = not isinstance(exc, ModelCallBudgetExceeded)
                             self.evidence_store.append(
                                 trace_id=trace_id,
                                 capability=capability,
                                 primary_variant_id=str(decision.primary.variant_id),
                                 primary_output="",
-                                primary_error=True,
+                                primary_error=True if fallback_called else None,
                                 canary_variant_id=canary_id,
                                 canary_error=True,
                             )
