@@ -1,11 +1,14 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Clean pretraining corpus for HYDRA Base (proprietary weights).
 
-Every document passes, in order: licence policy (``base_data_policy``, per record), privacy gate
-(credentials and personal contact data are dropped), quality filters (length, mostly-printable,
-not dominated by repeated lines) and exact deduplication of the normalised text. Output is a set
-of gzipped JSONL shards plus a manifest with per-source counts, rejections, sha256 of every input
-and shard, the hold-out split and the third-party attribution notice for a release.
+Every document passes, in order: licence policy (``base_data_policy``, per record), basic quality
+(length, mostly-printable, not dominated by repeated lines), the professional quality rules of
+``base_quality`` (language, OCR noise, Gopher style and repetition, code checks), the privacy gate
+(credentials and personal contact data are dropped), decontamination against HYDRA's evaluation
+sets, exact deduplication of the normalised text and MinHash near-deduplication. Output is a set
+of gzipped JSONL shards plus a manifest with per-source counts, rejections by reason, the rules and
+thresholds applied, sha256 of every input, lexicon, evaluation set and shard, the hold-out split
+and the third-party attribution notice for a release.
 """
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hydra.corpus.gates import PrivacyGate
+from hydra.training import base_quality
 from hydra.training.base_data_policy import admit_record, attribution_notice
 
 MIN_CHARS = 200
@@ -196,7 +200,7 @@ def _pleias_rows(folder: Path) -> tuple[Iterator[dict], str]:
             parquet = pq.ParquetFile(folder / manifest["files"][name].get("local", name))
             for group in range(parquet.num_row_groups):
                 for book in parquet.read_row_group(group, columns=["identifier", "title", "text"]).to_pylist():
-                    cleaned = clean_ocr(book.get("text") or "")
+                    cleaned = clean_ocr(base_quality.repair_ocr(book.get("text") or ""))
                     if cleaned is None:
                         yield {"document_id": f"{book['identifier']}#rejected", "text": "", "chunk": 0}
                         continue
@@ -325,14 +329,20 @@ class ShardWriter:
             self.stream = None
 
 
-def build(output: Path, sources: list[SourceSpec]) -> dict:
+def build(output: Path, sources: list[SourceSpec], contamination: base_quality.Contamination | None = None,
+          lexicon: Path | None = None) -> dict:
+    """``contamination`` and ``lexicon`` enable decontamination and the OCR-noise rule; the release
+    CLI always passes both, unit tests may leave them out."""
     if output.exists():
         raise FileExistsError("use a new versioned corpus directory")
+    words = frozenset(lexicon.read_text(encoding="utf-8").split()) if lexicon else None
     output.mkdir(parents=True)
     gate = PrivacyGate(pseudonymize_persons=False)  # official texts name public officials by design
     seen: set[str] = set()
+    near = base_quality.NearDuplicateIndex()
     writers = {"train": ShardWriter(output, "train"), "validation": ShardWriter(output, "validation")}
-    report: dict = {"version": "hydra-base-corpus-v0", "sources": [], "totals": {"documents": 0, "characters": 0}}
+    report: dict = {"version": output.name, "sources": [], "totals": {"documents": 0, "characters": 0},
+                    "filters": filter_report(contamination, lexicon)}
     notice_sources = []
     attributions = gzip_text(output / "THIRD_PARTY_ATTRIBUTIONS.jsonl.gz")
     attribution_count = 0
@@ -356,11 +366,17 @@ def build(output: Path, sources: list[SourceSpec]) -> dict:
             if reason is None:
                 reason = quality_problem(text)
             if reason is None:
+                reason = base_quality.quality_problem(text, spec.kind, words)
+            if reason is None:
                 credential, pii = scan_privacy(gate, text)
                 reason = "credential" if credential else "personal_data" if pii else None
+            if reason is None and contamination is not None:
+                reason = contamination.problem(text, document_id(spec.kind, row))
             doc_hash = hashlib.sha256(text.encode("utf-8")).hexdigest() if reason is None else ""
             if reason is None and doc_hash in seen:
                 reason = "duplicate"
+            if reason is None and near.check_and_add(text):
+                reason = "near_duplicate"
             if reason is not None:
                 stats["rejected"][reason] = stats["rejected"].get(reason, 0) + 1
                 continue
@@ -402,6 +418,55 @@ def build(output: Path, sources: list[SourceSpec]) -> dict:
     return report
 
 
+def filter_report(contamination: base_quality.Contamination | None, lexicon: Path | None) -> dict:
+    from dataclasses import asdict
+
+    return {
+        "rules": {kind: asdict(rules) for kind, rules in base_quality.RULES.items()},
+        "code": {"parse": "python3 ast", "max_line": 1000, "max_mean_line": 100, "min_alnum": 0.25,
+                 "autogenerated": True, "data_blobs": True},
+        "near_duplicates": {"method": "minhash-lsh", "shingle_words": base_quality.SHINGLE,
+                            "permutations": base_quality.NUM_PERM, "bands": base_quality.BANDS,
+                            "jaccard": base_quality.NEAR_DUP_JACCARD},
+        "decontamination": None if contamination is None else {
+            "ngram_words": base_quality.CONTAMINATION_NGRAM, "document_ids": len(contamination.document_ids),
+            "ngrams": len(contamination.ngrams),
+            "sets": {path: canonical_sha256(Path(path)) for path in contamination.sources}},
+        "lexicon": None if lexicon is None else {"path": lexicon.as_posix(), "sha256": canonical_sha256(lexicon),
+                                                 "words": len(lexicon.read_text(encoding="utf-8").split())},
+        "quality_module_sha256": hashlib.sha256(
+            Path(base_quality.__file__).read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
+    }
+
+
+def write_lexicon(sources: list[SourceSpec], output: Path, boe_min: int = 3, ocr_min: int = 30) -> dict:
+    """Frozen reference vocabulary for the OCR-noise rule: BOE words seen at least ``boe_min`` times
+    plus words seen at least ``ocr_min`` times across the public-domain OCR text. OCR errors are rare
+    and idiosyncratic, real words recur; the file's sha256 is pinned in every corpus manifest."""
+    from collections import Counter
+
+    if output.exists():
+        raise FileExistsError("use a new versioned lexicon file")
+    counts = {"boe": Counter(), "pleias_parquet": Counter()}
+    inputs = {}
+    for spec in sources:
+        if spec.kind not in counts:
+            continue
+        rows, inputs[spec.name] = source_rows(spec)
+        for row in rows:
+            counts[spec.kind].update(w for w in re.findall(r"[^\W\d_]+", (row.get("text") or "").lower())
+                                     if len(w) > 1)
+    words = sorted({w for w, n in counts["boe"].items() if n >= boe_min}
+                   | {w for w, n in counts["pleias_parquet"].items() if n >= ocr_min})
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text("\n".join(words) + "\n", encoding="utf-8", newline="\n")
+    meta = {"words": len(words), "boe_min_count": boe_min, "ocr_min_count": ocr_min, "inputs_sha256": inputs,
+            "sha256": canonical_sha256(output)}
+    output.with_suffix(".json").write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8",
+                                           newline="\n")
+    return meta
+
+
 def iter_texts(corpus: Path, split: str = "train") -> Iterator[str]:
     for shard in sorted(corpus.glob(f"{split}-*.jsonl.gz")):
         with gzip.open(shard, "rt", encoding="utf-8") as stream:
@@ -414,7 +479,14 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default=Path("data/hydra-base-corpus-v0"))
     parser.add_argument("--sources-root", type=Path, default=Path("data/sources"))
     parser.add_argument("--stage", type=int, choices=(0, 1), default=0)
+    parser.add_argument("--lexicon", type=Path, default=Path("data/sources/lexicon/hydra-es-lexicon-v1.txt"))
+    parser.add_argument("--build-lexicon", action="store_true", help="write the frozen OCR lexicon and stop")
+    parser.add_argument("--evaluation-sets", type=Path, nargs="*",
+                        default=[Path(p) for p in base_quality.DEFAULT_EVALUATION_SETS])
     args = parser.parse_args()
     sources = stage1_sources(args.sources_root) if args.stage == 1 else default_sources(args.sources_root)
-    summary = build(args.output, sources)
+    if args.build_lexicon:
+        print(json.dumps(write_lexicon(sources, args.lexicon), indent=2, ensure_ascii=False))
+        raise SystemExit(0)
+    summary = build(args.output, sources, base_quality.Contamination.from_paths(args.evaluation_sets), args.lexicon)
     print(json.dumps({k: summary[k] for k in ("totals", "sources")}, indent=2, ensure_ascii=False))
