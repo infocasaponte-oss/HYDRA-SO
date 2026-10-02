@@ -8,3 +8,5 @@ Mantéñense autenticación do gateway, acceso local sen clave só desde loopbac
 As probas existentes de acceso, APIs de administración, claves de cliente e contratos HTTP son a caracterización funcional. As probas novas comproban que fachada e imports de compatibilidade comparten a implementación.
 
 Non se xeran nin se rotan claves, non se modifican variables de contorno nin servizos activos. Este paso reduce dependencias da fachada: a unificación dos contratos de kernel e o traslado final da API seguen pendentes.
+
+CodeQL sinalou o SHA-256 directo do token administrador usado como identidade de auditoría. Substitúese por un HMAC-SHA-256 co token como clave e o propósito fixo hydra.admin.audit.v1. Non é un verificador de contrasinais: a autenticación segue usando hmac.compare_digest. A identidade dos novos eventos cambia unha vez fronte á anterior e cambia ao rotar o token; os eventos históricos non se reescriben. Non debe empregarse para recuperar credenciais nin para autenticar.

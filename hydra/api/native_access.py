@@ -62,4 +62,7 @@ def require_admin_access(request: Request, config: SecurityConfig) -> str:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid HYDRA admin token",
         )
-    return hashlib.sha256(provided.encode()).hexdigest()
+    # A domain-separated audit pseudonym, not a stored password verifier.
+    return hmac.new(
+        config.admin_token.encode(), b"hydra.admin.audit.v1", hashlib.sha256
+    ).hexdigest()
