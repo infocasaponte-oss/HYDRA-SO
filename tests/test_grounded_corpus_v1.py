@@ -62,7 +62,7 @@ def test_code_candidates_use_ast_and_verify():
     by_family = {c[0]: c for c in candidates}
     assert set(by_family) == {"code_functions", "code_imports", "code_params", "code_methods", "code_absent"}
     assert "`suma`, `a`" not in by_family["code_functions"][3]
-    assert by_family["code_imports"][3].endswith("`.`, `os`.")
+    assert by_family["code_imports"][3].endswith("`.util`, `os`.")
     assert "`a`, `b`, `*xs`, `k`, `**kw`" in by_family["code_params"][3]
     assert "`abrir`, `cerrar`" in by_family["code_methods"][3]
     assert all(g.verify(*c) for c in candidates)
@@ -119,3 +119,62 @@ def test_read_jsonl_ignores_partial_trailing_line(tmp_path):
     assert rows == [{"a": 1}, {"a": 2}]
     import hashlib
     assert digest == hashlib.sha256(b'{"a": 1}\n{"a": 2}\n').hexdigest()
+
+
+def test_read_jsonl_keeps_complete_final_record_without_newline(tmp_path):
+    import hashlib
+    path = tmp_path / "no-newline.jsonl"
+    path.write_bytes(b'{"a": 1}\n{"a": 2}')
+    rows, digest = g.read_jsonl(path)
+    assert rows == [{"a": 1}, {"a": 2}]
+    assert digest == hashlib.sha256(b'{"a": 1}\n{"a": 2}').hexdigest()
+    path.write_bytes(b'{"a": 1}')
+    assert g.read_jsonl(path)[0] == [{"a": 1}]
+
+
+def test_quote_includes_continuation_lines_of_the_apartado():
+    record = boe_record()
+    record["text"] = "\n".join([
+        "Artículo 1. Objeto.",
+        "1. Corresponde al órgano competente:",
+        "a) Tramitar el procedimiento.",
+        "b) Resolver el expediente.",
+        "2. La resolución se notificará en el plazo de diez días.",
+    ])
+    sections = g.section_blocks(g.articles(record["text"])["1"][1])
+    assert sections == [(1, "1. Corresponde al órgano competente:\na) Tramitar el procedimiento.\nb) Resolver el expediente."),
+                        (2, "2. La resolución se notificará en el plazo de diez días.")]
+    family, fields, source, answer = next(c for c in g.boe_candidates(record) if c[0] == "boe_quote")
+    assert g.verify(family, fields, source, answer)
+    full = dict(sections)[int(fields["sec"])]
+    assert f"«{full}»" in answer
+    truncated = answer.replace(full, full.split("\n")[0])
+    if truncated != answer:
+        assert not g.verify(family, fields, source, truncated)
+    first = dict(fields, sec="1")
+    assert not g.verify(family, first, source,
+                        answer.replace(f"«{full}»", "«1. Corresponde al órgano competente:»"))
+
+
+def test_relative_imports_keep_their_targets():
+    tree = g.parse("from . import util, helpers\nfrom ..pkg import x\nimport os\n")
+    assert g.imports(tree) == ["..pkg", ".helpers", ".util", "os"]
+
+
+def test_wording_families_are_disjoint_across_splits():
+    used = [set(v) for v in g.WORDING.values()]
+    assert all(not (a & b) for i, a in enumerate(used) for b in used[i + 1:])
+    assert all(len(q) > max(max(v) for v in g.WORDING.values()) for q in g.QUESTIONS.values())
+
+
+def test_generator_digest_ignores_checkout_line_endings(tmp_path):
+    lf, crlf = tmp_path / "lf.py", tmp_path / "crlf.py"
+    lf.write_bytes(b"a = 1\nb = 2\n")
+    crlf.write_bytes(b"a = 1\r\nb = 2\r\n")
+    assert g.source_sha256(lf) == g.source_sha256(crlf)
+
+
+def test_non_positive_quotas_are_rejected(tmp_path):
+    for kwargs in ({"boe_per_family": 0}, {"code_per_family": -1}, {"per_document": 0}):
+        with pytest.raises(ValueError):
+            g.build(tmp_path / "out", tmp_path / "b.jsonl", tmp_path / "c.jsonl", **kwargs)

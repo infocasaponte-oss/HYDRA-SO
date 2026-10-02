@@ -27,7 +27,8 @@ MAX_SOURCE_CHARS = 1400
 MAX_EXAMPLE_CHARS = 2200  # fallback when no tokenizer is supplied
 CHAT_OVERHEAD_TOKENS = 5  # "<|im_start|>role\n … <|im_end|>\n" per message (Qwen2.5)
 SPLITS = ("train", "validation", "calibration", "test")
-WORDING = {"train": (0, 1), "validation": (2,), "calibration": (2,), "test": (3,)}
+# Train, validation, calibration and test never share a wording family.
+WORDING = {"train": (0, 1), "validation": (2,), "calibration": (4,), "test": (3,)}
 MONTHS = ("enero febrero marzo abril mayo junio julio agosto septiembre octubre noviembre diciembre").split()
 ARTICLE_RE = re.compile(r"^Artículo (\d+(?: (?:bis|ter|quater))?)\.\s*(.*)$")
 STOP_RE = re.compile(r"^(Artículo |Disposición |TÍTULO|CAPÍTULO|Sección |SECCIÓN|ANEXO|Anexo |LIBRO)")
@@ -41,66 +42,77 @@ QUESTIONS = {
         "Indica cómo se titula el artículo {art} de {norm}.",
         "Según la fuente, ¿qué rótulo lleva el artículo {art} de {norm}?",
         "Dime el encabezado del artículo {art} de {norm}, citando la fuente.",
+        "¿Con qué epígrafe aparece el artículo {art} de {norm}?",
     ),
     "boe_sections": (
         "¿Cuántos apartados numerados tiene el artículo {art} de {norm}?",
         "Cuenta los apartados numerados del artículo {art} de {norm}.",
         "Según la fuente, ¿en cuántos apartados numerados se divide el artículo {art} de {norm}?",
         "¿Qué número de apartados numerados contiene el artículo {art} de {norm}?",
+        "Di cuántos apartados con número tiene el artículo {art} de {norm}.",
     ),
     "boe_quote": (
         "Transcribe literalmente el apartado {sec} del artículo {art} de {norm}.",
         "Copia sin cambios el apartado {sec} del artículo {art} de {norm}.",
         "¿Qué dice exactamente el apartado {sec} del artículo {art} de {norm}? Cita el texto literal.",
         "Reproduce el texto literal del apartado {sec} del artículo {art} de {norm}.",
+        "Necesito el apartado {sec} del artículo {art} de {norm} tal como está escrito.",
     ),
     "boe_rank_date": (
         "¿Qué rango tiene {norm} y cuándo se publicó en el BOE?",
         "Indica el rango normativo y la fecha de publicación de {norm}.",
         "Según los metadatos, ¿de qué rango es {norm} y en qué fecha apareció en el BOE?",
         "Dime el rango y la fecha de publicación oficial de {norm}.",
+        "¿Qué tipo de norma es {norm} y qué día se publicó en el BOE?",
     ),
     "boe_repealed": (
         "¿Consta {norm} como norma derogada?",
         "Según los metadatos, ¿figura {norm} entre las normas derogadas?",
         "¿Indica la fuente que se haya producido la derogación de {norm}?",
         "Comprueba en los metadatos el estado de derogación de {norm}.",
+        "¿Figura la derogación de {norm} en los metadatos?",
     ),
     "boe_absent": (
         "¿Qué establece el artículo {art} de {norm}?",
         "Resume el artículo {art} de {norm}.",
         "Según la fuente, ¿de qué trata el artículo {art} de {norm}?",
         "Explica el contenido del artículo {art} de {norm}.",
+        "¿Qué regula el artículo {art} de {norm}?",
     ),
     "code_functions": (
         "¿Qué funciones de nivel superior define este código?",
         "Enumera las funciones definidas a nivel de módulo en el código.",
         "Lista, en orden, las funciones de primer nivel del fragmento.",
         "¿Cuáles son las funciones que el código declara fuera de cualquier clase?",
+        "Nombra las funciones globales que aparecen en el fragmento.",
     ),
     "code_imports": (
         "¿Qué módulos importa este código?",
         "Enumera los módulos que importa el fragmento.",
         "Lista los módulos de los que depende el código según sus import.",
         "¿De qué módulos importa algo este código?",
+        "¿Qué dependencias importa el fragmento?",
     ),
     "code_params": (
         "¿Qué parámetros recibe la función `{name}`?",
         "Enumera los parámetros de `{name}` en orden.",
         "Según el código, ¿cuál es la lista de parámetros de `{name}`?",
         "Indica los parámetros que declara `{name}`.",
+        "¿Qué argumentos acepta `{name}`?",
     ),
     "code_methods": (
         "¿Qué métodos define la clase `{name}`?",
         "Enumera los métodos de la clase `{name}` en orden.",
         "Lista los métodos declarados en `{name}`.",
         "¿Cuáles son los métodos que define `{name}` en el fragmento?",
+        "Nombra los métodos de `{name}`.",
     ),
     "code_absent": (
         "¿Qué parámetros recibe la función `{name}`?",
         "Enumera los parámetros de `{name}` en orden.",
         "Según el código, ¿qué devuelve la función `{name}`?",
         "Explica qué hace la función `{name}` del fragmento.",
+        "¿Cómo se usa la función `{name}` de este código?",
     ),
 }
 
@@ -152,6 +164,20 @@ def articles(text: str) -> dict[str, tuple[str, list[str]]]:
     return {k: v for k, v in found.items() if k not in repeated}
 
 
+def section_blocks(body: list[str]) -> list[tuple[int, str]] | None:
+    """Numbered apartados with their continuation lines, or None unless numbered 1..n."""
+    blocks: list[tuple[int, list[str]]] = []
+    for line in body:
+        match = SECTION_RE.match(line)
+        if match:
+            blocks.append((int(match.group(1)), [line]))
+        elif blocks:
+            blocks[-1][1].append(line)
+    if not blocks or [n for n, _ in blocks] != list(range(1, len(blocks) + 1)):
+        return None
+    return [(n, "\n".join(lines)) for n, lines in blocks]
+
+
 def article_source(document_id: str, title: str, number: str, heading: str, body: list[str]) -> str:
     header = f"Artículo {number}." + (f" {heading}." if heading else "")
     return "\n".join([f"{title}", f"URL: {boe_url(document_id)}", header, *body])
@@ -193,15 +219,14 @@ def boe_candidates(record: dict) -> list[tuple[str, dict, str, str]]:
         if heading:
             out.append(("boe_heading", {"art": number, "norm": norm}, source,
                         f"El artículo {number} se titula «{heading}». Fuente: {url}"))
-        sections = [line for line in body if SECTION_RE.match(line)]
-        if sections and [int(SECTION_RE.match(s).group(1)) for s in sections] == list(range(1, len(sections) + 1)):
+        sections = section_blocks(body)
+        if sections:
             count = len(sections)
             out.append(("boe_sections", {"art": number, "norm": norm}, source,
                         f"El artículo {number} tiene {count} apartado{'s' if count != 1 else ''} numerado{'s' if count != 1 else ''}. Fuente: {url}"))
-            pick = sections[int(hashlib.sha256(source.encode()).hexdigest(), 16) % count]
-            sec = SECTION_RE.match(pick).group(1)
-            out.append(("boe_quote", {"art": number, "sec": sec, "norm": norm}, source,
-                        f"El apartado {sec} del artículo {number} dice literalmente: «{pick}» Fuente: {url}"))
+            sec, text = sections[int(hashlib.sha256(source.encode()).hexdigest(), 16) % count]
+            out.append(("boe_quote", {"art": number, "sec": str(sec), "norm": norm}, source,
+                        f"El apartado {sec} del artículo {number} dice literalmente: «{text}» Fuente: {url}"))
         missing = str(int(numbered[-1]) + 7)
         out.append(("boe_absent", {"art": missing, "norm": norm}, source,
                     contract(f"La fuente proporcionada solo incluye el artículo {number} de {norm}; no contiene el artículo {missing}, así que no puedo indicar qué establece.")))
@@ -227,7 +252,10 @@ def imports(tree: ast.Module) -> list[str]:
         if isinstance(node, ast.Import):
             found += [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
-            found.append("." * node.level + (node.module or ""))
+            if node.module:
+                found.append("." * node.level + node.module)
+            else:  # "from . import util, helpers" imports the submodules util and helpers
+                found += ["." * node.level + alias.name for alias in node.names]
     return sorted(set(found))
 
 
@@ -313,12 +341,13 @@ def verify(family: str, fields: dict, source: str, answer: str) -> bool:
         body = lines[3:]
         if family == "boe_heading":
             return header.group(1) == fields["art"] and f"«{header.group(2).rstrip('.').strip()}»" in answer
+        sections = section_blocks(body)
         if family == "boe_sections":
-            count = sum(1 for line in body if SECTION_RE.match(line))
-            return re.search(rf"tiene {count} apartados? numerados?\.", answer) is not None
+            return bool(sections) and re.search(rf"tiene {len(sections)} apartados? numerados?\.", answer) is not None
         if family == "boe_quote":
-            quoted = re.search(r"«(.+)»", answer).group(1)
-            return quoted in body and quoted.startswith(f"{fields['sec']}. ")
+            quoted = re.search(r"«(.+)»", answer, re.S)
+            index = int(fields["sec"]) - 1
+            return bool(sections and quoted) and 0 <= index < len(sections) and quoted.group(1) == sections[index][1]
         if family == "boe_absent":
             return f"Artículo {fields['art']}." not in source and "no contiene" in answer
     code = source.split("```python\n", 1)[1].rsplit("\n```", 1)[0]
@@ -342,12 +371,28 @@ def verify(family: str, fields: dict, source: str, answer: str) -> bool:
 
 # --- Assembly ----------------------------------------------------------------------------
 
+def source_sha256(path: Path) -> str:
+    """Digest of a text source with LF endings: equals the blob git stores, whatever the checkout's eol."""
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def read_jsonl(path: Path) -> tuple[list[dict], str]:
-    """Rows and sha256 of the exact bytes used; a trailing partial line (file still growing) is ignored."""
+    """Rows and sha256 of the exact bytes used.
+
+    A final line without newline is kept when it is valid JSON (optional trailing newline) and
+    dropped only when it is incomplete (file still growing).
+    """
     data = path.read_bytes()
-    data = data[:data.rfind(b"\n") + 1]
-    rows = [json.loads(line) for line in data.decode("utf-8").splitlines() if line.strip()]
-    return rows, hashlib.sha256(data).hexdigest()
+    complete = data[:data.rfind(b"\n") + 1]
+    tail = data[len(complete):]
+    if tail.strip():
+        try:
+            json.loads(tail)
+            complete = data
+        except ValueError:
+            pass
+    rows = [json.loads(line) for line in complete.decode("utf-8").splitlines() if line.strip()]
+    return rows, hashlib.sha256(complete).hexdigest()
 
 
 def length_check(tokenizer: Path | None, max_tokens: int):
@@ -368,6 +413,8 @@ def build(output: Path, boe: Path, code: Path, boe_per_family: int = 200, code_p
           per_document: int = 2, tokenizer: Path | None = None, max_tokens: int = 768) -> dict:
     if output.exists():
         raise FileExistsError("use a new versioned corpus")
+    if boe_per_family < 1 or code_per_family < 1 or per_document < 1:
+        raise ValueError("per-family quotas and per_document must be positive")
     gate = PrivacyGate()
     fits, length_policy = length_check(tokenizer, max_tokens)
     stats = {"privacy_rejected": 0, "verification_failed": 0, "utf8_rejected": 0, "too_long": 0}
@@ -449,7 +496,7 @@ def build(output: Path, boe: Path, code: Path, boe_per_family: int = 200, code_p
     output.mkdir(parents=True)
     manifest = {
         "version": "grounded-v1", "kind": "source_grounded_verified", "approved": False, "human_reviewed": False,
-        "independent_test": False, "generator_sha256": sha256(Path(__file__)),
+        "independent_test": False, "generator_sha256": source_sha256(Path(__file__)),
         "inputs": {"boe": {"path": str(boe), "sha256": boe_sha, "records": len(boe_records)},
                    "code": {"path": str(code), "sha256": code_sha, "permissive_records": len(code_records)}},
         "split_policy": "disjoint source documents (sha256 bucket 80/7/6/7) and disjoint wording families",

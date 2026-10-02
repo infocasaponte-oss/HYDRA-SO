@@ -4,10 +4,10 @@
   "approved": false,
   "human_reviewed": false,
   "independent_test": false,
-  "generator_sha256": "d21e58c2088ce9464bcbe8af625447a714ae3c21d5f893d1ddff590714196681",
+  "generator_sha256": "2e5fdbe0c52d1a2abeb293c3c68544054e6069dd119ef21cac95a3ed18853808",
   "inputs": {
     "boe": {
-      "path": "D:\\corpus_llm_grande\\derecho\\boe_legislacion_consolidada.jsonl",
+      "path": "D:\\corpus_llm_grande\\derecho\\snapshots\\boe-grounded-v1-input.jsonl",
       "sha256": "d9ae9255ca25438d67773fd26c1e9d48fc2b07fcbe4664cab8df0d5ba9bd01ef",
       "records": 712
     },
@@ -40,24 +40,24 @@
     "privacy_rejected": 284,
     "verification_failed": 0,
     "utf8_rejected": 0,
-    "too_long": 0
+    "too_long": 1
   },
   "files": {
     "train.jsonl": {
       "examples": 1585,
-      "sha256": "d48c934e5b34d6a28bee0d28211e1d09d1d28a6eab8fadc43a8e41a23251ee24"
+      "sha256": "c08067b99f280daf4a7ef3b9b544b2431140bd7d1067f40c82f444ce3aad47f4"
     },
     "validation.jsonl": {
       "examples": 162,
-      "sha256": "3aa1ae7639bab2d19874b819942c77bfa654747bca615a6c6b37e6f4ab42b195"
+      "sha256": "ee4ed29620158d6de7c75a6396d9d9972b63f5761432a475a590031fe3414d0b"
     },
     "calibration.jsonl": {
       "examples": 99,
-      "sha256": "280afb85424d350e411009a1f67829eac1f190dd791c77ea5ed514a7ca07504c"
+      "sha256": "def94a0dbf54d88756789d0d0bc00807fa32cf7fefc28a5c09fea7b68821ea4b"
     },
     "test.jsonl": {
       "examples": 154,
-      "sha256": "359c70e6cee1ff139547633b1e1ce12d31cfd316e9f728aa4461d5e3f0c77d7d"
+      "sha256": "4fecd531114582971935a6a8a847949c21070b0342e767ed35b09d4b11689640"
     }
   },
   "limitations": "Extractive questions over a single excerpt; verifies faithfulness to the excerpt, not legal or programming advice. Code snippets keep repository, path and licence for attribution. Not human reviewed."
