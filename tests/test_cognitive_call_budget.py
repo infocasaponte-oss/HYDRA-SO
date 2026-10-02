@@ -132,3 +132,20 @@ async def test_in_flight_call_holds_its_unit_against_a_hedged_twin():
     release.set()
     await first
     assert budget.model_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_budget_refused_hedge_does_not_mask_the_primary_failure():
+    import asyncio
+
+    from hydra.scheduler.parallel import hedged
+
+    async def primary():
+        await asyncio.sleep(0.05)
+        raise RuntimeError("primary provider failed")
+
+    async def backup():
+        raise BudgetExceeded("model call budget exhausted")  # refused before running
+
+    with pytest.raises(RuntimeError, match="primary provider failed"):
+        await hedged(primary, backup, hedge_after_s=0.01)
