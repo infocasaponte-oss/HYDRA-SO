@@ -4,15 +4,15 @@
   "approved": false,
   "human_reviewed": false,
   "independent_test": false,
-  "generator_sha256": "2e5fdbe0c52d1a2abeb293c3c68544054e6069dd119ef21cac95a3ed18853808",
+  "generator_sha256": "14759a64899c91e00821bb5682316ccb9f7d3b8ce58a15de4dd0aaa6f09f314c",
   "inputs": {
     "boe": {
-      "path": "D:\\corpus_llm_grande\\derecho\\snapshots\\boe-grounded-v1-input.jsonl",
+      "path": "data\\sources\\snapshots\\boe-grounded-v1-input.jsonl",
       "sha256": "d9ae9255ca25438d67773fd26c1e9d48fc2b07fcbe4664cab8df0d5ba9bd01ef",
       "records": 712
     },
     "code": {
-      "path": "D:\\corpus_llm_grande\\codigo\\stackv2_edu_python_sample.jsonl",
+      "path": "data\\sources\\code\\stackv2_edu_python_sample.jsonl",
       "sha256": "44d37aa87bfc4411c608bc58f3cbfaa52bc37687dc3cea43f0566badd8b627a9",
       "permissive_records": 19620
     }

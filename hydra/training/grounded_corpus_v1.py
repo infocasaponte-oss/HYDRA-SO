@@ -516,8 +516,8 @@ def build(output: Path, boe: Path, code: Path, boe_per_family: int = 200, code_p
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=Path("data/hydra-grounded-v1"))
-    parser.add_argument("--boe", type=Path, default=Path(r"D:\corpus_llm_grande\derecho\boe_legislacion_consolidada.jsonl"))
-    parser.add_argument("--code", type=Path, default=Path(r"D:\corpus_llm_grande\codigo\stackv2_edu_python_sample.jsonl"))
+    parser.add_argument("--boe", type=Path, default=Path("data/sources/boe/boe_legislacion_consolidada.jsonl"))
+    parser.add_argument("--code", type=Path, default=Path("data/sources/code/stackv2_edu_python_sample.jsonl"))
     parser.add_argument("--boe-per-family", type=int, default=200)
     parser.add_argument("--code-per-family", type=int, default=160)
     parser.add_argument("--tokenizer", type=Path, default=None, help="tokenizer.json of the base model")

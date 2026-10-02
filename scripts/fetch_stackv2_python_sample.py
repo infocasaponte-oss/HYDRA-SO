@@ -32,7 +32,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--shard", type=int, default=77)
     parser.add_argument("--limit", type=int, default=20000)
-    parser.add_argument("--output", type=Path, default=Path(r"D:\corpus_llm_grande\codigo\stackv2_edu_python_sample.jsonl"))
+    parser.add_argument("--output", type=Path, default=Path("data/sources/code/stackv2_edu_python_sample.jsonl"))
     args = parser.parse_args()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     kept = seen = 0
