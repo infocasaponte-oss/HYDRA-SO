@@ -106,6 +106,8 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
 
     secured = [Depends(throttle)]
     admin_secured = [Depends(throttle), Depends(admin)]
+    from hydra.hyd.api import register as register_hyd_routes
+    register_hyd_routes(app, secured)
 
     # ---------------------------------------------------------------- health
     @app.get("/health")

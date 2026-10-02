@@ -34,7 +34,7 @@ redis = ["redis>=5.0"]
 postgres = ["asyncpg>=0.29", "psycopg[binary]>=3.2"]
 nats = ["nats-py>=2.7"]
 factory = ["huggingface_hub>=0.24"]
-training = ["torch>=2.3", "transformers>=5.0", "peft>=0.12", "datasets>=2.20", "trl>=0.12", "safetensors>=0.4", "psutil>=5.9", "xxhash>=3.4"]
+training = ["torch>=2.3", "transformers>=5.0", "peft>=0.12", "datasets>=2.20", "trl>=0.12", "safetensors>=0.4", "sentencepiece>=0.2,<0.3", "protobuf>=4", "psutil>=5.9", "xxhash>=3.4"]
 mlx = ["mlx-lm>=0.20"]
 parquet = ["pyarrow>=16"]
 federated = ["flwr>=1.20"]
@@ -57,6 +57,7 @@ hydra = ["py.typed", "api/studio.html", "api/evaluation_review.html"]
 # Installed runs (hydra worker / hydra factory worker) resolve ROOT to share/hydra: the PostgreSQL
 # schema must be there too, or create_pool() cannot find it.
 "share/hydra/sql" = ["sql/schema.sql"]
+"share/hydra/config/hyd" = ["config/hyd/model.json", "config/hyd/calibration.json"]
 
 [tool.ruff]
 line-length = 120

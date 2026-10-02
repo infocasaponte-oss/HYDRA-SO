@@ -12,7 +12,9 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import shutil
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -20,6 +22,8 @@ from pathlib import Path
 import numpy as np
 
 from hydra.training.base_corpus import canonical_sha256, iter_texts
+from hydra.training.base_corpus import file_sha256
+from hydra.core.atomic import write_text_atomic
 
 
 @dataclass
@@ -34,9 +38,8 @@ class ModelShape:
 
 SHAPES = {
     "30m": ModelShape(),
-    # Stage 1: SmolLM-135M-like deep-and-thin shape; ~124M parameters with the 32k tied vocabulary.
-    "125m": ModelShape(hidden_size=576, num_hidden_layers=30, num_attention_heads=9, num_key_value_heads=3,
-                       intermediate_size=1536, max_position_embeddings=1024),
+    "125m": ModelShape(hidden_size=576, num_hidden_layers=30, num_attention_heads=9,
+                       num_key_value_heads=3, intermediate_size=1536, max_position_embeddings=1024),
 }
 
 
@@ -55,10 +58,10 @@ class TrainPlan:
     eval_batches: int = 50
     seed: int = 42
     gradient_checkpointing: bool = False
+    checkpoint_every: int = 250
+    loss_chunk_tokens: int = 256
 
 
-# Same 65,536 tokens per optimizer step. Measured on the 8 GiB RTX GPU: 125m at micro-batch 4 without
-# checkpointing peaks at 7.8 GB (~4.1k tok/s); micro-batch 8 with checkpointing peaks at 6.1 GB (~10.5k tok/s).
 PLANS = {"30m": TrainPlan(), "125m": TrainPlan(micro_batch=8, accumulation=8, gradient_checkpointing=True)}
 
 
@@ -83,7 +86,7 @@ def tokenize(corpus: Path, tokenizer_dir: Path, output: Path) -> dict:
                     batch = []
             if batch:
                 total += _write(stream, sp, batch)
-        counts[split] = {"tokens": total, "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+        counts[split] = {"tokens": total, "sha256": file_sha256(path)}
     return counts
 
 
@@ -102,7 +105,7 @@ def verify_tokens(data_dir: Path, corpus: Path, tokenizer_dir: Path) -> dict:
     """Refuse cached token files that no longer match their manifest, the corpus or the tokenizer."""
     manifest = json.loads((data_dir / "tokens-manifest.json").read_text(encoding="utf-8"))
     for split in ("train", "validation"):
-        if hashlib.sha256((data_dir / f"{split}.bin").read_bytes()).hexdigest() != manifest[split]["sha256"]:
+        if file_sha256(data_dir / f"{split}.bin") != manifest[split]["sha256"]:
             raise ValueError(f"cached {split}.bin does not match tokens-manifest.json")
     if manifest["tokenizer_sha256"] != hashlib.sha256((tokenizer_dir / "tokenizer.model").read_bytes()).hexdigest():
         raise ValueError("cached tokens were produced with a different tokenizer")
@@ -145,13 +148,69 @@ def param_groups(model, weight_decay: float):
 
 
 def batches(tokens: np.ndarray, seq_len: int, micro_batch: int, rng: np.random.Generator):
-    import torch
-
     high = len(tokens) - seq_len - 1
+    if high <= 0:
+        raise ValueError("token partition is shorter than the training sequence")
+    import torch
     while True:
         starts = rng.integers(0, high, size=micro_batch)
         chunk = np.stack([tokens[s:s + seq_len + 1] for s in starts]).astype(np.int64)
         yield torch.from_numpy(chunk[:, :-1]), torch.from_numpy(chunk[:, 1:])
+
+
+def language_loss(logits, labels, chunk_tokens: int = 256):
+    """Recompute chunked fp32 CE in backward instead of retaining full-vocabulary fp32 logits."""
+    import torch
+    from torch.utils.checkpoint import checkpoint
+    flat = logits.reshape(-1, logits.size(-1))
+    targets = labels.reshape(-1)
+    def loss_chunk(z, y):
+        return torch.nn.functional.cross_entropy(z.float(), y, reduction="sum")
+    losses = []
+    for start in range(0, len(targets), chunk_tokens):
+        z, y = flat[start:start + chunk_tokens], targets[start:start + chunk_tokens]
+        losses.append(checkpoint(loss_chunk, z, y, use_reentrant=False) if z.requires_grad else loss_chunk(z, y))
+    return torch.stack(losses).sum() / len(targets)
+
+
+def save_resume(path: Path, payload: dict):
+    import torch
+    fd, temporary = tempfile.mkstemp(prefix=".resume-", suffix=".pt", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            torch.save(payload, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        marker = path.with_suffix(".json")
+        # Preserve the preceding committed point across the two-file commit.
+        # A crash after replacing weights but before metadata can fall back.
+        if path.exists() and marker.exists():
+            old = json.loads(marker.read_text(encoding="utf-8"))
+            if old["sha256"] == file_sha256(path):
+                previous = path.with_name("resume-previous.pt")
+                write_text_atomic(previous.with_suffix(".json"), json.dumps(old, indent=2))
+                os.replace(path, previous)
+        os.replace(temporary, path)
+        write_text_atomic(path.with_suffix(".json"), json.dumps({"sha256": file_sha256(path),
+                         "step": payload["step"], "identity": payload["identity"]}, indent=2))
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def load_resume(folder: Path, identity: dict, device):
+    import torch
+    for filename in ("resume.pt", "resume-previous.pt"):
+        path = folder / filename
+        if not path.exists() or not path.with_suffix(".json").exists():
+            continue
+        marker = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+        if marker["identity"] != identity or marker["sha256"] != file_sha256(path):
+            continue
+        payload = torch.load(path, map_location=device, weights_only=True)
+        if payload["identity"] == identity and payload["step"] == marker["step"]:
+            return payload
+    raise ValueError("no valid resume point matches the training identity and checksum")
 
 
 def evaluate(model, tokens: np.ndarray, plan: TrainPlan, device) -> float:
@@ -164,19 +223,25 @@ def evaluate(model, tokens: np.ndarray, plan: TrainPlan, device) -> float:
         for _, (x, y) in zip(range(plan.eval_batches), batches(tokens, plan.seq_len, plan.micro_batch, rng)):
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
                 logits = model(input_ids=x.to(device)).logits
-            losses.append(torch.nn.functional.cross_entropy(logits.float().reshape(-1, logits.size(-1)),
-                                                            y.to(device).reshape(-1)).item())
+            losses.append(language_loss(logits, y.to(device), plan.loss_chunk_tokens).item())
     model.train()
     return float(np.mean(losses))
 
 
 def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, plan: TrainPlan,
-          max_steps: int | None = None, device: str | None = None, stage: int = 0) -> dict:
+          max_steps: int | None = None, device: str | None = None, stage: int = 0,
+          resume: bool = False, stop_after: int | None = None) -> dict:
     import torch
 
-    if output.exists():
+    if output.exists() and not resume:
         raise FileExistsError("use a new versioned model directory")
-    output.mkdir(parents=True)
+    if resume and not any((output / name).is_file() for name in ("resume.pt", "resume-previous.pt")):
+        raise FileNotFoundError("no completed pretraining resume point")
+    if (min(plan.seq_len, plan.micro_batch, plan.accumulation, plan.eval_every, plan.eval_batches,
+            plan.checkpoint_every, plan.loss_chunk_tokens) <= 0 or plan.seq_len > shape.max_position_embeddings
+            or max_steps is not None and max_steps <= 0 or stop_after is not None and stop_after <= 0):
+        raise ValueError("invalid pretraining sizes or step bounds")
+    output.mkdir(parents=True, exist_ok=resume)
     torch.manual_seed(plan.seed)
     device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     train_tokens = np.memmap(data_dir / "train.bin", dtype=np.uint16, mode="r")
@@ -192,10 +257,30 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
     total = max_steps or max(1, int(len(train_tokens) * plan.epochs / tokens_per_step))
     optimizer = torch.optim.AdamW(param_groups(model, plan.weight_decay), lr=plan.learning_rate,
                                   betas=(0.9, 0.95), eps=1e-8, fused=device.type == "cuda")
-    stream = batches(train_tokens, plan.seq_len, plan.micro_batch, np.random.default_rng(plan.seed))
+    stream_rng = np.random.default_rng(plan.seed)
+    stream = batches(train_tokens, plan.seq_len, plan.micro_batch, stream_rng)
     history, started = [], time.time()
-    log = (output / "train.log").open("w", encoding="utf-8")
-    for step in range(total):
+    identity = {"shape": asdict(shape), "plan": asdict(plan), "total_steps": total, "stage": stage,
+                "tokens_manifest_sha256": file_sha256(data_dir / "tokens-manifest.json"),
+                "tokenizer_sha256": file_sha256(tokenizer_dir / "tokenizer.model"), "device_type": device.type}
+    first_step, prior_runtime = 0, 0.0
+    if resume:
+        payload = load_resume(output, identity, device)
+        model.load_state_dict(payload["model"])
+        optimizer.load_state_dict(payload["optimizer"])
+        first_step, history, prior_runtime = payload["step"], payload["history"], payload["runtime_s"]
+        stream_rng.bit_generator.state = payload["numpy_rng"]
+        torch.set_rng_state(payload["torch_rng"].cpu())
+        if device.type == "cuda":
+            torch.cuda.set_rng_state_all([state.cpu() for state in payload["cuda_rng"]])
+    log = (output / "train.log").open("a" if resume else "w", encoding="utf-8")
+    def checkpoint_at(step):
+        save_resume(output / "resume.pt", {"identity": identity, "step": step,
+            "model": model.state_dict(), "optimizer": optimizer.state_dict(), "history": history,
+            "numpy_rng": stream_rng.bit_generator.state, "torch_rng": torch.get_rng_state(),
+            "cuda_rng": torch.cuda.get_rng_state_all() if device.type == "cuda" else [],
+            "runtime_s": prior_runtime + time.time() - started})
+    for step in range(first_step, total):
         for group in optimizer.param_groups:
             group["lr"] = wsd_lr(step, total, plan)
         loss_sum = 0.0
@@ -203,7 +288,7 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
             x, y = next(stream)
             with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"):
                 logits = model(input_ids=x.to(device)).logits
-            loss = torch.nn.functional.cross_entropy(logits.float().reshape(-1, logits.size(-1)), y.to(device).reshape(-1))
+            loss = language_loss(logits, y.to(device), plan.loss_chunk_tokens)
             (loss / plan.accumulation).backward()
             loss_sum += loss.item() / plan.accumulation
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -219,9 +304,13 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
                             "val_perplexity": round(math.exp(val), 2)})
             log.write(json.dumps(history[-1]) + "\n")
             log.flush()
+        if (step + 1) % plan.checkpoint_every == 0 or step + 1 == total or step + 1 == stop_after:
+            checkpoint_at(step + 1)
+        if step + 1 == stop_after and step + 1 < total:
+            log.close()
+            return {"status": "INTERRUPTED_AT_CHECKPOINT", "steps": step + 1, "total_steps": total}
     log.close()
     final = output / "final"
-    model.config.use_cache = True  # checkpointing disables it for training only; inference needs the KV cache
     model.save_pretrained(final, safe_serialization=True)
     for name in ("tokenizer.model", "tokenizer_config.json", "special_tokens_map.json"):
         shutil.copy2(tokenizer_dir / name, final / name)
@@ -231,8 +320,8 @@ def train(data_dir: Path, tokenizer_dir: Path, output: Path, shape: ModelShape, 
               "train_tokens": int(len(train_tokens)), "device": str(device),
               "gpu": torch.cuda.get_device_name(0) if device.type == "cuda" else None,
               "peak_allocated_bytes": torch.cuda.max_memory_allocated() if device.type == "cuda" else 0,
-              "runtime_s": round(time.time() - started, 1), "history": history,
-              "weights_sha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
+              "runtime_s": round(prior_runtime + time.time() - started, 1), "history": history,
+              "weights_sha256": file_sha256(weights),
               "tokenizer_sha256": hashlib.sha256((tokenizer_dir / "tokenizer.model").read_bytes()).hexdigest(),
               "data_manifest": json.loads((data_dir / "tokens-manifest.json").read_text(encoding="utf-8")),
               "license": "HYDRA Base proprietary (docs/legal/LICENCIA_PESOS_HYDRA_BASE.md); weights never published"}
@@ -250,6 +339,7 @@ if __name__ == "__main__":
     parser.add_argument("--tokenize-only", action="store_true")
     parser.add_argument("--shape", choices=sorted(SHAPES), default="30m")
     parser.add_argument("--stage", type=int, choices=(0, 1), default=0)
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     if not (args.data / "tokens-manifest.json").exists():
         counts = tokenize(args.corpus, args.tokenizer, args.data)
@@ -263,5 +353,5 @@ if __name__ == "__main__":
         verify_tokens(args.data, args.corpus, args.tokenizer)
     if not args.tokenize_only:
         result = train(args.data, args.tokenizer, args.output, SHAPES[args.shape], PLANS[args.shape], args.max_steps,
-                       stage=args.stage)
+                       stage=args.stage, resume=args.resume)
         print(json.dumps({k: result[k] for k in ("parameters", "steps", "tokens_seen", "runtime_s", "history")}, indent=2))

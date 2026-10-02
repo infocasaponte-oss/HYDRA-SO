@@ -47,6 +47,33 @@ async def test_observation_cannot_change_routing_or_permissions():
     assert subject.observer.provider.client.is_closed
 
 
+async def test_unexpected_observer_failure_preserves_route_and_does_not_call_authority():
+    class BrokenObserver:
+        model = "broken"
+
+        async def observe(self, req):
+            raise LookupError("backend failed")
+
+    class ForbiddenAuthority:
+        def task_hint(self, observation):
+            pytest.fail("a failed observer must not provide authority")
+
+    req = request()
+    expected = await CognitiveRouter().route(req)
+    actual = await CognitiveRouter(observer=BrokenObserver(), authority=ForbiddenAuthority()).route(req)
+    assert actual.model_dump(exclude={"observation"}) == expected.model_dump(exclude={"observation"})
+    assert actual.observation.reason == "observer.failure"
+
+
+async def test_observer_cancellation_is_not_swallowed():
+    class CancelledObserver:
+        async def observe(self, req):
+            raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await CognitiveRouter(observer=CancelledObserver()).route(request())
+
+
 @pytest.mark.parametrize("kwargs,reason", [
     ({"local_only": True}, "private"), ({"mode": ExecutionMode.PRIVATE}, "private"),
     ({"mode": ExecutionMode.FAST}, "fast"), ({"max_latency_ms": 1000}, "latency_budget"),
@@ -98,6 +125,7 @@ async def test_cancellation_is_not_swallowed():
 async def test_offline_bootstrap_never_constructs_observer(settings):
     from hydra.core.bootstrap import build_runtime
 
+    settings.hyd_enabled = False  # Exercise only the retired external observer path.
     settings.decision_shadow_endpoint = "https://invalid.example"
     runtime = await build_runtime(settings)
     try:
@@ -112,6 +140,7 @@ async def test_enabled_bootstrap_owns_client_lifecycle(settings, mock):
     from hydra.tools.sandbox import SubprocessSandbox
     from .conftest import default_models
 
+    settings.hyd_enabled = False  # Explicit legacy compatibility, never the default.
     settings.offline = False
     settings.runtime_monitor = False
     settings.decision_shadow_endpoint = "http://127.0.0.1:8009"
