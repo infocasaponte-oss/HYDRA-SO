@@ -163,3 +163,27 @@ def test_pleias_works_stay_in_one_split_count_once_and_honour_the_selection(tmp_
     (folder / "manifest.json").write_text(json.dumps({"files": files, "selection": {"count": 3}}), encoding="utf-8")
     with pytest.raises(ValueError, match="2 of 3"):
         bc.source_rows(bc.SourceSpec("PleIAs", folder, "pleias_parquet", "x"))
+
+
+def test_over_long_pleias_names_use_the_short_local_file(tmp_path):
+    import importlib.util
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    spec = importlib.util.spec_from_file_location("fetch", bc.Path(__file__).resolve().parents[1]
+                                                  / "scripts/fetch_pleias_spanish_pd.py")
+    fetch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fetch)
+    long_name = "0211-0210-" + "memoria-de-los-trabajos-del-mapa-geologico-" * 6 + ".parquet"
+    short = fetch.local_name(long_name)
+    assert len(short) <= fetch.MAX_NAME and short.endswith(".parquet") and fetch.local_name("a.parquet") == "a.parquet"
+    assert short == fetch.local_name(long_name)  # stable across runs, so resumes find the file
+    folder = tmp_path / "pleias"
+    folder.mkdir()
+    text = "".join(f"Capítulo {chr(97 + j % 26)}{chr(97 + j // 26)} de la memoria del mapa geológico de la provincia.\n"
+                   for j in range(400))
+    pq.write_table(pa.table({"identifier": ["w"], "title": ["t"], "text": [text]}), folder / short)
+    manifest = {"files": {long_name: {"bytes": 0, "sha256": bc.file_sha256(folder / short), "local": short}},
+                "selection": {"count": 1}}
+    (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    rows, _ = bc.source_rows(bc.SourceSpec("PleIAs", folder, "pleias_parquet", "x"))
+    assert {r["split_key"] for r in rows} == {"w"}
