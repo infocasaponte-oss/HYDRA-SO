@@ -6,6 +6,8 @@ Directive art. 14), so they pass ``base_data_policy`` as "public-domain". Files 
 ``data/sources/pleias/<collection>/`` with a manifest of sha256 per file. The dataset revision
 (commit sha) is resolved once and pinned in the manifest, so listing and downloads always use the
 same immutable state and a resumed run cannot mix revisions. Interrupted downloads are retried.
+Repository names too long for a Windows path component are stored under a short local name
+(``local`` in the manifest entry); the manifest keys stay the repository names.
 """
 import argparse
 import hashlib
@@ -13,7 +15,8 @@ import json
 import time
 from pathlib import Path
 
-from huggingface_hub import HfApi, hf_hub_download
+from huggingface_hub import HfApi, get_session, hf_hub_download, hf_hub_url
+from huggingface_hub.utils import build_hf_headers
 
 COLLECTIONS = {"spanish-pd-books": "PleIAs/Spanish-PD-Books", "spanish-pd-newspapers": "PleIAs/Spanish-PD-Newspapers"}
 
@@ -26,9 +29,34 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+MAX_NAME = 120  # leaves room for huggingface_hub's ".<sha256>.incomplete" suffix within 255 characters
+
+
+def local_name(name: str) -> str:
+    """The repository name, or a short stable one when it would not fit a Windows path component."""
+    if len(name) <= MAX_NAME:
+        return name
+    stem = name[:-len(".parquet")] if name.endswith(".parquet") else name
+    return f"{stem[:60]}-{hashlib.sha256(name.encode()).hexdigest()[:16]}.parquet"
+
+
+def _stream(repo: str, name: str, revision: str, path: Path) -> Path:
+    url = hf_hub_url(repo, name, repo_type="dataset", revision=revision)
+    partial = path.with_name(path.name + ".part")
+    with get_session().get(url, headers=build_hf_headers(), stream=True, timeout=60) as response:
+        response.raise_for_status()
+        with partial.open("wb") as stream:
+            for block in response.iter_content(8 << 20):
+                stream.write(block)
+    partial.replace(path)
+    return path
+
+
 def download(repo: str, name: str, revision: str, target: Path, attempts: int = 6) -> Path:
     for attempt in range(1, attempts + 1):
         try:
+            if local_name(name) != name:
+                return _stream(repo, name, revision, target / local_name(name))
             return Path(hf_hub_download(repo, name, repo_type="dataset", revision=revision, local_dir=target))
         except Exception as exc:  # broken connections are common on multi-hundred-MB files
             if attempt == attempts:
@@ -54,10 +82,12 @@ def fetch(collection: str, count: int, root: Path) -> dict:
                    if f.endswith(".parquet"))[:count]
     manifest["selection"] = {"rule": "sorted parquet prefix", "count": count}
     for name in files:
-        if name in manifest["files"] and (target / name).exists():
+        if name in manifest["files"] and (target / local_name(name)).exists():
             continue
         local = download(repo, name, revision, target)
         manifest["files"][name] = {"bytes": local.stat().st_size, "sha256": sha256(local)}
+        if local.name != name:
+            manifest["files"][name]["local"] = local.name
         manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
         print(f"{collection}: {name} ({local.stat().st_size / 1e6:.0f} MB)", flush=True)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")

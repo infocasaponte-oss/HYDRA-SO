@@ -184,15 +184,16 @@ def _pleias_rows(folder: Path) -> tuple[Iterator[dict], str]:
     if len(selected) < count:
         raise ValueError(f"{folder}: {len(selected)} of {count} selected files downloaded")
     for name in selected:
-        if file_sha256(folder / name) != manifest["files"][name]["sha256"]:
-            raise ValueError(f"{folder / name} does not match its manifest")
+        local = folder / manifest["files"][name].get("local", name)  # short name for over-long ones
+        if file_sha256(local) != manifest["files"][name]["sha256"]:
+            raise ValueError(f"{local} does not match its manifest")
     digest = hashlib.sha256(f"{canonical_sha256(manifest_path)}\n{json.dumps(selected)}".encode()).hexdigest()
 
     def rows():
         import pyarrow.parquet as pq
 
         for name in selected:
-            parquet = pq.ParquetFile(folder / name)
+            parquet = pq.ParquetFile(folder / manifest["files"][name].get("local", name))
             for group in range(parquet.num_row_groups):
                 for book in parquet.read_row_group(group, columns=["identifier", "title", "text"]).to_pylist():
                     cleaned = clean_ocr(book.get("text") or "")
