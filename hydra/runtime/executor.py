@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from hydra.runtime.model_registry import ModelRegistry
 from hydra.runtime.planner import ExecutionPlan, StepKind
-from hydra.runtime.provider import LocalLLM
+from hydra.providers.local_llm import LocalLLM
 from hydra.runtime.verifier import VerificationResult, Verifier
 
 
