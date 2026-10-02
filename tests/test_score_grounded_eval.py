@@ -44,3 +44,11 @@ def test_wrong_facts_and_hallucinated_content_fail(scorer):
               "La fuente proporcionada solo incluye el artículo 1; no contiene el artículo 17, así que no puedo indicar qué establece.")
     assert not fm("boe_quote", "Dice: «1. Texto cambiado.»", "dice literalmente: «1. Texto original.» Fuente: x")
     assert not fm("code_imports", "Importa `os`, `sys`, `json`.", "Importa 2 módulos: `os`, `sys`.")
+
+
+def test_repeal_status_value_answers_are_understood(scorer):
+    ref_no = "No. Según los metadatos, la norma no consta como derogada. Fuente: x"
+    ref_si = "Sí. Según los metadatos, la norma consta como derogada. Fuente: x"
+    assert scorer.fact_match("boe_repealed", "Su estado es «No». Fuente: x", ref_no)
+    assert not scorer.fact_match("boe_repealed", "Su estado es «No». Fuente: x", ref_si)
+    assert scorer.fact_match("boe_repealed", "Su estado de derogación es «Sí».", ref_si)
