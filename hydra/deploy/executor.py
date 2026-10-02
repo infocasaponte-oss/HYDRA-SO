@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from contextlib import suppress
 
+from hydra.core.inference_budget import reserve_model_call
 from hydra.deploy.runtime_evidence import RuntimeEvidenceStore
 from hydra.deploy.runtime_health import RuntimeHealth
 from hydra.deploy.traffic_router import TrafficDecision, TrafficRouter
@@ -54,6 +55,7 @@ class RuntimeExecutor:
         canary_id = str(decision.canary.variant_id) if decision.canary else None
         canary_error: bool | None = None
         canary_latency_ms: float | None = None
+        reserve_model_call()
         shadow_task = self._start_shadow(decision, prompt, max_tokens)
         try:
             started = time.perf_counter()
@@ -144,7 +146,7 @@ class RuntimeExecutor:
         prompt: str,
         max_tokens: int,
     ) -> asyncio.Task[tuple[str, float]] | None:
-        if decision.shadow is None:
+        if decision.shadow is None or not reserve_model_call(optional=True):
             return None
         shadow_id = str(decision.shadow.variant_id)
 
@@ -162,6 +164,7 @@ class RuntimeExecutor:
         max_tokens: int,
     ) -> tuple[str, str]:
         fallback_id = str(decision.primary.variant_id)
+        reserve_model_call()
         try:
             answer = await self.inference_call(fallback_id, prompt, max_tokens)
         except Exception:

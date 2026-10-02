@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 from uuid import uuid4
 
+from hydra.core.inference_budget import inference_budget
 from hydra.core.task_commit import CaptureUnitOfWork, TaskCommit
 from hydra.core.native_contracts import HydraResult, HydraTask, Route, TaskStatus
 from hydra.core.durable_events import JsonlEventStore
@@ -96,51 +97,52 @@ class HydraKernel:
 
         self._transition(task, TaskStatus.EXECUTING, trace_id)
         try:
-            async with asyncio.timeout(task.budget.max_seconds):
-                with self.tracer.span(
-                    "execution",
-                    trace_id=trace_id,
-                    task_id=task.id,
-                    attributes={"capability": route.capability},
-                ):
-                    executor = Executor(llm, self.model_registry, Verifier())
-                    if self.runtime_bridge is not None and not route.needs_tools:
-                        try:
-                            runtime_output = await self.runtime_bridge.execute(
-                                task_id=task.id,
-                                trace_id=trace_id,
-                                capability=route.capability,
-                                prompt=task.goal,
-                                max_tokens=task.budget.max_output_tokens,
-                            )
-                        except LookupError as exc:
-                            self.events.append(
-                                event_type="hydra.runtime.logical_fallback",
-                                aggregate_id=task.id,
-                                producer="hydra.kernel",
-                                trace_id=trace_id,
-                                payload={
-                                    "capability": route.capability,
-                                    "reason": type(exc).__name__,
-                                },
-                            )
+            with inference_budget(task.budget.max_model_calls):
+                async with asyncio.timeout(task.budget.max_seconds):
+                    with self.tracer.span(
+                        "execution",
+                        trace_id=trace_id,
+                        task_id=task.id,
+                        attributes={"capability": route.capability},
+                    ):
+                        executor = Executor(llm, self.model_registry, Verifier())
+                        if self.runtime_bridge is not None and not route.needs_tools:
+                            try:
+                                runtime_output = await self.runtime_bridge.execute(
+                                    task_id=task.id,
+                                    trace_id=trace_id,
+                                    capability=route.capability,
+                                    prompt=task.goal,
+                                    max_tokens=task.budget.max_output_tokens,
+                                )
+                            except LookupError as exc:
+                                self.events.append(
+                                    event_type="hydra.runtime.logical_fallback",
+                                    aggregate_id=task.id,
+                                    producer="hydra.kernel",
+                                    trace_id=trace_id,
+                                    payload={
+                                        "capability": route.capability,
+                                        "reason": type(exc).__name__,
+                                    },
+                                )
+                                output = await executor.execute(
+                                    plan,
+                                    task.budget.max_output_tokens,
+                                    max_model_calls=task.budget.max_model_calls,
+                                )
+                            else:
+                                output = ExecutionOutput(
+                                    answer=runtime_output.answer,
+                                    model_id=runtime_output.primary_variant_id,
+                                    verification=None,
+                                )
+                        else:
                             output = await executor.execute(
                                 plan,
                                 task.budget.max_output_tokens,
                                 max_model_calls=task.budget.max_model_calls,
                             )
-                        else:
-                            output = ExecutionOutput(
-                                answer=runtime_output.answer,
-                                model_id=runtime_output.primary_variant_id,
-                                verification=None,
-                            )
-                    else:
-                        output = await executor.execute(
-                            plan,
-                            task.budget.max_output_tokens,
-                            max_model_calls=task.budget.max_model_calls,
-                        )
         except Exception:
             self._transition(task, TaskStatus.FAILED, trace_id)
             self.events.append(

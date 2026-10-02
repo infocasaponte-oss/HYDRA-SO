@@ -4,14 +4,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from hydra.registry.native import ModelRegistry
+from hydra.core.inference_budget import ModelCallBudgetExceeded, reserve_model_call
 from hydra.scheduler.native import ExecutionPlan, StepKind
 from hydra.providers.local_llm import LocalLLM
 from hydra.verification.verifier import TextVerification as VerificationResult
 from hydra.verification.verifier import Verifier
-
-
-class ModelCallBudgetExceeded(RuntimeError):
-    pass
 
 
 class UnsafePlan(RuntimeError):
@@ -54,6 +51,7 @@ class Executor:
             if step.kind == StepKind.MODEL:
                 model = self.registry.resolve(step.capability, local_only=True)
                 model_id = model.model_id
+                reserve_model_call()
                 answer = await self.llm.chat(
                     [{"role": "user", "content": step.instruction}],
                     max_tokens=max_tokens,
