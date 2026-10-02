@@ -51,15 +51,15 @@ async def hedged(primary: Call, backup: Call | None, hedge_after_s: float) -> tu
 
     b = asyncio.create_task(backup())
     pending = {p, b}
-    errors: list[BaseException] = []
     while pending:
         done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
         for t in done:
             if t.exception() is None:
                 await _cancel(pending)
                 return t.result(), ("primary" if t is p else "backup")
-            errors.append(t.exception())
-    raise errors[0]
+    # Both failed. The primary's error is the real diagnostic: the backup may only have been
+    # refused before running (e.g. no budget left), which must not hide a failing primary.
+    raise p.exception()
 
 
 async def speculative(

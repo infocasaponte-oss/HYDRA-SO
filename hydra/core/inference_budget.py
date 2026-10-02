@@ -30,7 +30,13 @@ _current: ContextVar[InferenceBudget | None] = ContextVar("hydra_inference_budge
 
 @contextmanager
 def inference_budget(limit: int):
-    budget = InferenceBudget(limit)
+    with use_inference_budget(InferenceBudget(limit)) as budget:
+        yield budget
+
+
+@contextmanager
+def use_inference_budget(budget: InferenceBudget):
+    """Expose an existing counter (e.g. the cognitive kernel's) to every executor below."""
     token = _current.set(budget)
     try:
         yield budget
