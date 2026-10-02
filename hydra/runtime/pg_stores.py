@@ -31,7 +31,7 @@ from typing import Any
 from uuid import UUID
 
 from hydra.core.capture_outbox_pg import PostgresOutbox
-from hydra.runtime.capture_uow import CaptureUnitOfWork, TaskCommit
+from hydra.core.task_commit import CaptureUnitOfWork, TaskCommit
 from hydra.runtime.circuit_breaker import CircuitBreaker, CircuitState
 from hydra.deploy.deployment_evidence import CanaryEvidence, ShadowEvidence
 from hydra.deploy.deployment_evidence_store import DeploymentEvidenceStore

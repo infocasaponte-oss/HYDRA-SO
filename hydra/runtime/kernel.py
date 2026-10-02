@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 from uuid import uuid4
 
-from hydra.runtime.capture_uow import CaptureUnitOfWork, TaskCommit
+from hydra.core.task_commit import CaptureUnitOfWork, TaskCommit
 from hydra.core.native_contracts import HydraResult, HydraTask, Route, TaskStatus
 from hydra.core.durable_events import JsonlEventStore
 from hydra.scheduler.native_executor import ExecutionOutput, Executor
