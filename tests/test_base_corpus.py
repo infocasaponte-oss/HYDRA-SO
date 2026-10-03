@@ -178,6 +178,24 @@ def test_pleias_works_stay_in_one_split_count_once_and_honour_the_selection(tmp_
         bc.source_rows(bc.SourceSpec("PleIAs", folder, "pleias_parquet", "x"))
 
 
+def test_newspaper_schema_keeps_issues_in_one_partition(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    folder = tmp_path / "newspapers"
+    folder.mkdir()
+    text = "".join(f"Capítulo {chr(97 + j % 26)}{chr(97 + j // 26)} de la memoria del mapa geológico de la provincia.\n"
+                   for j in range(400))
+    local = folder / "paper.parquet"
+    pq.write_table(pa.table({"id": [1, 2], "text": [text, text]}), local)
+    manifest = {"files": {local.name: {"sha256": bc.file_sha256(local)}}, "selection": {"count": 1}}
+    (folder / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    rows, _ = bc.source_rows(bc.SourceSpec("newspaper", folder, "pleias_parquet", "x"))
+    records = list(rows)
+    assert records
+    assert {r["split_key"] for r in records} == {"paper.parquet"}
+    assert {r["document_id"].split("#")[0] for r in records} == {"paper.parquet:1", "paper.parquet:2"}
+
+
 def test_over_long_pleias_names_use_the_short_local_file(tmp_path):
     import importlib.util
     pa = pytest.importorskip("pyarrow")
