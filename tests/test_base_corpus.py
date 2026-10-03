@@ -6,7 +6,24 @@ import pytest
 
 from hydra.training import base_corpus as bc
 
-LONG = "Artículo 1. Objeto.\n" + "Esta ley regula el procedimiento administrativo común de las administraciones. " * 5
+_STOP = ("de", "la", "que", "el", "en", "y", "los", "del", "se", "las", "por", "un", "para", "con", "una", "su")
+_SYLLABLES = ("ca", "lo", "mi", "ra", "te", "so", "pu", "der", "ven", "gal", "tor", "mas", "nu", "fe", "bri", "on")
+
+
+def prose(seed: int, sentences: int = 40) -> str:
+    """Varied Spanish-like prose: real documents do not repeat their sentences, and the quality rules
+    (Gopher repetition, language) know it."""
+    import random
+    rng = random.Random(seed)
+    out = []
+    for _ in range(sentences):
+        words = [rng.choice(_STOP) if i % 2 else "".join(rng.choice(_SYLLABLES) for _ in range(rng.randint(2, 3)))
+                 for i in range(rng.randint(10, 16))]
+        out.append(" ".join(words).capitalize() + ".")
+    return " ".join(out)
+
+
+LONG = "Artículo 1. Objeto.\n" + prose(1, 8)
 
 
 def write(path, rows):
@@ -24,7 +41,7 @@ def test_policy_privacy_quality_and_dedup_filters(tmp_path):
                  {"id": "c", "text": body + "# key\nAWS_SECRET='AKIAABCDEFGHIJKLMNOP'\n", "detected_licenses": ["MIT"]},
                  {"id": "d", "text": body + "# none\n", "detected_licenses": []}])
     md = tmp_path / "md.jsonl"
-    write(md, [{"url": "u1", "text": "# Guía\n" + "Instala el paquete y configura el entorno. " * 10,
+    write(md, [{"url": "u1", "text": "# Guía\n" + prose(2, 12),
                 "license": "MIT,Apache-2.0"}])
     sources = [bc.SourceSpec("BOE", boe, "boe", "https://www.boe.es/datosabiertos/"),
                bc.SourceSpec("Py", code, "stack_python", "https://example.org/py"),
@@ -92,12 +109,12 @@ def test_ocr_cleaning_and_chunking():
 def test_acquisition_licences_are_parsed_and_policy_checked(tmp_path):
     batch = tmp_path / "acq" / "2026-10-02-x-review-v1"
     batch.mkdir(parents=True)
-    prose = "Esta lección explica cómo se administran los datos en un proyecto de investigación. " * 10
+    text = prose(3, 15)
     write(batch / "technical-clear.jsonl", [
-        {"document_id": "a", "text": prose, "license": "CC-BY-4.0", "source_url": "https://e.org/a",
+        {"document_id": "a", "text": text, "license": "CC-BY-4.0", "source_url": "https://e.org/a",
          "attribution": "Autora A"},
-        {"document_id": "b", "text": prose + "b", "license_declared": "PSF-2.0; examples 0BSD"},
-        {"document_id": "c", "text": prose + "c", "license_declared": "MIT"}])
+        {"document_id": "b", "text": prose(4, 15), "license_declared": "PSF-2.0; examples 0BSD"},
+        {"document_id": "c", "text": prose(5, 15), "license_declared": "MIT"}])
     assert bc.record_licenses("acquisition", {"license_declared": "PSF-2.0; examples 0BSD"}) == ["PSF-2.0", "0BSD"]
     report = bc.build(tmp_path / "out", [bc.SourceSpec("Acq", tmp_path / "acq", "acquisition", "x")])
     stats = report["sources"][0]
@@ -133,17 +150,13 @@ def test_pleias_works_stay_in_one_split_count_once_and_honour_the_selection(tmp_
     pq = pytest.importorskip("pyarrow.parquet")
     folder = tmp_path / "pleias"
     folder.mkdir()
-    def word(n):  # letters only: OCR cleaning drops digit-heavy lines
-        return "".join(chr(97 + int(d)) for d in str(n))
-
-    def make_work(tag):
-        return "".join(f"El capítulo {word(j)} de la obra {tag} trata de la historia del puerto {word(j * 37)} y "
-                       f"de su comercio con las Indias.\n" for j in range(600))
+    def make_work(seed):  # paragraphs of varied prose, ~70,000 characters: several chunks per work
+        return "\n".join(prose(seed * 1000 + j, 5) for j in range(120))
 
     files = {}
     for index, name in enumerate(["a.parquet", "b.parquet"]):
         pq.write_table(pa.table({"identifier": [f"w{index}-{i}" for i in range(6)], "title": ["t"] * 6,
-                                 "text": [make_work(word(index * 10 + i)) for i in range(6)]}),
+                                 "text": [make_work(index * 10 + i) for i in range(6)]}),
                        folder / name)
         files[name] = {"bytes": 0, "sha256": bc.file_sha256(folder / name)}
     # a stale larger run left b.parquet in the manifest; the current selection is only the first file
