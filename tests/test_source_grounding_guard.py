@@ -145,3 +145,18 @@ def test_invented_source_links_are_removed_but_links_in_the_source_are_kept():
     assert cleaned == "Arreglado:\n```python\ndef add(a, b):\n    return a + b\n```"
     cleaned, invented = strip_unsourced_urls("Plazo de diez días ([BOE](https://inventada.example/x)).", "Artículo 1. X.")
     assert cleaned == "Plazo de diez días (BOE)." and invented == ["https://inventada.example/x"]
+
+
+def test_operator_words_review_cases():
+    from hydra.verification.math_check import expected_value, normalize_operator_words
+    # partly rewritable expressions are not validated by a fragment
+    assert expected_value("¿Cuánto es 2 por (3 más 4)?") is None
+    # sentence-final punctuation after the right operand
+    assert expected_value("Calcula 17 por 23.") == ("17 * 23", 391.0)
+    assert expected_value("Calcula 17 por 23, por favor") == ("17 * 23", 391.0)
+    # dimensions and scores are not products
+    assert normalize_operator_words("¿Cómo guardo el resultado en una imagen de 1920 por 1080?").count("*") == 0
+    assert expected_value("El resultado del partido fue 3 por 2") is None
+    # comma decimals on both sides
+    assert expected_value("¿Cuánto es 1,5 por 2?") == ("1.5 * 2", 3.0)
+    assert expected_value("¿Cuánto es 2 por 1,5?") == ("2 * 1.5", 3.0)

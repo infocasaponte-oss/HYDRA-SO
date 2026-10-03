@@ -22,23 +22,40 @@ NUM = re.compile(r"-?\d+(?:[.,]\d+)?")
 _WORD_OPS = (("multiplicado por", "*"), ("dividido entre", "/"), ("dividido por", "/"), ("por", "*"),
              ("entre", "/"), ("más", "+"), ("mas", "+"), ("menos", "-"))
 _OP_WORD = "|".join(w.replace(" ", r"\s+") for w, _ in _WORD_OPS)
+_NUMBER = r"-?\d+(?:[.,]\d+)?"  # comma decimals too ("1,5 por 2")
+# A "." or "," right after the right operand is sentence punctuation unless a digit follows (decimal).
 _SPANISH_OP = re.compile(
-    r"(?<![\w/.,])(?<![\w/.,]-)(?P<a>-?\d+(?:\.\d+)?)\s+(?P<op>" + _OP_WORD + r")\s+(?=-?\d+(?:\.\d+)?"
-    r"(?![\w%/.,]|\s*%|\s+(?:y|e|o|a|al|hasta)\s+-?\d|\s+por\s+(?:ciento|mil)\b"
+    r"(?<![\w/.,])(?<![\w/.,]-)(?P<a>" + _NUMBER + r")\s+(?P<op>" + _OP_WORD + r")\s+(?=" + _NUMBER +
+    r"(?![\w%/]|[.,]\d|\s*%|\s+(?:y|e|o|a|al|hasta)\s+-?\d|\s+por\s+(?:ciento|mil)\b"
     r"|\s+(?!(?:" + _OP_WORD + r"|y|e|es|son|da|igual|equivale)\b)[^\W\d_]))", re.I)
+# "una imagen de 1920 por 1080", "el partido fue 3 por 2": dimensions and scores, not products.
+_NOT_ARITHMETIC = re.compile(r"\b(?:imagen|foto|v[íi]deo|resoluci[óo]n|pantalla|p[íi]xel\w*|tama[ñn]o|dimensi\w+|"
+                             r"medidas?|mide|habitaci[óo]n|tablero|partido|marcador|gan\w+|perdi\w+|empat\w+)\b",
+                             re.I)
+# An operator word still touching a number or bracket after rewriting means the expression was only
+# partly understood ("2 por (3 más 4)"); validating a fragment would reject correct answers.
+_RESIDUAL_OP = re.compile(r"[\d)]\s+(?:" + _OP_WORD + r")\s+[-\d(]", re.I)
 
 
 def normalize_operator_words(text: str) -> str:
-    """Rewrite unambiguous Spanish operator words between bare numbers ("17 por 23" -> "17 * 23")."""
+    """Rewrite unambiguous Spanish operator words between bare numbers ("17 por 23" -> "17 * 23").
+
+    Returns the text unchanged when the expression is only partly rewritable or reads as a
+    dimension or a score."""
     ops = {w: sym for w, sym in _WORD_OPS}
 
     def sub(m: re.Match) -> str:
-        return f"{m.group('a')} {ops[' '.join(m.group('op').lower().split())]} "
+        if _NOT_ARITHMETIC.search(m.string[max(0, m.start() - 40):m.start()]):
+            return m.group(0)
+        return f"{m.group('a').replace(',', '.')} {ops[' '.join(m.group('op').lower().split())]} "
 
-    previous = None
+    original, previous = text, None
     while previous != text:  # chains such as "2 por 3 más 4"
         previous, text = text, _SPANISH_OP.sub(sub, text)
-    return text
+    if text == original or _RESIDUAL_OP.search(text):
+        return original
+    # the right-hand operand is only looked at, never consumed: canonicalise its decimal comma too
+    return re.sub(r"(?<=[*/+-] )(-?\d+),(\d+)", r"\1.\2", text)
 
 
 def safe_arith(expr: str) -> float | int | None:
