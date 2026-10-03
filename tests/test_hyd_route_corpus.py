@@ -32,7 +32,7 @@ def test_build_is_reproducible_balanced_and_template_split(tmp_path):
     second = rc.build(test, tmp_path / "b", seed=5, per_label=60)
     assert first["corpus_sha256"] == second["corpus_sha256"]
     assert set(first["labels"]) == set(CRITERIA)
-    rows = [json.loads(l) for l in (tmp_path / "a" / "corpus.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows = [json.loads(line) for line in (tmp_path / "a" / "corpus.jsonl").read_text(encoding="utf-8").splitlines()]
     train = {r["template"] for r in rows if r["split"] == "train"}
     dev = {r["template"] for r in rows if r["split"] == "dev"}
     assert train and dev and not train & dev  # dev measures unseen phrasings

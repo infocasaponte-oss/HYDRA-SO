@@ -301,7 +301,7 @@ MAX_PER_TEMPLATE = 40  # no single phrasing may dominate a label
 
 def build(test_path: Path, out: Path, seed: int = 20261003, per_label: int = 320, dev_templates: int = 3) -> dict:
     test_raw = test_path.read_bytes()
-    guard = TestGuard([json.loads(l)["text"] for l in test_raw.decode("utf-8").splitlines() if l.strip()])
+    guard = TestGuard([json.loads(line)["text"] for line in test_raw.decode("utf-8").splitlines() if line.strip()])
     rng = random.Random(seed)
     rows, rejected = [], Counter()
     for label, factory in LABELS.items():
