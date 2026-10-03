@@ -104,3 +104,10 @@ def test_corpus_v5_adds_capabilities_and_stays_decontaminated(tmp_path):
     train = {r["template"] for r in rows if r["split"] == "train"}
     dev = {r["template"] for r in rows if r["split"] == "dev"}
     assert not train & dev
+
+
+def test_encoder_down_is_a_backend_failure():
+    from hydra.hyd.embedding import LlamaCppEncoder
+    encoder = LlamaCppEncoder("http://127.0.0.1:9", "m", 8, timeout_s=2)  # discard port: nothing listens
+    with pytest.raises(RuntimeError, match="unavailable"):
+        encoder.embed(["hola"])

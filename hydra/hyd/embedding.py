@@ -35,16 +35,25 @@ class LlamaCppEncoder:
 
         timeout = self.timeout_s if deadline is None else max(0.05, min(self.timeout_s, deadline - time.monotonic()))
         vectors = []
-        with httpx.Client(timeout=timeout) as client:
-            for start in range(0, len(texts), 32):
-                if deadline is not None and time.monotonic() >= deadline:
-                    raise TimeoutError("Hyd encoder deadline exceeded")
-                response = client.post(self.endpoint + "/v1/embeddings",
-                                       json={"model": self.model, "input": texts[start:start + 32]})
-                if response.status_code != 200:
-                    raise RuntimeError(f"Hyd encoder returned HTTP {response.status_code}")
-                data = sorted(response.json()["data"], key=lambda item: item["index"])
-                vectors += [item["embedding"] for item in data]
+        try:
+            # a live local server accepts at once; Windows retries refused localhost SYNs for ~2 s
+            with httpx.Client(timeout=httpx.Timeout(timeout, connect=min(0.5, timeout))) as client:
+                for start in range(0, len(texts), 32):
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise TimeoutError("Hyd encoder deadline exceeded")
+                    response = client.post(self.endpoint + "/v1/embeddings",
+                                           json={"model": self.model, "input": texts[start:start + 32]})
+                    if response.status_code != 200:
+                        raise RuntimeError(f"Hyd encoder returned HTTP {response.status_code}")
+                    data = sorted(response.json()["data"], key=lambda item: item["index"])
+                    vectors += [item["embedding"] for item in data]
+        except httpx.ConnectTimeout as exc:
+            raise RuntimeError("Hyd encoder unavailable: not accepting connections") from exc
+        except httpx.TimeoutException as exc:
+            raise TimeoutError("Hyd encoder timed out") from exc
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            # encoder down or malformed reply: a backend failure, never "invalid input"
+            raise RuntimeError(f"Hyd encoder unavailable: {type(exc).__name__}") from exc
         array = np.asarray(vectors, dtype=np.float64)
         if array.shape != (len(texts), self.dims) or not np.isfinite(array).all():
             raise RuntimeError("Hyd encoder returned embeddings of the wrong shape or non-finite values")
