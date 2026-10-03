@@ -110,6 +110,27 @@ def test_official_numbers_dates_and_codes_are_not_arithmetic():
         assert expected_value(text)[1] == value
 
 
+def test_spanish_operator_words_are_checked_as_arithmetic():
+    from hydra.verification.math_check import expected_value
+
+    for text, value in (("¿Cuánto es 17 por 23? Solo el resultado.", 391.0), ("17 por 23", 391.0),
+                        ("17 multiplicado por 23", 391.0), ("17 dividido entre 4", 4.25), ("17 entre 4", 4.25),
+                        ("17 más 5", 22.0), ("17 menos 5", 12.0), ("calcula 2 por 3 más 4", 10.0)):
+        assert expected_value(text)[1] == value, text
+    for text in ("¿Qué pasa entre 3 y 5?", "el 5 por ciento de 200", "el 5 por 100 de 200", "10 por 2 horas",
+                 "elige 15 entre 3 y 5", "3 entre 5 personas", "Ley 5/2007 por 2", "BOE-A-2003-20254 más 5"):
+        assert expected_value(text) is None, text
+
+
+def test_division_answer_to_a_multiplication_fails_the_numeric_check():
+    question = "¿Cuánto es 17 por 23? Solo el resultado."
+    wrong = Verifier.numeric("0.7391304347826087", req(None, question))
+    assert wrong is not None and not wrong.passed and "391" in wrong.detail
+    assert Verifier.numeric("391", req(None, question)).passed
+    assert not Verifier.numeric("0.7391304347826087", req(None, "17 por 23")).passed
+    assert Verifier.numeric("0.7391304347826087", req(None, "17 entre 23")).passed
+
+
 def test_invented_source_links_are_removed_but_links_in_the_source_are_kept():
     from hydra.verification.grounding import strip_unsourced_urls
     source = "Artículo 5. Subsanación.\nDiez días. Más en https://www.boe.es/eli/es/l/2015/10/01/39\n\n¿Plazo?"
@@ -124,3 +145,18 @@ def test_invented_source_links_are_removed_but_links_in_the_source_are_kept():
     assert cleaned == "Arreglado:\n```python\ndef add(a, b):\n    return a + b\n```"
     cleaned, invented = strip_unsourced_urls("Plazo de diez días ([BOE](https://inventada.example/x)).", "Artículo 1. X.")
     assert cleaned == "Plazo de diez días (BOE)." and invented == ["https://inventada.example/x"]
+
+
+def test_operator_words_review_cases():
+    from hydra.verification.math_check import expected_value, normalize_operator_words
+    # partly rewritable expressions are not validated by a fragment
+    assert expected_value("¿Cuánto es 2 por (3 más 4)?") is None
+    # sentence-final punctuation after the right operand
+    assert expected_value("Calcula 17 por 23.") == ("17 * 23", 391.0)
+    assert expected_value("Calcula 17 por 23, por favor") == ("17 * 23", 391.0)
+    # dimensions and scores are not products
+    assert normalize_operator_words("¿Cómo guardo el resultado en una imagen de 1920 por 1080?").count("*") == 0
+    assert expected_value("El resultado del partido fue 3 por 2") is None
+    # comma decimals on both sides
+    assert expected_value("¿Cuánto es 1,5 por 2?") == ("1.5 * 2", 3.0)
+    assert expected_value("¿Cuánto es 2 por 1,5?") == ("2 * 1.5", 3.0)
