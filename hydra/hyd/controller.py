@@ -25,7 +25,7 @@ def implementation_digest() -> str:
     (scheduling, telemetry) is excluded: changing it cannot alter a calibrated answer, so it must
     not silently invalidate calibration or authority evidence."""
     digest = hashlib.sha256()
-    for name in ("model.py", "engine.py", "neural.py"):
+    for name in ("model.py", "engine.py", "neural.py", "embedding.py"):
         digest.update(name.encode())
         digest.update(Path(__file__).with_name(name).read_bytes().replace(b"\r\n", b"\n"))
     return digest.hexdigest()
@@ -39,6 +39,9 @@ class HydController:
         if metadata.get("format") == "hyd-contextual-ranker/1":
             from hydra.hyd.neural import ContextRanker
             ranker = ContextRanker.load(model_path)
+        elif metadata.get("format") == "hyd-embedding-head/1":
+            from hydra.hyd.embedding import EmbeddingRanker
+            ranker = EmbeddingRanker.load(model_path)
         else:
             ranker = CandidateRanker.load(model_path)
         raw = calibration_path.read_bytes()
@@ -55,7 +58,8 @@ class HydController:
         self.calibration_revision = hashlib.sha256(raw).hexdigest()
         self._active = None
         self._jobs = set()
-        self._capacity = 1 if hasattr(ranker, "backbone") else 4
+        # GPU backbones and single-slot encoder servers take one decision at a time.
+        self._capacity = 1 if hasattr(ranker, "backbone") or getattr(ranker, "exclusive", False) else 4
         self._closed = False
         if evidence_path:
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))

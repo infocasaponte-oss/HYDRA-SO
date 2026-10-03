@@ -58,6 +58,7 @@ hydra = ["py.typed", "api/studio.html", "api/evaluation_review.html"]
 # schema must be there too, or create_pool() cannot find it.
 "share/hydra/sql" = ["sql/schema.sql"]
 "share/hydra/config/hyd" = ["config/hyd/model.json", "config/hyd/calibration.json"]
+"share/hydra/config/hyd-embedding" = ["config/hyd-embedding/model.json", "config/hyd-embedding/calibration.json"]
 
 [tool.ruff]
 line-length = 120

@@ -47,3 +47,33 @@ IC 95 % por bootstrap de grupos.
 - Este test xa se usou unha vez para esta versión. Seguir iterando contra el inflaría as cifras: a
   próxima versión necesita outro test humano novo.
 - `abstain` e `chat` son os puntos débiles; os datos novos deben cubrir referencias a contexto previo.
+
+## Motor con encoder intercambiable (2026-10-03)
+
+- `hydra/hyd/embedding.py`: formato `hyd-embedding-head/1`. Encoder rexistrado no modelo (tipo, endpoint
+  local, dimensións, hash do GGUF e licenza) e cabeza lineal de HYDRA. Hoxe usa v8 por `llama-server
+  --embeddings`; mañá HYDRA Base, sen cambiar o motor. Fóra das etiquetas adestradas non opina (abstense).
+- `config/hyd-embedding/`: cabeza adestrada co corpus v4 (mesma receita medida no test: 71,8 %). Por defecto
+  segue o ranker de CPU; o novo actívase con `HYDRA_HYD_MODEL_PATH`/`HYDRA_HYD_CALIBRATION_PATH` e
+  `scripts/start_hyd_encoder.ps1`. **Sen autoridade.**
+- `hydra/hyd/probes.py`: probas controladas desde desenvolvemento (sinónimos, tecleo, frase distractora,
+  orde, negación).
+
+## Corpus v5: resultado
+
+`route_corpus_v5.py` engade contexto inexistente, números non aritméticos, frases distractoras e contrastes,
+e herda o reparto de v4 (ningunha cabeza adestra con patróns de desenvolvemento da outra). Medido só en
+desenvolvemento (1.123 frases que ningunha das dúas viu):
+
+| Conxunto | Cabeza v4 | Cabeza v5 |
+|---|---|---|
+| Desenvolvemento total | **78,4 %** | 74,5 % |
+| Frase distractora (proba) | 57 % | **65 %** |
+| Contrastes | 29 % | **41 %** |
+| Contexto inexistente | 94 % | 97 % |
+| Números non aritméticos | 96 % | 94 % |
+| Negación (proba) | 21 % | 20 % |
+
+v5 non mellora o total e non resolve a negación: unha cabeza lineal sobre embeddings medios conxelados
+non compón «non X, senón Y». Iso require axustar o encoder (non só a cabeza) ou outro tipo de agregación.
+Por iso o motor inclúe a cabeza v4. O xerador v5 queda para os seguintes experimentos.
