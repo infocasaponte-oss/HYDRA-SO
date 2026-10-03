@@ -54,9 +54,14 @@ class Settings(BaseSettings):
 
     # Optional System-One routing classifier (a model id from the registry).
     router_model: str = ""
+    # Hyd replaces the external decision sidecar with HYDRA-owned local inference.
+    hyd_enabled: bool = True
+    hyd_model_path: Path = ROOT / "config" / "hyd" / "model.json"
+    hyd_calibration_path: Path = ROOT / "config" / "hyd" / "calibration.json"
+    hyd_authority_evidence_path: Path | None = None
     # Experimental local typed decisions: disabled until explicitly configured.
     decision_shadow_endpoint: str = ""
-    decision_shadow_model: str = "kev-latest"
+    decision_shadow_model: str = "hyd-latest"
     decision_full_contract: bool = False
     decision_shadow_timeout_s: float = Field(default=0.5, gt=0, le=5)
     decision_calibrator_path: Path | None = None

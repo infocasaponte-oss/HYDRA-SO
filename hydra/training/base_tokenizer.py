@@ -21,7 +21,11 @@ CHAT_TOKENS = ["<|im_start|>", "<|im_end|>", "<|fim_prefix|>", "<|fim_middle|>",
 
 def write_training_sample(corpus: Path, target: Path, max_chars: int, seed: int = 1234) -> dict:
     """Reservoir-free deterministic sample: keep each document with probability that fits max_chars."""
-    total = sum(len(t) for t in iter_texts(corpus))
+    if max_chars <= 0:
+        raise ValueError("tokenizer sample budget must be positive")
+    corpus_manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
+    # Final manifests already count characters; avoid an extra traversal of gigabytes.
+    total = corpus_manifest.get("totals", {}).get("characters") or sum(len(t) for t in iter_texts(corpus))
     keep = min(1.0, max_chars / max(1, total))
     rng = random.Random(seed)
     written = docs = 0
@@ -29,11 +33,18 @@ def write_training_sample(corpus: Path, target: Path, max_chars: int, seed: int 
         for text in iter_texts(corpus):
             if rng.random() <= keep:
                 # one sentence-like line per line keeps SentencePiece's line length bounded
+                before = written
                 for line in text.split("\n"):
                     if line.strip():
-                        stream.write(line[:4000] + "\n")
-                written += len(text)
-                docs += 1
+                        remaining = max_chars - written
+                        if remaining <= 1:
+                            break
+                        snippet = line[:min(4000, remaining - 1)] + "\n"
+                        stream.write(snippet)
+                        written += len(snippet)
+                docs += int(written > before)
+            if written >= max_chars - 1:
+                break
     return {"corpus_characters": total, "sample_characters": written, "sample_documents": docs, "keep": keep}
 
 

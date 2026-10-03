@@ -360,7 +360,11 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     except Exception:
         log.debug("no telemetry to fit the learned router yet")
     observer = None
-    if settings.decision_local_model_path:
+    if settings.hyd_enabled:
+        from hydra.hyd.controller import HydController
+        observer = HydController(settings.hyd_model_path, settings.hyd_calibration_path,
+                                 settings.hyd_authority_evidence_path)
+    elif settings.decision_local_model_path:
         if not settings.decision_local_calibration_path:
             raise ValueError("local decision observer requires model-bound calibration")
         from hydra.router.local_observer import CalibratedLocalObserver
@@ -374,8 +378,8 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
             endpoint=settings.decision_shadow_endpoint, model=settings.decision_shadow_model,
             timeout=settings.decision_shadow_timeout_s), settings.decision_shadow_timeout_s,
             calibrator=calibrator, criteria=CRITERIA if settings.decision_full_contract else None)
-    authority = None
-    if settings.decision_authority_evidence_path:
+    authority = observer if settings.hyd_enabled else None
+    if settings.decision_authority_evidence_path and not settings.hyd_enabled:
         if observer is None:
             raise ValueError("decision authority requires a configured observer")
         import json
