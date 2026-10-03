@@ -76,7 +76,7 @@ def test_controller_serves_embedding_head_with_one_slot(tmp_path, monkeypatch):
                    "implementation_sha256": implementation_digest(), "temperature": model.temperature,
                    "criteria": CRITERIA, "dataset_sha256": "x", "min_confidence": .5, "min_margin": .05}
     (tmp_path / "calibration.json").write_text(json.dumps(calibration), encoding="utf-8")
-    monkeypatch.setattr(embedding, "encoder_from", lambda _spec: encoder)
+    monkeypatch.setattr(embedding, "encoder_from", lambda _spec, _base=None: encoder)
     hyd = HydController(tmp_path / "model.json", tmp_path / "calibration.json")
     assert hyd._capacity == 1 and not hyd.authority.enabled
     answer = hyd.engine.decide("coding por favor", {"task": {"type": "choice", "criteria": CRITERIA}})["answers"]["task"]
@@ -197,3 +197,73 @@ def test_offline_runtime_uses_the_cpu_ranker_only(tmp_path):
     assert observer.backend() == "hyd-native-cpu" and getattr(observer, "fallback", None) is None
 
 
+
+
+def test_hydra_base_encoder_mean_pools_and_checks_hashes(tmp_path):
+    torch = pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")
+    spm = pytest.importorskip("sentencepiece")
+    from hydra.hyd.embedding import HydraBaseEncoder
+    from hydra.training.base_corpus import file_sha256
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text("\n".join(f"frase número {i} sobre el puerto y la ciudad" for i in range(200)), encoding="utf-8")
+    tok_dir = tmp_path / "tok"
+    tok_dir.mkdir()
+    spm.SentencePieceTrainer.train(input=str(corpus), model_prefix=str(tok_dir / "tokenizer"), vocab_size=60,
+                                   unk_id=0, bos_id=1, eos_id=2, pad_id=3)
+    transformers.LlamaTokenizer(vocab_file=str(tok_dir / "tokenizer.model"), legacy=False,
+                                pad_token="<pad>").save_pretrained(str(tok_dir))
+    model_dir = tmp_path / "base"
+    torch.manual_seed(0)
+    config = transformers.LlamaConfig(vocab_size=60, hidden_size=16, intermediate_size=32, num_hidden_layers=1,
+                                      num_attention_heads=2, num_key_value_heads=1, pad_token_id=3)
+    transformers.LlamaModel(config).save_pretrained(model_dir, safe_serialization=True)
+    encoder = HydraBaseEncoder(str(model_dir), str(tok_dir), 16, file_sha256(model_dir / "model.safetensors"),
+                               file_sha256(tok_dir / "tokenizer.model"))
+    vectors = encoder.embed(["el puerto", "una frase bastante más larga sobre la ciudad y el puerto"])
+    assert vectors.shape == (2, 16) and np.isfinite(vectors).all()
+    wrong = HydraBaseEncoder(str(model_dir), str(tok_dir), 16, "0" * 64, file_sha256(tok_dir / "tokenizer.model"))
+    with pytest.raises(RuntimeError, match="hashes"):
+        wrong.embed(["x"])
+
+
+def test_hydra_base_spec_requires_matching_manifest_and_binds_config(tmp_path):
+    torch = pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")
+    spm = pytest.importorskip("sentencepiece")
+    from hydra.hyd.embedding import HydraBaseEncoder, encoder_from
+    from hydra.hyd.train_embedding import hydra_base_spec
+    from hydra.training.base_corpus import file_sha256
+    corpus = tmp_path / "c.txt"
+    corpus.write_text("\n".join(f"texto {i} de prueba sobre la costa" for i in range(200)), encoding="utf-8")
+    tok = tmp_path / "tok"
+    tok.mkdir()
+    spm.SentencePieceTrainer.train(input=str(corpus), model_prefix=str(tok / "tokenizer"), vocab_size=50,
+                                   unk_id=0, bos_id=1, eos_id=2, pad_id=3)
+    transformers.LlamaTokenizer(vocab_file=str(tok / "tokenizer.model"), legacy=False,
+                                pad_token="<pad>").save_pretrained(str(tok))
+    final = tmp_path / "base" / "final"
+    torch.manual_seed(0)
+    transformers.LlamaModel(transformers.LlamaConfig(vocab_size=50, hidden_size=8, intermediate_size=16,
+                                                     num_hidden_layers=1, num_attention_heads=2,
+                                                     num_key_value_heads=1, pad_token_id=3)).save_pretrained(final)
+    out = tmp_path / "head"
+    with pytest.raises(ValueError, match="build-manifest"):
+        hydra_base_spec(final, tok, out)
+    manifest = {"kind": "hydra-base", "stage": 1, "weights_sha256": file_sha256(final / "model.safetensors"),
+                "tokenizer_sha256": "f" * 64}
+    (final.parent / "build-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not match"):
+        hydra_base_spec(final, tok, out)
+    manifest["tokenizer_sha256"] = file_sha256(tok / "tokenizer.model")
+    (final.parent / "build-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    spec = hydra_base_spec(final, tok, out)
+    assert not spec["model_dir"].startswith(("/", "C:", "D:")) and spec["config_sha256"]
+    encoder = encoder_from(spec, out)
+    assert encoder.embed(["la costa"]).shape == (1, 8)
+    config = json.loads((final / "config.json").read_text(encoding="utf-8"))
+    config["rope_theta"] = 500000.0
+    (final / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="configuration"):
+        encoder_from(spec, out).embed(["la costa"])
+    assert HydraBaseEncoder.identity(final, tok) != spec["config_sha256"]
