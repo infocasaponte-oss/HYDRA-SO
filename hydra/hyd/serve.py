@@ -17,7 +17,12 @@ from hydra.hyd.controller import HydController
 
 def create_app(settings: Settings | None = None):
     settings = settings or Settings()
-    hyd = HydController(settings.hyd_model_path, settings.hyd_calibration_path, settings.hyd_authority_evidence_path)
+    fallback = None
+    if (settings.hyd_fallback_model_path and settings.hyd_fallback_calibration_path
+            and settings.hyd_fallback_model_path != settings.hyd_model_path):
+        fallback = HydController(settings.hyd_fallback_model_path, settings.hyd_fallback_calibration_path)
+    hyd = HydController(settings.hyd_model_path, settings.hyd_calibration_path, settings.hyd_authority_evidence_path,
+                        fallback=fallback)
     @asynccontextmanager
     async def lifespan(app):
         try:
@@ -46,7 +51,7 @@ def create_app(settings: Settings | None = None):
     async def models():
         return {"models": [{"name": hyd.model, "run": hyd.engine.ranker.revision,
                             "description": "HYDRA-owned candidate ranker; quality unvalidated",
-                            "backend": "hyd-native-contextual" if hasattr(hyd.engine.ranker, "backbone") else "hyd-native-cpu",
+                            "backend": hyd.backend(),
                             "temperature": hyd.engine.ranker.temperature}]}
 
     return app

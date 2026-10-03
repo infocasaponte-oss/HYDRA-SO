@@ -59,7 +59,7 @@ def register(app, secured):
     async def status(request: Request):
         hyd = controller(request)
         return {"model": hyd.model, "model_revision": hyd.engine.ranker.revision,
-                "backend": "hyd-native-contextual" if hasattr(hyd.engine.ranker, "backbone") else "hyd-native-cpu",
+                "backend": hyd.backend(),
                 "authority_enabled": hyd.authority.enabled,
                 "trained_domain": hyd.engine.ranker.training.get("domain", "unknown"),
                 "general_decision_quality": "unvalidated",

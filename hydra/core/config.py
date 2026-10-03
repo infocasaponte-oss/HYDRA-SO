@@ -56,8 +56,12 @@ class Settings(BaseSettings):
     router_model: str = ""
     # Hyd replaces the external decision sidecar with HYDRA-owned local inference.
     hyd_enabled: bool = True
-    hyd_model_path: Path = ROOT / "config" / "hyd" / "model.json"
-    hyd_calibration_path: Path = ROOT / "config" / "hyd" / "calibration.json"
+    # Default: the contextual-encoder head (GPU encoder server, scripts/start_hyd_encoder.ps1). When the
+    # encoder is not running, observations fall back to the CPU ranker below instead of failing.
+    hyd_model_path: Path = ROOT / "config" / "hyd-embedding" / "model.json"
+    hyd_calibration_path: Path = ROOT / "config" / "hyd-embedding" / "calibration.json"
+    hyd_fallback_model_path: Path | None = ROOT / "config" / "hyd" / "model.json"
+    hyd_fallback_calibration_path: Path | None = ROOT / "config" / "hyd" / "calibration.json"
     hyd_authority_evidence_path: Path | None = None
     # Experimental local typed decisions: disabled until explicitly configured.
     decision_shadow_endpoint: str = ""

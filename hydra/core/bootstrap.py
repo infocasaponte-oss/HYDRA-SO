@@ -362,8 +362,16 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     observer = None
     if settings.hyd_enabled:
         from hydra.hyd.controller import HydController
-        observer = HydController(settings.hyd_model_path, settings.hyd_calibration_path,
-                                 settings.hyd_authority_evidence_path)
+        fallback = None
+        if (settings.hyd_fallback_model_path and settings.hyd_fallback_calibration_path
+                and settings.hyd_fallback_model_path != settings.hyd_model_path):
+            fallback = HydController(settings.hyd_fallback_model_path, settings.hyd_fallback_calibration_path)
+        if settings.offline and fallback is not None:
+            # offline mode is deterministic and never probes runtime services: CPU ranker only
+            observer = fallback
+        else:
+            observer = HydController(settings.hyd_model_path, settings.hyd_calibration_path,
+                                     settings.hyd_authority_evidence_path, fallback=fallback)
     elif settings.decision_local_model_path:
         if not settings.decision_local_calibration_path:
             raise ValueError("local decision observer requires model-bound calibration")

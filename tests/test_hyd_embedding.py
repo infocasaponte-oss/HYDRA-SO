@@ -129,3 +129,71 @@ def test_selective_metrics_apply_the_margin_rule():
             {"expected": "a", "selected": "a", "probabilities": {"a": .9, "b": .05, "c": .05}}]
     report = selective_metrics(rows, .3, .2)
     assert report["accepted"] == 1 and report["coverage"] == .5
+
+def _gpu_with_cpu_fallback():
+    from pathlib import Path
+
+    from hydra.hyd.controller import HydController
+    root = Path(__file__).resolve().parents[1]
+    cpu = HydController(root / "config/hyd/model.json", root / "config/hyd/calibration.json")
+    gpu = HydController(root / "config/hyd-embedding/model.json", root / "config/hyd-embedding/calibration.json",
+                        fallback=cpu)
+    gpu.engine.ranker.encoder.endpoint = "http://127.0.0.1:9"  # nothing listens here
+    return gpu, cpu
+
+
+async def test_stopped_encoder_falls_back_to_cpu_ranker_with_cooldown():
+    from hydra.core.contracts import HydraRequest, Message
+    gpu, cpu = _gpu_with_cpu_fallback()
+    calls = []
+    original = gpu._decide
+
+    async def counting(*args, **kwargs):
+        calls.append(1)
+        return await original(*args, **kwargs)
+    gpu._decide = counting
+    request = HydraRequest(messages=[Message(role="user", content="Escribe una función que sume dos números")])
+    first = await gpu.observe(request)
+    assert first.status == "observed" and first.reason.startswith("hyd.fallback_cpu.")
+    assert first.model == gpu.FALLBACK_MODEL != gpu.model and first.elapsed_ms > 0
+    second = await gpu.observe(request)
+    assert second.reason.startswith("hyd.fallback_cpu.") and len(calls) == 1  # primary skipped during cooldown
+    await gpu.close()
+
+
+async def test_public_decisions_also_fall_back_and_busy_primary_uses_fallback():
+    from hydra.router.decision_contract import CRITERIA
+    gpu, _ = _gpu_with_cpu_fallback()
+    question = {"task": {"type": "choice", "criteria": CRITERIA}}
+    result = await gpu.decide("Escribe una función que sume dos números", question)
+    assert result["fallback"] == "cpu" and result["model"] == gpu.FALLBACK_MODEL
+    gpu._primary_down_until = 0  # primary considered up again, but its only slot is taken
+    gpu._capacity = 0
+    busy = await gpu.decide("Escribe una función que sume dos números", question)
+    assert busy["fallback"] == "cpu"
+    assert gpu.backend() == "hyd-native-encoder" and gpu.fallback.backend() == "hyd-native-cpu"
+    await gpu.close()
+
+
+async def test_fallback_observations_never_use_primary_authority():
+    from hydra.core.contracts import DecisionObservation
+    from hydra.router.decision_authority import DecisionAuthority
+    gpu, _ = _gpu_with_cpu_fallback()
+    gpu.authority = DecisionAuthority(True, gpu.model)
+    primary = DecisionObservation(status="observed", model=gpu.model, selected="coding",
+                                  probabilities={"coding": 1.0}, confidence=1.0, reason="hyd.accepted")
+    fallback = primary.model_copy(update={"model": gpu.FALLBACK_MODEL, "reason": "hyd.fallback_cpu.accepted"})
+    assert gpu.task_hint(primary) is not None and gpu.task_hint(fallback) is None
+    await gpu.close()
+
+
+def test_offline_runtime_uses_the_cpu_ranker_only(tmp_path):
+    import asyncio
+
+    from hydra.core.bootstrap import build_runtime
+    from hydra.core.config import Settings
+    runtime = asyncio.run(build_runtime(Settings(offline=True, data_dir=tmp_path)))
+    observer = runtime.kernel.router.observer
+    assert observer.backend() == "hyd-native-cpu" and getattr(observer, "fallback", None) is None
+
+
