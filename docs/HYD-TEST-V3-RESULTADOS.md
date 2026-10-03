@@ -53,9 +53,10 @@ IC 95 % por bootstrap de grupos.
 - `hydra/hyd/embedding.py`: formato `hyd-embedding-head/1`. Encoder rexistrado no modelo (tipo, endpoint
   local, dimensións, hash do GGUF e licenza) e cabeza lineal de HYDRA. Hoxe usa v8 por `llama-server
   --embeddings`; mañá HYDRA Base, sen cambiar o motor. Fóra das etiquetas adestradas non opina (abstense).
-- `config/hyd-embedding/`: cabeza adestrada co corpus v4 (mesma receita medida no test: 71,8 %). Por defecto
-  segue o ranker de CPU; o novo actívase con `HYDRA_HYD_MODEL_PATH`/`HYDRA_HYD_CALIBRATION_PATH` e
-  `scripts/start_hyd_encoder.ps1`. **Sen autoridade.**
+- `config/hyd-embedding/`: cabeza adestrada co corpus v4 (mesma receita medida no test: 71,8 %). É o predeterminado:
+  con `scripts/start_hyd_encoder.ps1` en marcha usa a GPU; se o encoder está parado, as observacións
+  volven ao ranker de CPU (`hyd.fallback_cpu.*`) e o primario non se reintenta durante 60 s.
+  **Sen autoridade.**
 - `hydra/hyd/probes.py`: probas controladas desde desenvolvemento (sinónimos, tecleo, frase distractora,
   orde, negación).
 

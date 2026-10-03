@@ -34,7 +34,12 @@ def implementation_digest() -> str:
 class HydController:
     model = "hyd-latest"
 
-    def __init__(self, model_path: Path, calibration_path: Path, evidence_path: Path | None = None):
+    FALLBACK_COOLDOWN_S = 60.0
+    """After a backend failure the primary is skipped for this long, so a stopped encoder costs one
+    failed connection per minute rather than one per request."""
+
+    def __init__(self, model_path: Path, calibration_path: Path, evidence_path: Path | None = None,
+                 fallback: HydController | None = None):
         metadata = json.loads(model_path.read_text(encoding="utf-8"))
         if metadata.get("format") == "hyd-contextual-ranker/1":
             from hydra.hyd.neural import ContextRanker
@@ -61,6 +66,8 @@ class HydController:
         # GPU backbones and single-slot encoder servers take one decision at a time.
         self._capacity = 1 if hasattr(ranker, "backbone") or getattr(ranker, "exclusive", False) else 4
         self._closed = False
+        self.fallback = fallback  # observations only; never inherits or grants authority
+        self._primary_down_until = 0.0
         if evidence_path:
             evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
             bound = (evidence.get("format") == "hyd-authority/1"
@@ -74,6 +81,20 @@ class HydController:
             self.authority = DecisionAuthority.from_evidence(evidence, self.model)
 
     async def observe(self, request: HydraRequest) -> DecisionObservation:
+        if self.fallback is not None and time.monotonic() < self._primary_down_until:
+            return self._as_fallback(await self.fallback.observe(request))
+        observation = await self._observe(request)
+        if self.fallback is not None and observation.reason in ("hyd.backend_failure", "hyd.deadline"):
+            self._primary_down_until = time.monotonic() + self.FALLBACK_COOLDOWN_S
+            return self._as_fallback(await self.fallback.observe(request))
+        return observation
+
+    def _as_fallback(self, observation: DecisionObservation) -> DecisionObservation:
+        if observation.reason and observation.reason.startswith("hyd."):
+            observation.reason = "hyd.fallback_cpu." + observation.reason.removeprefix("hyd.")
+        return observation
+
+    async def _observe(self, request: HydraRequest) -> DecisionObservation:
         start = time.perf_counter()
         gate = policy_gate(request.last_user_text)
         if gate:
@@ -128,3 +149,6 @@ class HydController:
             except (ValueError, TypeError, OverflowError, RuntimeError, TimeoutError):
                 pass
         self._jobs.clear()
+        fallback = getattr(self, "fallback", None)  # tolerate controllers built without __init__
+        if fallback is not None:
+            await fallback.close()

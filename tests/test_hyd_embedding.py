@@ -129,3 +129,28 @@ def test_selective_metrics_apply_the_margin_rule():
             {"expected": "a", "selected": "a", "probabilities": {"a": .9, "b": .05, "c": .05}}]
     report = selective_metrics(rows, .3, .2)
     assert report["accepted"] == 1 and report["coverage"] == .5
+
+async def test_stopped_encoder_falls_back_to_cpu_ranker_with_cooldown():
+    from pathlib import Path
+
+    from hydra.core.contracts import HydraRequest, Message
+    from hydra.hyd.controller import HydController
+    root = Path(__file__).resolve().parents[1]
+    cpu = HydController(root / "config/hyd/model.json", root / "config/hyd/calibration.json")
+    gpu = HydController(root / "config/hyd-embedding/model.json", root / "config/hyd-embedding/calibration.json",
+                        fallback=cpu)
+    gpu.engine.ranker.encoder.endpoint = "http://127.0.0.1:9"  # nothing listens here
+    calls = []
+    original = gpu._observe
+
+    async def counting(request):
+        calls.append(1)
+        return await original(request)
+    gpu._observe = counting
+    request = HydraRequest(messages=[Message(role="user", content="Escribe una función que sume dos números")])
+    first = await gpu.observe(request)
+    assert first.status == "observed" and first.reason.startswith("hyd.fallback_cpu.")
+    second = await gpu.observe(request)
+    assert second.reason.startswith("hyd.fallback_cpu.") and len(calls) == 1  # primary skipped during cooldown
+    assert not gpu.authority.enabled and not cpu.authority.enabled
+    await gpu.close()
