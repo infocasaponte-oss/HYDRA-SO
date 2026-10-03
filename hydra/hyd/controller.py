@@ -80,53 +80,65 @@ class HydController:
                 raise ValueError("Hyd authority evidence belongs to another runtime")
             self.authority = DecisionAuthority.from_evidence(evidence, self.model)
 
+    FALLBACK_MODEL = "hyd-latest-cpu-fallback"
+    """Distinct model name: authority evidence bound to the primary never applies to the fallback."""
+
     async def observe(self, request: HydraRequest) -> DecisionObservation:
-        if self.fallback is not None and time.monotonic() < self._primary_down_until:
-            return self._as_fallback(await self.fallback.observe(request))
-        observation = await self._observe(request)
-        if self.fallback is not None and observation.reason in ("hyd.backend_failure", "hyd.deadline"):
-            self._primary_down_until = time.monotonic() + self.FALLBACK_COOLDOWN_S
-            return self._as_fallback(await self.fallback.observe(request))
-        return observation
-
-    def _as_fallback(self, observation: DecisionObservation) -> DecisionObservation:
-        if observation.reason and observation.reason.startswith("hyd."):
-            observation.reason = "hyd.fallback_cpu." + observation.reason.removeprefix("hyd.")
-        return observation
-
-    async def _observe(self, request: HydraRequest) -> DecisionObservation:
-        start = time.perf_counter()
+        start = time.perf_counter()  # whole operation, including any failed primary attempt
         gate = policy_gate(request.last_user_text)
         if gate:
             return DecisionObservation(status="observed", model="hydra-policy-v2", reason=gate[1],
                                        selected=gate[0], probabilities={gate[0]: 1}, confidence=1)
         if request.max_latency_ms is not None:
             return DecisionObservation(status="skipped", model=self.model, reason="latency_budget")
+        elapsed = lambda: (time.perf_counter() - start) * 1000  # noqa: E731
         try:
-            answer = (await self.decide(request.last_user_text,
-                {"task": {"type": "choice", "criteria": CRITERIA}}))["answers"]["task"]
-            return DecisionObservation(status="observed", model=self.model,
+            result = await self.decide(request.last_user_text, {"task": {"type": "choice", "criteria": CRITERIA}})
+            answer = result["answers"]["task"]
+            prefix = "hyd.fallback_cpu." if result.get("fallback") else "hyd."
+            return DecisionObservation(status="observed", model=result["model"],
                 selected="abstain" if answer["abstained"] else answer["choice"],
                 probabilities=answer["probabilities"], confidence=answer["selection_probability"],
-                reason="hyd." + answer["reason"], elapsed_ms=(time.perf_counter() - start) * 1000)
+                reason=prefix + answer["reason"], elapsed_ms=elapsed())
         except HydBusyError:
             # Capacity, not input: telemetry must not count load shedding as malformed requests.
-            return DecisionObservation(status="skipped", model=self.model, reason="hyd.busy",
-                                       elapsed_ms=(time.perf_counter() - start) * 1000)
+            return DecisionObservation(status="skipped", model=self.model, reason="hyd.busy", elapsed_ms=elapsed())
         except TimeoutError:
-            return DecisionObservation(status="timeout", model=self.model, reason="hyd.deadline",
-                                       elapsed_ms=(time.perf_counter() - start) * 1000)
+            return DecisionObservation(status="timeout", model=self.model, reason="hyd.deadline", elapsed_ms=elapsed())
         except RuntimeError:
             return DecisionObservation(status="error", model=self.model, reason="hyd.backend_failure",
-                                       elapsed_ms=(time.perf_counter() - start) * 1000)
+                                       elapsed_ms=elapsed())
         except (ValueError, TypeError, OverflowError):
             return DecisionObservation(status="error", model=self.model, reason="hyd.invalid_input",
-                                       elapsed_ms=(time.perf_counter() - start) * 1000)
+                                       elapsed_ms=elapsed())
 
     def task_hint(self, observation: DecisionObservation) -> TaskType | None:
         return self.authority.task_hint(observation)
 
     async def decide(self, state, questions, timeout_s: float = 5):
+        """Primary decision; with a fallback configured, a stopped or busy primary (also a recovery
+        probe still in flight) answers from the fallback instead of failing. Used by observations
+        and by the public decision endpoints alike."""
+        fallback = getattr(self, "fallback", None)
+        if fallback is None or self._closed:
+            return await self._decide(state, questions, timeout_s)
+        if time.monotonic() < self._primary_down_until:
+            return await self._from_fallback(fallback, state, questions, timeout_s)
+        started = time.monotonic()
+        try:
+            return await self._decide(state, questions, timeout_s)
+        except HydBusyError:
+            return await self._from_fallback(fallback, state, questions, timeout_s)
+        except (RuntimeError, TimeoutError):
+            self._primary_down_until = time.monotonic() + self.FALLBACK_COOLDOWN_S
+            remaining = max(0.5, timeout_s - (time.monotonic() - started))
+            return await self._from_fallback(fallback, state, questions, remaining)
+
+    async def _from_fallback(self, fallback, state, questions, timeout_s):
+        result = await fallback.decide(state, questions, timeout_s=min(60, timeout_s))
+        return {**result, "model": self.FALLBACK_MODEL, "fallback": "cpu"}
+
+    async def _decide(self, state, questions, timeout_s: float = 5):
         # Bounded CPU concurrency; one slot for mutable contextual/GPU inference.
         # A timed-out worker retains its slot until completion.
         if not 0 < timeout_s <= 60:
@@ -140,6 +152,14 @@ class HydController:
         self._jobs.add(self._active)
         self._active.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
         return await asyncio.wait_for(asyncio.shield(self._active), timeout=timeout_s)
+
+    def backend(self) -> str:
+        ranker = self.engine.ranker
+        if hasattr(ranker, "backbone"):
+            return "hyd-native-contextual"
+        if hasattr(ranker, "encoder"):
+            return "hyd-native-encoder"
+        return "hyd-native-cpu"
 
     async def close(self):
         self._closed = True
