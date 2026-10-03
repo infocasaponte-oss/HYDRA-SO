@@ -129,8 +129,8 @@ def build(test_path: Path, out: Path, seed: int = 20261004, per_template: int = 
                 "rejected": dict(rejected),
                 "decontaminated_against_sha256": hashlib.sha256(test_raw).hexdigest(),
                 "corpus_sha256": hashlib.sha256(data.encode()).hexdigest(),
-                "generator_sha256": hashlib.sha256(b"".join(Path(m.__file__).read_bytes().replace(b"\r\n", b"\n")
-                                                            for m in (v4, __import__(__name__)))).hexdigest(),
+                "generator_sha256": hashlib.sha256(b"".join(Path(f).read_bytes().replace(b"\r\n", b"\n")
+                                                            for f in (v4.__file__, __file__))).hexdigest(),
                 "rights": "proprietary-hydra-authored", "synthetic": True}
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8",
                                        newline="\n")

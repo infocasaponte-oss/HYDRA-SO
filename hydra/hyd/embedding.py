@@ -25,9 +25,21 @@ FORMAT = "hyd-embedding-head/1"
 class LlamaCppEncoder:
     """OpenAI-compatible ``/v1/embeddings`` of a local llama-server started with ``--embeddings``."""
 
+    LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
     def __init__(self, endpoint: str, model: str, dims: int, timeout_s: float = 30):
-        if not endpoint.startswith(("http://127.0.0.1", "http://localhost")):
-            raise ValueError("Hyd encoder must be a local endpoint")
+        from urllib.parse import urlsplit
+
+        # Parse instead of prefix-matching: "http://localhost.evil.example" or "http://127.0.0.1@evil.example"
+        # must never receive user requests.
+        parts = urlsplit(endpoint)
+        try:
+            port = parts.port
+        except ValueError:
+            port = None
+        if (parts.scheme != "http" or parts.hostname not in self.LOOPBACK or parts.username or parts.password
+                or port is None or parts.query or parts.fragment or parts.path not in ("", "/")):
+            raise ValueError("Hyd encoder must be a plain local endpoint such as http://127.0.0.1:18094")
         self.endpoint, self.model, self.dims, self.timeout_s = endpoint.rstrip("/"), model, dims, timeout_s
 
     def embed(self, texts: list[str], deadline: float | None = None) -> np.ndarray:

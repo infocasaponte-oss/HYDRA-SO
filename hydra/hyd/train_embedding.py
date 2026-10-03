@@ -19,9 +19,25 @@ from hydra.hyd.controller import implementation_digest
 from hydra.hyd.embedding import EmbeddingRanker, encoder_from, fit_head
 from hydra.router.decision_contract import CRITERIA
 from hydra.training.calibrator import fit_temperature
-from hydra.training.decision_metrics import metrics
+from hydra.training.decision_metrics import metrics, wilson_lower
 
 L2_GRID = (1e-3, 1e-2, 1e-1, 1.0)
+
+
+def selective_metrics(rows: list[dict], min_confidence: float, min_margin: float) -> dict:
+    """Calibration diagnostics where "accepted" uses the engine's own rule: confidence and margin."""
+    report = metrics(rows, 0)
+    accepted = []
+    for row in rows:
+        ranked = sorted(row["probabilities"].values(), reverse=True)
+        if ranked[0] >= min_confidence and (len(ranked) < 2 or ranked[0] - ranked[1] >= min_margin):
+            accepted.append(row)
+    correct = sum(row["selected"] == row["expected"] for row in accepted)
+    report.update({"accepted": len(accepted), "coverage": len(accepted) / len(rows) if rows else 0,
+                   "accuracy": correct / len(accepted) if accepted else None,
+                   "accuracy_wilson_lower_95": wilson_lower(correct, len(accepted)),
+                   "acceptance_rule": {"min_confidence": min_confidence, "min_margin": min_margin}})
+    return report
 
 
 def accuracy(model: EmbeddingRanker, rows: list[dict], embeddings: np.ndarray | None = None) -> float:
@@ -36,7 +52,7 @@ def train(corpus: Path, encoder_spec: dict, out: Path, min_confidence: float = .
     labels = list(CRITERIA)
     train_rows = [r for r in rows if r["split"] == "train"]
     dev_rows = [r for r in rows if r["split"] == "dev"]
-    if not train_rows or not dev_rows or {r["expected"] for r in train_rows} != set(labels):
+    if {r["expected"] for r in train_rows} != set(labels) or {r["expected"] for r in dev_rows} != set(labels):
         raise ValueError("corpus must have train and dev rows covering every routing label")
     if {r["template"] for r in train_rows} & {r["template"] for r in dev_rows}:
         raise ValueError("train and dev share templates; dev would not measure unseen phrasings")
@@ -73,7 +89,7 @@ def train(corpus: Path, encoder_spec: dict, out: Path, min_confidence: float = .
               "dataset_sha256": hashlib.sha256(raw).hexdigest(), "criteria": CRITERIA,
               "min_confidence": min_confidence, "min_margin": min_margin, "status": "SHADOW_ONLY",
               "independent_test": False, "encoder": encoder_spec, "l2": l2,
-              "metrics": metrics(measured, min_confidence), "probes_dev": probe_scores,
+              "metrics": selective_metrics(measured, min_confidence, min_margin), "probes_dev": probe_scores,
               "limitation": "Synthetic training and dev data; authority requires an independent human test."}
     if not math.isfinite(report["temperature"]):
         raise ValueError("non-finite calibration temperature")

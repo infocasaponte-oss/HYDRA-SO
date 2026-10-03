@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-# Serves the hash-pinned HYDRA v8 GGUF as Hyd's embedding encoder (mean pooling) on 127.0.0.1:$Port.
-param([int]$Port = 18094)
+# Serves the hash-pinned HYDRA v8 GGUF as Hyd's embedding encoder (mean pooling) on 127.0.0.1:18094,
+# the endpoint recorded in config/hyd-embedding/model.json (fixed so the two cannot drift apart).
+$Port = 18094
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $binary = Join-Path $root 'runtime/llama-cuda-b11146/llama-server.exe'

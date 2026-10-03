@@ -111,3 +111,21 @@ def test_encoder_down_is_a_backend_failure():
     encoder = LlamaCppEncoder("http://127.0.0.1:9", "m", 8, timeout_s=2)  # discard port: nothing listens
     with pytest.raises(RuntimeError, match="unavailable"):
         encoder.embed(["hola"])
+
+
+@pytest.mark.parametrize("endpoint", ["http://localhost.attacker.example:80", "http://127.0.0.1@attacker.example:80",
+                                      "https://127.0.0.1:18094", "http://127.0.0.1", "http://10.0.0.5:18094",
+                                      "http://127.0.0.1:18094/v1?x=1"])
+def test_encoder_endpoint_must_be_exactly_loopback(endpoint):
+    from hydra.hyd.embedding import LlamaCppEncoder
+    with pytest.raises(ValueError):
+        LlamaCppEncoder(endpoint, "m", 8)
+    assert LlamaCppEncoder("http://127.0.0.1:18094", "m", 8).endpoint == "http://127.0.0.1:18094"
+
+
+def test_selective_metrics_apply_the_margin_rule():
+    from hydra.hyd.train_embedding import selective_metrics
+    rows = [{"expected": "a", "selected": "a", "probabilities": {"a": .5, "b": .45, "c": .05}},
+            {"expected": "a", "selected": "a", "probabilities": {"a": .9, "b": .05, "c": .05}}]
+    report = selective_metrics(rows, .3, .2)
+    assert report["accepted"] == 1 and report["coverage"] == .5
