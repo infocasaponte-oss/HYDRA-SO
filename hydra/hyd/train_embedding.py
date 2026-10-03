@@ -24,6 +24,31 @@ from hydra.training.decision_metrics import metrics, wilson_lower
 L2_GRID = (1e-3, 1e-2, 1e-1, 1.0)
 
 
+def hydra_base_spec(checkpoint: Path, tokenizer: Path, out: Path, device: str = "cpu") -> dict:
+    """Encoder record for a HYDRA Base checkpoint, verified against its build manifest so a path
+    mix-up (another model, a tokenizer from another build) fails before any training."""
+    import os
+
+    from hydra.hyd.embedding import HydraBaseEncoder
+    from hydra.training.base_corpus import file_sha256
+    manifest_path = next((p for p in (checkpoint / "build-manifest.json", checkpoint.parent / "build-manifest.json")
+                          if p.is_file()), None)
+    if manifest_path is None:
+        raise ValueError(f"{checkpoint}: no HYDRA Base build-manifest.json; refusing to claim HYDRA Base provenance")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    weights, tokenizer_hash = file_sha256(checkpoint / "model.safetensors"), file_sha256(tokenizer / "tokenizer.model")
+    if manifest.get("kind") != "hydra-base" or manifest.get("weights_sha256") != weights             or manifest.get("tokenizer_sha256") != tokenizer_hash:
+        raise ValueError("checkpoint or tokenizer does not match its HYDRA Base build manifest")
+    config = json.loads((checkpoint / "config.json").read_text(encoding="utf-8"))
+    out = out.resolve()
+    return {"kind": "hydra-base-mean", "model_dir": Path(os.path.relpath(checkpoint.resolve(), out)).as_posix(),
+            "tokenizer_dir": Path(os.path.relpath(tokenizer.resolve(), out)).as_posix(),
+            "dims": config["hidden_size"], "weights_sha256": weights, "tokenizer_sha256": tokenizer_hash,
+            "config_sha256": HydraBaseEncoder.identity(checkpoint, tokenizer), "device": device, "pooling": "mean",
+            "base": f"HYDRA Base stage {manifest.get('stage')} (own weights)",
+            "build_manifest_sha256": file_sha256(manifest_path), "license": "HYDRA Base proprietary"}
+
+
 def selective_metrics(rows: list[dict], min_confidence: float, min_margin: float) -> dict:
     """Calibration diagnostics where "accepted" uses the engine's own rule: confidence and margin."""
     report = metrics(rows, 0)
@@ -56,7 +81,7 @@ def train(corpus: Path, encoder_spec: dict, out: Path, min_confidence: float = .
         raise ValueError("corpus must have train and dev rows covering every routing label")
     if {r["template"] for r in train_rows} & {r["template"] for r in dev_rows}:
         raise ValueError("train and dev share templates; dev would not measure unseen phrasings")
-    encoder = encoder_from(encoder_spec)
+    encoder = encoder_from(encoder_spec, out.resolve())  # relative encoder paths live next to the head
     x_train = encoder.embed([r["text"] for r in train_rows])
     x_dev = encoder.embed([r["text"] for r in dev_rows])
     mean, scale = x_train.mean(axis=0), x_train.std(axis=0) + 1e-6
@@ -109,15 +134,10 @@ if __name__ == "__main__":
     parser.add_argument("--hydra-base-tokenizer", type=Path)
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
+    if (args.hydra_base is None) != (args.hydra_base_tokenizer is None):
+        parser.error("--hydra-base and --hydra-base-tokenizer go together")
     if args.hydra_base:
-        from hydra.training.base_corpus import file_sha256
-        config = json.loads((args.hydra_base / "config.json").read_text(encoding="utf-8"))
-        spec = {"kind": "hydra-base-mean", "model_dir": str(args.hydra_base.resolve()),
-                "tokenizer_dir": str(args.hydra_base_tokenizer.resolve()), "dims": config["hidden_size"],
-                "weights_sha256": file_sha256(args.hydra_base / "model.safetensors"),
-                "tokenizer_sha256": file_sha256(args.hydra_base_tokenizer / "tokenizer.model"),
-                "device": args.device, "pooling": "mean", "base": "HYDRA Base (own weights)",
-                "license": "HYDRA Base proprietary"}
+        spec = hydra_base_spec(args.hydra_base, args.hydra_base_tokenizer, args.out, args.device)
     else:
         spec = {"kind": "llamacpp-embeddings", "endpoint": args.endpoint, "model": args.encoder_model,
                 "dims": args.dims, "pooling": "mean", "gguf_sha256": args.encoder_gguf_sha256,

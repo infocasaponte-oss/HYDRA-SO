@@ -78,11 +78,25 @@ class HydraBaseEncoder:
     Loaded lazily on first use and checked against the recorded weight and tokenizer hashes, so a
     swapped checkpoint can never silently feed a head trained on another one."""
 
+    CONFIG_FILES = ("config.json",)
+    TOKENIZER_CONFIG_FILES = ("tokenizer_config.json", "special_tokens_map.json")
+
+    @classmethod
+    def identity(cls, model_dir: Path, tokenizer_dir: Path) -> str:
+        """Hash of every configuration file from_pretrained reads (rope, bos/eos handling, ...)."""
+        digest = hashlib.sha256()
+        for folder, names in ((model_dir, cls.CONFIG_FILES), (tokenizer_dir, cls.TOKENIZER_CONFIG_FILES)):
+            for name in names:
+                path = folder / name
+                digest.update(name.encode() + b"\x00" + (path.read_bytes() if path.is_file() else b"<absent>"))
+        return digest.hexdigest()
+
     def __init__(self, model_dir: str, tokenizer_dir: str, dims: int, weights_sha256: str, tokenizer_sha256: str,
-                 device: str = "cpu", max_tokens: int = 512, batch: int = 16):
+                 device: str = "cpu", max_tokens: int = 512, batch: int = 16, config_sha256: str | None = None):
         self.model_dir, self.tokenizer_dir, self.dims = Path(model_dir), Path(tokenizer_dir), dims
         self.weights_sha256, self.tokenizer_sha256 = weights_sha256, tokenizer_sha256
         self.device, self.max_tokens, self.batch = device, max_tokens, batch
+        self.config_sha256 = config_sha256
         self._model = self._tokenizer = None
 
     def _load(self):
@@ -93,6 +107,8 @@ class HydraBaseEncoder:
         if (file_sha256(self.model_dir / "model.safetensors") != self.weights_sha256
                 or file_sha256(self.tokenizer_dir / "tokenizer.model") != self.tokenizer_sha256):
             raise RuntimeError("HYDRA Base encoder weights or tokenizer do not match the recorded hashes")
+        if self.config_sha256 is not None and self.identity(self.model_dir, self.tokenizer_dir) != self.config_sha256:
+            raise RuntimeError("HYDRA Base encoder configuration files do not match the recorded hashes")
         self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_dir, local_files_only=True)
         model = LlamaModel.from_pretrained(self.model_dir, local_files_only=True, use_safetensors=True)
         if model.config.hidden_size != self.dims:
@@ -111,7 +127,8 @@ class HydraBaseEncoder:
                     raise TimeoutError("Hyd encoder deadline exceeded")
                 enc = self._tokenizer(texts[start:start + self.batch], return_tensors="pt", padding=True,
                                       truncation=True, max_length=self.max_tokens).to(self._model.device)
-                hidden = self._model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).last_hidden_state
+                hidden = self._model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
+                                     use_cache=False).last_hidden_state
                 mask = enc["attention_mask"].unsqueeze(-1).to(hidden.dtype)
                 out.append(((hidden * mask).sum(1) / mask.sum(1).clamp(min=1)).float().cpu().numpy())
         array = np.concatenate(out).astype(np.float64)
@@ -120,12 +137,16 @@ class HydraBaseEncoder:
         return array
 
 
-def encoder_from(spec: dict):
+def encoder_from(spec: dict, base: Path | None = None):
+    """``base``: directory of the model file; relative encoder paths are resolved against it, so a
+    head and its encoder can move together between hosts."""
     if spec.get("kind") == "llamacpp-embeddings":
         return LlamaCppEncoder(spec["endpoint"], spec["model"], int(spec["dims"]))
     if spec.get("kind") == "hydra-base-mean":
-        return HydraBaseEncoder(spec["model_dir"], spec["tokenizer_dir"], int(spec["dims"]), spec["weights_sha256"],
-                                spec["tokenizer_sha256"], spec.get("device", "cpu"), int(spec.get("max_tokens", 512)))
+        root = base or Path.cwd()
+        return HydraBaseEncoder(str(root / spec["model_dir"]), str(root / spec["tokenizer_dir"]), int(spec["dims"]),
+                                spec["weights_sha256"], spec["tokenizer_sha256"], spec.get("device", "cpu"),
+                                int(spec.get("max_tokens", 512)), config_sha256=spec.get("config_sha256"))
     raise ValueError(f"unsupported Hyd encoder kind: {spec.get('kind')}")
 
 
@@ -206,7 +227,7 @@ class EmbeddingRanker:
                 or type(temperature) not in (int, float) or not math.isfinite(temperature) or temperature <= 0
                 or len(set(labels)) != len(labels) or not 2 <= len(labels) <= 255):
             raise ValueError("invalid Hyd embedding head parameters")
-        model = cls(encoder or encoder_from(data["encoder"]), labels, mean, scale, weights, bias, float(temperature))
+        model = cls(encoder or encoder_from(data["encoder"], path.parent), labels, mean, scale, weights, bias, float(temperature))
         model.training = data.get("training", {})
         model.revision = hashlib.sha256(raw).hexdigest()
         return model
