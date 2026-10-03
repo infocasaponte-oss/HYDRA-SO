@@ -25,14 +25,37 @@ PROMPTS = (
 
 
 def validation_by_source(corpus: Path, per_source: int, seed: int = 7) -> dict[str, list[str]]:
-    rows = defaultdict(list)
+    """Uniform per-source sample of the validation split, streamed with a bounded reservoir."""
+    rng = random.Random(seed)
+    reservoirs, seen = defaultdict(list), defaultdict(int)
     for shard in sorted(corpus.glob("validation-*.jsonl.gz")):
         with gzip.open(shard, "rt", encoding="utf-8") as stream:
             for line in stream:
                 record = json.loads(line)
-                rows[record["source"]].append(record["text"])
-    rng = random.Random(seed)
-    return {source: rng.sample(texts, min(per_source, len(texts))) for source, texts in sorted(rows.items())}
+                source = record["source"]
+                seen[source] += 1
+                if len(reservoirs[source]) < per_source:
+                    reservoirs[source].append(record["text"])
+                else:
+                    j = rng.randrange(seen[source])
+                    if j < per_source:
+                        reservoirs[source][j] = record["text"]
+    if not reservoirs:
+        raise ValueError(f"{corpus}: no validation records; refusing to report an empty evaluation")
+    return dict(sorted(reservoirs.items()))
+
+
+def lineage(checkpoint: Path, tokenizer_dir: Path) -> dict:
+    """The checkpoint's build manifest, after checking that the tokenizer is the one it was trained with."""
+    from hydra.training.base_corpus import file_sha256
+    path = next((p for p in (checkpoint / "build-manifest.json", checkpoint.parent / "build-manifest.json")
+                 if p.is_file()), None)
+    if path is None:
+        raise ValueError(f"{checkpoint}: no HYDRA Base build-manifest.json to bind the tokenizer to")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if manifest.get("tokenizer_sha256") != file_sha256(tokenizer_dir / "tokenizer.model"):
+        raise ValueError("tokenizer does not match the one this checkpoint was trained with")
+    return manifest
 
 
 def perplexity(model, tokenizer, texts: list[str], context: int, device) -> dict:
@@ -51,8 +74,12 @@ def perplexity(model, tokenizer, texts: list[str], context: int, device) -> dict
                 total_loss += float(loss)
                 total_tokens += window.shape[1] - 1
     mean = total_loss / max(1, total_tokens)
-    return {"documents": len(texts), "tokens": total_tokens, "loss": round(mean, 4),
-            "perplexity": round(math.exp(min(mean, 50)), 2)}
+    try:
+        value = round(math.exp(mean), 2)
+    except OverflowError:
+        value = None  # not representable; reported explicitly rather than capped
+    return {"documents": len(texts), "tokens": total_tokens, "loss": round(mean, 4), "perplexity": value,
+            "perplexity_overflow": value is None}
 
 
 def samples(model, tokenizer, device, max_new_tokens: int = 80, seed: int = 1234) -> list[dict]:
@@ -73,14 +100,16 @@ def evaluate(checkpoint: Path, tokenizer_dir: Path, corpus: Path, per_source: in
     import torch
     from transformers import AutoTokenizer, LlamaForCausalLM
 
+    manifest = lineage(checkpoint, tokenizer_dir)
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir, local_files_only=True)
     model = LlamaForCausalLM.from_pretrained(checkpoint, local_files_only=True, use_safetensors=True)
     model = model.to(torch.device(device)).eval()
-    context = model.config.max_position_embeddings
+    # the sequence length it was trained with, not just the architectural position limit
+    context = int(manifest.get("plan", {}).get("seq_len") or model.config.max_position_embeddings)
     per_source_scores = {source: perplexity(model, tokenizer, texts, context, model.device)
                          for source, texts in validation_by_source(corpus, per_source).items()}
     return {"format": "hydra-base-evaluation/1", "checkpoint": str(checkpoint), "corpus": str(corpus),
-            "split": "validation", "per_source": per_source_scores, "samples": samples(model, tokenizer, model.device)}
+            "split": "validation", "context": context, "weights_sha256": manifest.get("weights_sha256"), "per_source": per_source_scores, "samples": samples(model, tokenizer, model.device)}
 
 
 if __name__ == "__main__":
@@ -92,6 +121,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)  # before the expensive part, not after
     report = evaluate(args.checkpoint, args.tokenizer, args.corpus, args.per_source, args.device)
     text = json.dumps(report, indent=2, ensure_ascii=False)
     if args.out:

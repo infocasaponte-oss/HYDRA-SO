@@ -31,7 +31,19 @@ def test_evaluate_reports_per_source_perplexity_and_samples(tmp_path):
             stream.write(json.dumps({"text": line * 5, "source": "A" if i % 2 else "B"}) + "\n")
     with gzip.open(corpus / "train-00000.jsonl.gz", "wt", encoding="utf-8") as stream:
         stream.write(json.dumps({"text": "nunca se lee", "source": "C"}) + "\n")
+    from hydra.training.base_corpus import file_sha256
+    with pytest.raises(ValueError, match="build-manifest"):
+        ev.evaluate(model_dir, tok, corpus, per_source=2)
+    manifest = {"kind": "hydra-base", "tokenizer_sha256": "0" * 64, "plan": {"seq_len": 16}}
+    (model_dir / "build-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="tokenizer"):
+        ev.evaluate(model_dir, tok, corpus, per_source=2)
+    manifest["tokenizer_sha256"] = file_sha256(tok / "tokenizer.model")
+    (model_dir / "build-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="no validation"):
+        ev.evaluate(model_dir, tok, tmp_path / "missing", per_source=2)
     report = ev.evaluate(model_dir, tok, corpus, per_source=2)
+    assert report["context"] == 16
     assert set(report["per_source"]) == {"A", "B"}  # validation only
     assert all(s["tokens"] > 0 and s["perplexity"] > 1 for s in report["per_source"].values())
     assert len(report["samples"]) == len(ev.PROMPTS)
