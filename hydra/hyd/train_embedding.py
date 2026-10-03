@@ -105,8 +105,21 @@ if __name__ == "__main__":
     parser.add_argument("--encoder-model", default="hydra-instruction-v8")
     parser.add_argument("--encoder-gguf-sha256", default="0ef14148ababf98c52623f164d776ed76f17a583175ea91301e024a157231761")
     parser.add_argument("--dims", type=int, default=1536)
+    parser.add_argument("--hydra-base", type=Path, help="HYDRA Base checkpoint directory (own-weights encoder)")
+    parser.add_argument("--hydra-base-tokenizer", type=Path)
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
-    spec = {"kind": "llamacpp-embeddings", "endpoint": args.endpoint, "model": args.encoder_model, "dims": args.dims,
-            "pooling": "mean", "gguf_sha256": args.encoder_gguf_sha256,
-            "base": "Qwen2.5-1.5B (Apache-2.0) fine-tuned as HYDRA v8", "license": "Apache-2.0"}
+    if args.hydra_base:
+        from hydra.training.base_corpus import file_sha256
+        config = json.loads((args.hydra_base / "config.json").read_text(encoding="utf-8"))
+        spec = {"kind": "hydra-base-mean", "model_dir": str(args.hydra_base.resolve()),
+                "tokenizer_dir": str(args.hydra_base_tokenizer.resolve()), "dims": config["hidden_size"],
+                "weights_sha256": file_sha256(args.hydra_base / "model.safetensors"),
+                "tokenizer_sha256": file_sha256(args.hydra_base_tokenizer / "tokenizer.model"),
+                "device": args.device, "pooling": "mean", "base": "HYDRA Base (own weights)",
+                "license": "HYDRA Base proprietary"}
+    else:
+        spec = {"kind": "llamacpp-embeddings", "endpoint": args.endpoint, "model": args.encoder_model,
+                "dims": args.dims, "pooling": "mean", "gguf_sha256": args.encoder_gguf_sha256,
+                "base": "Qwen2.5-1.5B (Apache-2.0) fine-tuned as HYDRA v8", "license": "Apache-2.0"}
     print(json.dumps(train(args.corpus, spec, args.out), ensure_ascii=False, indent=2))

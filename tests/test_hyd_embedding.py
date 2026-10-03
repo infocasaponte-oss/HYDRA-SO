@@ -197,3 +197,31 @@ def test_offline_runtime_uses_the_cpu_ranker_only(tmp_path):
     assert observer.backend() == "hyd-native-cpu" and getattr(observer, "fallback", None) is None
 
 
+
+
+def test_hydra_base_encoder_mean_pools_and_checks_hashes(tmp_path):
+    torch = pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")
+    spm = pytest.importorskip("sentencepiece")
+    from hydra.hyd.embedding import HydraBaseEncoder
+    from hydra.training.base_corpus import file_sha256
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text("\n".join(f"frase número {i} sobre el puerto y la ciudad" for i in range(200)), encoding="utf-8")
+    tok_dir = tmp_path / "tok"
+    tok_dir.mkdir()
+    spm.SentencePieceTrainer.train(input=str(corpus), model_prefix=str(tok_dir / "tokenizer"), vocab_size=60,
+                                   unk_id=0, bos_id=1, eos_id=2, pad_id=3)
+    transformers.LlamaTokenizer(vocab_file=str(tok_dir / "tokenizer.model"), legacy=False,
+                                pad_token="<pad>").save_pretrained(str(tok_dir))
+    model_dir = tmp_path / "base"
+    torch.manual_seed(0)
+    config = transformers.LlamaConfig(vocab_size=60, hidden_size=16, intermediate_size=32, num_hidden_layers=1,
+                                      num_attention_heads=2, num_key_value_heads=1, pad_token_id=3)
+    transformers.LlamaModel(config).save_pretrained(model_dir, safe_serialization=True)
+    encoder = HydraBaseEncoder(str(model_dir), str(tok_dir), 16, file_sha256(model_dir / "model.safetensors"),
+                               file_sha256(tok_dir / "tokenizer.model"))
+    vectors = encoder.embed(["el puerto", "una frase bastante más larga sobre la ciudad y el puerto"])
+    assert vectors.shape == (2, 16) and np.isfinite(vectors).all()
+    wrong = HydraBaseEncoder(str(model_dir), str(tok_dir), 16, "0" * 64, file_sha256(tok_dir / "tokenizer.model"))
+    with pytest.raises(RuntimeError, match="hashes"):
+        wrong.embed(["x"])

@@ -72,9 +72,60 @@ class LlamaCppEncoder:
         return array
 
 
+class HydraBaseEncoder:
+    """HYDRA Base (own weights) as encoder: mean of the last hidden states over real tokens.
+
+    Loaded lazily on first use and checked against the recorded weight and tokenizer hashes, so a
+    swapped checkpoint can never silently feed a head trained on another one."""
+
+    def __init__(self, model_dir: str, tokenizer_dir: str, dims: int, weights_sha256: str, tokenizer_sha256: str,
+                 device: str = "cpu", max_tokens: int = 512, batch: int = 16):
+        self.model_dir, self.tokenizer_dir, self.dims = Path(model_dir), Path(tokenizer_dir), dims
+        self.weights_sha256, self.tokenizer_sha256 = weights_sha256, tokenizer_sha256
+        self.device, self.max_tokens, self.batch = device, max_tokens, batch
+        self._model = self._tokenizer = None
+
+    def _load(self):
+        import torch
+        from transformers import AutoTokenizer, LlamaModel
+
+        from hydra.training.base_corpus import file_sha256
+        if (file_sha256(self.model_dir / "model.safetensors") != self.weights_sha256
+                or file_sha256(self.tokenizer_dir / "tokenizer.model") != self.tokenizer_sha256):
+            raise RuntimeError("HYDRA Base encoder weights or tokenizer do not match the recorded hashes")
+        self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_dir, local_files_only=True)
+        model = LlamaModel.from_pretrained(self.model_dir, local_files_only=True, use_safetensors=True)
+        if model.config.hidden_size != self.dims:
+            raise RuntimeError("HYDRA Base encoder width does not match the head")
+        self._model = model.to(torch.device(self.device)).eval()
+
+    def embed(self, texts: list[str], deadline: float | None = None) -> np.ndarray:
+        import torch
+
+        if self._model is None:
+            self._load()
+        out = []
+        with torch.inference_mode():
+            for start in range(0, len(texts), self.batch):
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError("Hyd encoder deadline exceeded")
+                enc = self._tokenizer(texts[start:start + self.batch], return_tensors="pt", padding=True,
+                                      truncation=True, max_length=self.max_tokens).to(self._model.device)
+                hidden = self._model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"]).last_hidden_state
+                mask = enc["attention_mask"].unsqueeze(-1).to(hidden.dtype)
+                out.append(((hidden * mask).sum(1) / mask.sum(1).clamp(min=1)).float().cpu().numpy())
+        array = np.concatenate(out).astype(np.float64)
+        if array.shape != (len(texts), self.dims) or not np.isfinite(array).all():
+            raise RuntimeError("HYDRA Base encoder returned embeddings of the wrong shape or non-finite values")
+        return array
+
+
 def encoder_from(spec: dict):
     if spec.get("kind") == "llamacpp-embeddings":
         return LlamaCppEncoder(spec["endpoint"], spec["model"], int(spec["dims"]))
+    if spec.get("kind") == "hydra-base-mean":
+        return HydraBaseEncoder(spec["model_dir"], spec["tokenizer_dir"], int(spec["dims"]), spec["weights_sha256"],
+                                spec["tokenizer_sha256"], spec.get("device", "cpu"), int(spec.get("max_tokens", 512)))
     raise ValueError(f"unsupported Hyd encoder kind: {spec.get('kind')}")
 
 
