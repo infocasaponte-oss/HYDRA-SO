@@ -20,6 +20,7 @@
       "current_tokens": 0,
       "sources": [
         "eurlex_es",
+        "youtube_commons_es",
         "youtube_en",
         "news_en",
         "common_corpus_mixed"
@@ -344,6 +345,37 @@
         0
       ],
       "kind": "licensed"
+    },
+    "youtube_commons_es": {
+      "repo": "PleIAs/YouTube-Commons",
+      "kind": "parquet_filter",
+      "license": "CC-BY-3.0",
+      "language": "es",
+      "filters": {
+        "original_language": [
+          "es"
+        ],
+        "transcription_language": [
+          "es"
+        ]
+      },
+      "text_column": "text",
+      "id_column": "video_id",
+      "keep_columns": [
+        "video_link",
+        "channel",
+        "date"
+      ],
+      "target": "lingua_moderna",
+      "targets": [
+        "lingua_moderna"
+      ],
+      "stride": 1,
+      "max_units": 160,
+      "caps": {
+        "lingua_moderna": 3276000000
+      },
+      "note": "YouTube CC BY ('Creative Commons Attribution license (reuse allowed)' = CC BY 3.0); only videos originally in Spanish, never machine-translated transcripts; spoken register, ASR quality"
     }
   },
   "excluded": [

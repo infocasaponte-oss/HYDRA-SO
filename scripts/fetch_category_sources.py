@@ -119,6 +119,27 @@ def common_corpus_rows(path: Path, source: dict):
                     "url": None, "language": row["language"], "collection": row["collection"]}, target, "ok")
 
 
+def parquet_filter_rows(path: Path, source: dict):
+    """(record, target, reason) for each row of a parquet file filtered on column values (fixed licence)."""
+    import pyarrow.parquet as pq
+
+    filters = source["filters"]  # column -> allowed values
+    columns = sorted({source["text_column"], source["id_column"], *filters, *source.get("keep_columns", [])})
+    for batch in pq.ParquetFile(path).iter_batches(batch_size=2000, columns=columns):
+        for row in batch.to_pylist():
+            if any(row.get(column) not in allowed for column, allowed in filters.items()):
+                yield None, None, "filtered"
+                continue
+            text = row.get(source["text_column"]) or ""
+            if not text.strip():
+                yield None, None, "empty"
+                continue
+            record = {"text": text, "id": row.get(source["id_column"]), "license": source["license"], "url": None,
+                      "title": row.get("title"), "language": source.get("language")}
+            record.update({k: row.get(k) for k in source.get("keep_columns", [])})
+            yield record, source.get("target"), "ok"
+
+
 def keep_row(source: dict, row: dict) -> tuple[str | None, str]:
     """(licence id or None, reason) for one input row."""
     meta = row.get("metadata") or {}
@@ -207,7 +228,7 @@ def units(source: dict, status: dict, token: str | None):
                             "url": f"https://eur-lex.europa.eu/legal-content/ES/TXT/?uri=CELEX:{row.get('celex')}"},
                            target, "ok")
             yield name, rows
-    elif source["kind"] == "common_corpus":
+    elif source["kind"] in ("common_corpus", "parquet_filter"):
         from huggingface_hub import HfApi, hf_hub_download
 
         siblings = HfApi(token=token).dataset_info(source["repo"], revision=status["revision"]).siblings
@@ -218,7 +239,8 @@ def units(source: dict, status: dict, token: str | None):
                 local = Path(hf_hub_download(source["repo"], name, repo_type="dataset", revision=status["revision"],
                                              local_dir=ROOT / "_tmp", token=token))
                 try:
-                    yield from common_corpus_rows(local, source)
+                    reader = common_corpus_rows if source["kind"] == "common_corpus" else parquet_filter_rows
+                    yield from reader(local, source)
                 finally:
                     local.unlink(missing_ok=True)
             yield name, rows

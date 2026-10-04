@@ -211,3 +211,19 @@ def test_per_file_caps_balance_document_types(tmp_path, monkeypatch):
     assert len(streamed) == 8  # each file stops streaming once its share is full
     assert sorted(p.name for p in (tmp_path / "lexislacion" / "eu").iterdir()) == [
         "part-es_directive.jsonl.gz", "part-es_regulation.jsonl.gz"]
+
+
+def test_parquet_filter_keeps_only_original_spanish(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    pq.write_table(pa.table({"video_id": ["a", "b", "c"], "text": ["hola qué tal", "machine translated", ""],
+                             "title": ["t"] * 3, "original_language": ["es", "en", "es"],
+                             "transcription_language": ["es", "es", "es"], "video_link": ["l"] * 3}),
+                   tmp_path / "y.parquet")
+    source = {"filters": {"original_language": ["es"], "transcription_language": ["es"]}, "text_column": "text",
+              "id_column": "video_id", "keep_columns": ["video_link"], "license": "CC-BY-3.0", "language": "es",
+              "target": "lingua_moderna"}
+    out = list(fetch.parquet_filter_rows(tmp_path / "y.parquet", source))
+    kept = [(r["id"], t, r["license"]) for r, t, _ in out if r]
+    assert kept == [("a", "lingua_moderna", "CC-BY-3.0")]
+    assert sorted(reason for r, _, reason in out if r is None) == ["empty", "filtered"]
