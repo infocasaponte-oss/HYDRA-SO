@@ -193,7 +193,9 @@ def units(source: dict, status: dict, token: str | None):
                     yield record, route(source, row, None), "ok"
             yield name, rows
     elif source["kind"] == "xz_jsonl":
-        for name, target in source["files"].items():
+        for name, spec in source["files"].items():
+            target = spec if isinstance(spec, str) else spec["target"]
+
             def rows(name=name, target=target):
                 url = HF.format(repo=source["repo"], revision=status["revision"], name=name)
                 for row in stream_jsonl_xz(url, token):
@@ -242,12 +244,14 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
     for name, rows in units(source, status, token):
         if name in status["files_done"]:
             continue
+        spec = source.get("files", {}).get(name) if isinstance(source.get("files"), dict) else None
+        unit_cap = spec.get("max_chars") if isinstance(spec, dict) else None  # keeps one file type from filling a category
         if not any(open_for(t) for t in targets):
             break
         # The whole unit is one transaction: rows stream to temporary parts and the manifest changes only after
         # the unit completes. A failed attempt discards its parts and counters and the unit starts over, so a
         # retried download can never leave a duplicated prefix.
-        index = len(status["files_done"])
+        part = re.sub(r"[^A-Za-z0-9._-]+", "_", name.rsplit(".json", 1)[0])  # stable name per unit, no collisions
         for attempt in range(1, attempts + 1):
             writers, temps = {}, {}
             chars, docs, rejected, licences = Counter(), Counter(), Counter(), Counter()
@@ -257,12 +261,15 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
                         rejected[reason] += 1
                         continue
                     target = target or category
+                    if unit_cap is not None and chars[target] >= unit_cap:
+                        rejected["unit_cap"] += 1
+                        break  # stop streaming this file: its share is full
                     if not open_for(target, chars[target]):
                         rejected["category_full"] += 1
                         continue
                     record.update({"source": source["repo"], "source_revision": status["revision"], "category": target})
                     if target not in writers:
-                        out = ROOT / target / source_id / f"part-{index:05d}.jsonl.gz"
+                        out = ROOT / target / source_id / f"part-{part}.jsonl.gz"
                         out.parent.mkdir(parents=True, exist_ok=True)
                         temps[target] = (out.with_suffix(".tmp"), out)
                         writers[target] = gzip.open(temps[target][0], "wt", encoding="utf-8", compresslevel=6)

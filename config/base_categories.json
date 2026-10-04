@@ -243,18 +243,40 @@
       "license": "eu-reuse-2011-833",
       "attribution": "© Unión Europea, https://eur-lex.europa.eu",
       "files": {
-        "data/es/regulation.jsonl.xz": "lexislacion",
-        "data/es/directive.jsonl.xz": "lexislacion",
-        "data/es/decision.jsonl.xz": "lexislacion",
-        "data/es/recommendation.jsonl.xz": "lexislacion",
-        "data/es/caselaw.jsonl.xz": "lexislacion",
-        "data/es/proposal.jsonl.xz": "lingua_moderna",
-        "data/es/intagr.jsonl.xz": "lingua_moderna"
+        "data/es/regulation.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/directive.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/decision.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/recommendation.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/caselaw.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/proposal.jsonl.xz": {
+          "target": "lingua_moderna",
+          "max_chars": 1500000000
+        },
+        "data/es/intagr.jsonl.xz": {
+          "target": "lingua_moderna",
+          "max_chars": 1500000000
+        }
       },
       "targets": [
         "lexislacion",
         "lingua_moderna"
-      ]
+      ],
+      "note": "per-type caps keep laws, directives, decisions, recommendations and case law balanced"
     },
     "common_corpus_mixed": {
       "repo": "PleIAs/common_corpus",

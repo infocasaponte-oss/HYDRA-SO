@@ -92,7 +92,7 @@ def test_run_source_streams_to_parts_and_counts_only_completed_shards(tmp_path, 
     status = json.loads((tmp_path / "_manifests" / "lt.json").read_text(encoding="utf-8"))
     assert status["files_done"] == ["lt-0000.json.gz", "lt-0001.json.gz"]
     assert status["docs"] == {"educacion": 6, "matematicas": 6} and status["rejected"] == {"license": 2}
-    with gzip.open(tmp_path / "matematicas" / "lt" / "part-00000.jsonl.gz", "rt", encoding="utf-8") as stream:
+    with gzip.open(tmp_path / "matematicas" / "lt" / "part-lt-0000.jsonl.gz", "rt", encoding="utf-8") as stream:
         assert len(stream.read().splitlines()) == 3
     assert not list(tmp_path.rglob("*.tmp"))
 
@@ -185,6 +185,29 @@ def test_stack_records_keep_attribution_fields(tmp_path, monkeypatch):
     (tmp_path / "_manifests" / "code.json").write_text(json.dumps(
         {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
     fetch.run_source(plan, "codigo", "code", None, {"codigo": 10 ** 6})
-    with gz.open(tmp_path / "codigo" / "code" / "part-00000.jsonl.gz", "rt", encoding="utf-8") as stream:
+    with gz.open(tmp_path / "codigo" / "code" / "part-c-0000.jsonl.gz", "rt", encoding="utf-8") as stream:
         record = json.loads(stream.readline())
     assert (record["repo_name"], record["path"], record["revision_id"]) == ("o/r", "/a.py", "abc")
+
+
+def test_per_file_caps_balance_document_types(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    streamed = []
+
+    def stream(url, token):
+        for i in range(10):
+            streamed.append(url[-24:])
+            yield {"celex": f"{url[-20:]}{i}", "text": "a" * 100, "language": "es"}
+    monkeypatch.setattr(fetch, "stream_jsonl_xz", stream)
+    plan = {"sources": {"eu": {"repo": "r/eu", "kind": "xz_jsonl", "license": "eu-reuse-2011-833",
+                               "files": {"es/regulation.jsonl.xz": {"target": "lexislacion", "max_chars": 300},
+                                         "es/directive.jsonl.xz": {"target": "lexislacion", "max_chars": 300}}}}}
+    (tmp_path / "_manifests").mkdir()
+    (tmp_path / "_manifests" / "eu.json").write_text(json.dumps(
+        {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
+    fetch.run_source(plan, "lexislacion", "eu", None, {"lexislacion": 10 ** 6})
+    status = json.loads((tmp_path / "_manifests" / "eu.json").read_text(encoding="utf-8"))
+    assert status["docs"] == {"lexislacion": 6}  # 3 per document type, not 20 regulations
+    assert len(streamed) == 8  # each file stops streaming once its share is full
+    assert sorted(p.name for p in (tmp_path / "lexislacion" / "eu").iterdir()) == [
+        "part-es_directive.jsonl.gz", "part-es_regulation.jsonl.gz"]
