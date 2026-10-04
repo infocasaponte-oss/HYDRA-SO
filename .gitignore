@@ -19,3 +19,7 @@ data/
 .DS_Store
 /repositories/
 node_modules/
+
+# Local Codex scratch (may hold private corpora) and local deliverables
+/.codex-artifacts/
+/exports/
