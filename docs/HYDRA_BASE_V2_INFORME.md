@@ -63,7 +63,7 @@ Selado o 2026-10-03 ás 03:06. Código do constructor: `63b127a` (filtros profes
 
 | Paso | 250 | 500 | 1.000 | 2.000 | 4.000 | 6.000 | 8.000 | 10.000 | 11.000 | 12.000 | 12.750 | **13.039** |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Perplexidade | 287 | 153 | 81,6 | 58,4 | 46,3 | 41,8 | 39,3 | 37,7 | 35,7 | ~32,5 | 30,7 | **30,1** |
+| Perplexidade | 287 | 153 | 81,6 | 58,4 | 46,3 | 41,8 | 39,3 | 37,7 | 35,7 | 32,9 | 30,7 | **30,1** |
 
 - Perda de adestramento ~3,3–3,6 e de validación 3,63: separación pequena, sen sobreaxuste.
 - O tramo final, coa baixada do ritmo de aprendizaxe desde o paso ~10.430, levou a perplexidade de 37,6
