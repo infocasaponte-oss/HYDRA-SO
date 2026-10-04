@@ -131,3 +131,60 @@ def test_one_source_feeding_two_categories_is_downloaded_once(tmp_path, monkeypa
     status = json.loads((tmp_path / "_manifests" / "eu.json").read_text(encoding="utf-8"))
     assert status["docs"] == {"lexislacion": 1, "lingua_moderna": 1} and status["rejected"] == {"empty": 2}
     assert len(status["files_done"]) == 2
+
+
+def test_failed_unit_is_retried_from_scratch_without_duplicates(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
+    by = "Creative Commons - Attribution - https://creativecommons.org/licenses/by/4.0/"
+    rows = [{"id": str(i), "text": "texto " * 20, "metadata": {"license": by}} for i in range(4)]
+    calls = {"n": 0}
+
+    def flaky(url, token):
+        calls["n"] += 1
+        for i, row in enumerate(rows):
+            if calls["n"] == 1 and i == 2:
+                raise OSError("connection reset")
+            yield row
+    monkeypatch.setattr(fetch, "stream_jsonl_gz", flaky)
+    plan = {"sources": {"s": {"repo": "r/s", "pattern": "s-{:04d}.json.gz", "files": [0, 0], "kind": "licensed"}}}
+    (tmp_path / "_manifests").mkdir()
+    (tmp_path / "_manifests" / "s.json").write_text(json.dumps(
+        {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
+    fetch.run_source(plan, "ciencia", "s", None, {"ciencia": 10 ** 6})
+    status = json.loads((tmp_path / "_manifests" / "s.json").read_text(encoding="utf-8"))
+    assert calls["n"] == 2 and status["docs"] == {"ciencia": 4}  # not 6: the failed prefix was discarded
+
+
+def test_truncated_gzip_stream_is_an_error(monkeypatch):
+    import gzip as gz
+    import io
+    body = gz.compress(b'{"text": "a"}\n{"text": "b"}\n')[:-8]  # trailer missing
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", lambda request, timeout: Response(body))
+    with pytest.raises(OSError, match="truncated"):
+        list(fetch.stream_jsonl_gz("https://example.org/x.json.gz", None))
+
+
+def test_stack_records_keep_attribution_fields(tmp_path, monkeypatch):
+    import gzip as gz
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    row = {"id": "1", "text": "x = 1", "metadata": {"language": "Python", "license_type": "permissive",
+                                                    "detected_licenses": ["MIT"], "repo_name": "o/r",
+                                                    "path": "/a.py", "revision_id": "abc"}}
+    monkeypatch.setattr(fetch, "stream_jsonl_gz", lambda url, token: iter([row]))
+    plan = {"sources": {"code": {"repo": "r/c", "pattern": "c-{:04d}.json.gz", "files": [0, 0], "kind": "stack",
+                                 "languages": ["python"]}}}
+    (tmp_path / "_manifests").mkdir()
+    (tmp_path / "_manifests" / "code.json").write_text(json.dumps(
+        {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
+    fetch.run_source(plan, "codigo", "code", None, {"codigo": 10 ** 6})
+    with gz.open(tmp_path / "codigo" / "code" / "part-00000.jsonl.gz", "rt", encoding="utf-8") as stream:
+        record = json.loads(stream.readline())
+    assert (record["repo_name"], record["path"], record["revision_id"]) == ("o/r", "/a.py", "abc")

@@ -67,52 +67,32 @@ def normalize_license(text: str | None) -> str | None:
     return None
 
 
-def stream_jsonl_gz(url: str, token: str | None, attempts: int = 5):
-    for attempt in range(1, attempts + 1):
-        try:
-            headers = {"User-Agent": "HYDRA-corpus/1.0"}
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-            decoder, pending = zlib.decompressobj(16 + zlib.MAX_WBITS), b""
-            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as response:
-                while chunk := response.read(1 << 20):
-                    pending += decoder.decompress(chunk)
-                    *lines, pending = pending.split(b"\n")
-                    for line in lines:
-                        if line.strip():
-                            yield json.loads(line)
-            if pending.strip():
-                yield json.loads(pending)
-            return
-        except Exception as exc:  # broken connections on multi-hundred-MB shards
-            if attempt == attempts:
-                raise
-            print(f"retry {attempt} {url.rsplit('/', 1)[-1]}: {type(exc).__name__}", flush=True)
-            time.sleep(min(300, 20 * 2 ** attempt))
+def _stream_lines(url: str, token: str | None, decoder):
+    """JSON rows of one compressed file; fails unless the compressed stream reached its own end, so a
+    body cut short between the last row and the trailer can never be taken for a complete file."""
+    headers = {"User-Agent": "HYDRA-corpus/1.0"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    pending = b""
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as response:
+        while chunk := response.read(1 << 20):
+            pending += decoder.decompress(chunk)
+            *lines, pending = pending.split(b"\n")
+            for line in lines:
+                if line.strip():
+                    yield json.loads(line)
+    if not decoder.eof:
+        raise OSError(f"truncated compressed stream: {url.rsplit('/', 1)[-1]}")
+    if pending.strip():
+        yield json.loads(pending)
 
 
-def stream_jsonl_xz(url: str, token: str | None, attempts: int = 5):
-    for attempt in range(1, attempts + 1):
-        try:
-            headers = {"User-Agent": "HYDRA-corpus/1.0"}
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-            decoder, pending = lzma.LZMADecompressor(), b""
-            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as response:
-                while chunk := response.read(1 << 20):
-                    pending += decoder.decompress(chunk)
-                    *lines, pending = pending.split(b"\n")
-                    for line in lines:
-                        if line.strip():
-                            yield json.loads(line)
-            if pending.strip():
-                yield json.loads(pending)
-            return
-        except Exception as exc:
-            if attempt == attempts:
-                raise
-            print(f"retry {attempt} {url.rsplit('/', 1)[-1]}: {type(exc).__name__}", flush=True)
-            time.sleep(min(300, 20 * 2 ** attempt))
+def stream_jsonl_gz(url: str, token: str | None):
+    yield from _stream_lines(url, token, zlib.decompressobj(16 + zlib.MAX_WBITS))
+
+
+def stream_jsonl_xz(url: str, token: str | None):
+    yield from _stream_lines(url, token, lzma.LZMADecompressor())
 
 
 COMMON_CORPUS_LICENSES = {"public domain": "public-domain", "publc domain": "public-domain", "cc-by": "CC-BY",
@@ -205,8 +185,12 @@ def units(source: dict, status: dict, token: str | None):
                         yield None, None, reason
                         continue
                     meta = row.get("metadata") or {}
-                    yield ({"text": row["text"], "id": row.get("id"), "license": licence, "url": meta.get("url"),
-                            "title": meta.get("title"), "language": meta.get("language")}, route(source, row, None), "ok")
+                    record = {"text": row["text"], "id": row.get("id"), "license": licence, "url": meta.get("url"),
+                              "title": meta.get("title"), "language": meta.get("language")}
+                    if source["kind"] == "stack":  # per-file attribution, as base_corpus.record_attribution expects
+                        record.update({key: meta.get(key) for key in ("repo_name", "path", "revision_id",
+                                                                      "detected_licenses")})
+                    yield record, route(source, row, None), "ok"
             yield name, rows
     elif source["kind"] == "xz_jsonl":
         for name, target in source["files"].items():
@@ -239,13 +223,13 @@ def units(source: dict, status: dict, token: str | None):
         raise ValueError(f"unknown source kind {source['kind']}")
 
 
-def run_source(plan: dict, category: str, source_id: str, token: str | None, need_chars: dict[str, int]):
-    from huggingface_hub import HfApi
-
+def run_source(plan: dict, category: str, source_id: str, token: str | None, need_chars: dict[str, int],
+               attempts: int = 5):
     source = plan["sources"][source_id]
     status_path = ROOT / "_manifests" / f"{source_id}.json"  # one per source: it may feed several categories
     status = load_status(status_path)
     if "revision" not in status:
+        from huggingface_hub import HfApi
         status.update({"repo": source["repo"], "revision": HfApi(token=token).dataset_info(source["repo"]).sha,
                        "policy": "hydra/training/base_data_policy.py", "source_id": source_id})
     caps = source.get("caps", {})  # category -> max characters this source may contribute
@@ -260,33 +244,44 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
             continue
         if not any(open_for(t) for t in targets):
             break
-        # Rows go to disk as they stream; the manifest is updated only once the whole unit is written, so an
-        # interrupted unit is redone without double counting.
-        writers, temps = {}, {}
-        chars, docs, rejected, licences = Counter(), Counter(), Counter(), Counter()
+        # The whole unit is one transaction: rows stream to temporary parts and the manifest changes only after
+        # the unit completes. A failed attempt discards its parts and counters and the unit starts over, so a
+        # retried download can never leave a duplicated prefix.
         index = len(status["files_done"])
-        try:
-            for record, target, reason in rows():
-                if record is None:
-                    rejected[reason] += 1
-                    continue
-                target = target or category
-                if not open_for(target, chars[target]):
-                    rejected["category_full"] += 1
-                    continue
-                record.update({"source": source["repo"], "source_revision": status["revision"], "category": target})
-                if target not in writers:
-                    out = ROOT / target / source_id / f"part-{index:05d}.jsonl.gz"
-                    out.parent.mkdir(parents=True, exist_ok=True)
-                    temps[target] = (out.with_suffix(".tmp"), out)
-                    writers[target] = gzip.open(temps[target][0], "wt", encoding="utf-8", compresslevel=6)
-                writers[target].write(json.dumps(record, ensure_ascii=False) + "\n")
-                chars[target] += len(record["text"])
-                docs[target] += 1
-                licences[record["license"]] += 1
-        finally:
-            for writer in writers.values():
-                writer.close()
+        for attempt in range(1, attempts + 1):
+            writers, temps = {}, {}
+            chars, docs, rejected, licences = Counter(), Counter(), Counter(), Counter()
+            try:
+                for record, target, reason in rows():
+                    if record is None:
+                        rejected[reason] += 1
+                        continue
+                    target = target or category
+                    if not open_for(target, chars[target]):
+                        rejected["category_full"] += 1
+                        continue
+                    record.update({"source": source["repo"], "source_revision": status["revision"], "category": target})
+                    if target not in writers:
+                        out = ROOT / target / source_id / f"part-{index:05d}.jsonl.gz"
+                        out.parent.mkdir(parents=True, exist_ok=True)
+                        temps[target] = (out.with_suffix(".tmp"), out)
+                        writers[target] = gzip.open(temps[target][0], "wt", encoding="utf-8", compresslevel=6)
+                    writers[target].write(json.dumps(record, ensure_ascii=False) + "\n")
+                    chars[target] += len(record["text"])
+                    docs[target] += 1
+                    licences[record["license"]] += 1
+                for writer in writers.values():
+                    writer.close()
+                break
+            except Exception as exc:  # network cuts, truncated streams
+                for writer in writers.values():
+                    writer.close()
+                for tmp, _ in temps.values():
+                    tmp.unlink(missing_ok=True)
+                if attempt == attempts:
+                    raise
+                print(f"retry unit {attempt}/{attempts - 1} {name}: {type(exc).__name__}", flush=True)
+                time.sleep(min(300, 20 * 2 ** attempt))
         for tmp, out in temps.values():
             os.replace(tmp, out)
         for counter, key in ((chars, "chars"), (docs, "docs"), (rejected, "rejected"), (licences, "licenses")):
