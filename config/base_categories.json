@@ -20,6 +20,8 @@
       "current_tokens": 0,
       "sources": [
         "eurlex_es",
+        "bsc_legal_paragraphs_es",
+        "dgt_es",
         "youtube_commons_es",
         "youtube_en",
         "news_en",
@@ -376,6 +378,39 @@
         "lingua_moderna": 3276000000
       },
       "note": "YouTube CC BY ('Creative Commons Attribution license (reuse allowed)' = CC BY 3.0); only videos originally in Spanish, never machine-translated transcripts; spoken register, ASR quality"
+    },
+    "bsc_legal_paragraphs_es": {
+      "repo": "BSC-LT/Legal_Catalan_Spanish_Parallel_Corpus",
+      "kind": "tsv_column",
+      "column": "es",
+      "group": 1,
+      "files": [
+        "legal_ca-es_dataset_clean.tsv"
+      ],
+      "license": "CC-BY-4.0",
+      "language": "es",
+      "target": "lingua_moderna",
+      "targets": [
+        "lingua_moderna"
+      ],
+      "note": "Spanish side of ~13k paragraphs from Catalan public administrations. dogc_ca-es.tsv (5.4M sentences) is excluded: shuffled single sentences, and its Spanish side reads as machine-translated in samples."
+    },
+    "dgt_es": {
+      "repo": "Helsinki-NLP/opus_dgt",
+      "kind": "parquet_column",
+      "column": "translation.es",
+      "group": 30,
+      "files": [
+        "es-ga/train-00000-of-00001.parquet"
+      ],
+      "license": "eu-reuse-2011-833",
+      "language": "es",
+      "target": "lingua_moderna",
+      "targets": [
+        "lingua_moderna"
+      ],
+      "attribution": "© Unión Europea (DGT-TM, Dirección General de Traducción), vía OPUS",
+      "note": "only the es-ga pair is published on HF; sentences grouped by 30, low discourse value"
     }
   },
   "excluded": [

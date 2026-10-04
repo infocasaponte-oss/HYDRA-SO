@@ -227,3 +227,19 @@ def test_parquet_filter_keeps_only_original_spanish(tmp_path):
     kept = [(r["id"], t, r["license"]) for r, t, _ in out if r]
     assert kept == [("a", "lingua_moderna", "CC-BY-3.0")]
     assert sorted(reason for r, _, reason in out if r is None) == ["empty", "filtered"]
+
+
+def test_tsv_column_is_read_and_grouped(monkeypatch):
+    import io
+    body = "ca\tes\nhola ca\thola es\nadeu\tadiós\nmal\n"
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+    monkeypatch.setattr(fetch.urllib.request, "urlopen", lambda request, timeout: Response(body.encode()))
+    values = list(fetch.stream_tsv_column("https://example.org/x.tsv", None, "es"))
+    assert values == ["hola es", "adiós"]  # malformed row skipped
+    assert list(fetch.grouped(["a", "b", "", "c"], 2)) == ["a\nb", "c"]

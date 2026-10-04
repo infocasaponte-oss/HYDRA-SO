@@ -140,6 +140,33 @@ def parquet_filter_rows(path: Path, source: dict):
             yield record, source.get("target"), "ok"
 
 
+def stream_tsv_column(url: str, token: str | None, column: str):
+    """Values of one column of a plain TSV file over HTTP (header row names the columns)."""
+    headers = {"User-Agent": "HYDRA-corpus/1.0"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as response:
+        names = response.readline().decode("utf-8").rstrip("\n").split("\t")
+        index = names.index(column)
+        for raw in response:
+            fields = raw.decode("utf-8", "replace").rstrip("\n").split("\t")
+            if len(fields) == len(names):
+                yield fields[index]
+
+
+def grouped(values, size: int):
+    """Join consecutive short segments (paragraphs, sentences) into documents of ``size`` segments."""
+    block = []
+    for value in values:
+        if value.strip():
+            block.append(value.strip())
+        if len(block) == size:
+            yield "\n".join(block)
+            block = []
+    if block:
+        yield "\n".join(block)
+
+
 def keep_row(source: dict, row: dict) -> tuple[str | None, str]:
     """(licence id or None, reason) for one input row."""
     meta = row.get("metadata") or {}
@@ -227,6 +254,28 @@ def units(source: dict, status: dict, token: str | None):
                             "title": row.get("title"), "date": row.get("date"), "language": row.get("language"),
                             "url": f"https://eur-lex.europa.eu/legal-content/ES/TXT/?uri=CELEX:{row.get('celex')}"},
                            target, "ok")
+            yield name, rows
+    elif source["kind"] in ("tsv_column", "parquet_column"):
+        for name in source["files"]:
+            def rows(name=name):
+                url = HF.format(repo=source["repo"], revision=status["revision"], name=name)
+                if source["kind"] == "tsv_column":
+                    values = stream_tsv_column(url, token, source["column"])
+                else:  # nested parquet column, e.g. OPUS translation.es
+                    import pyarrow.parquet as pq
+                    from huggingface_hub import hf_hub_download
+                    local = Path(hf_hub_download(source["repo"], name, repo_type="dataset", revision=status["revision"],
+                                                 local_dir=ROOT / "_tmp", token=token))
+                    outer, inner = source["column"].split(".")
+                    values = (row[outer][inner] for batch in pq.ParquetFile(local).iter_batches(columns=[outer])
+                              for row in batch.to_pylist())
+                try:
+                    for number, text in enumerate(grouped(values, source.get("group", 1))):
+                        yield ({"text": text, "id": f"{name}:{number}", "license": source["license"], "url": None,
+                                "title": None, "language": source.get("language")}, source.get("target"), "ok")
+                finally:
+                    if source["kind"] == "parquet_column":
+                        local.unlink(missing_ok=True)
             yield name, rows
     elif source["kind"] in ("common_corpus", "parquet_filter"):
         from huggingface_hub import HfApi, hf_hub_download
