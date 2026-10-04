@@ -46,6 +46,7 @@ dev = ["pytest>=9.0.3,<10", "pytest-asyncio>=1.4,<2", "ruff>=0.6", "psutil>=5.9"
 [project.scripts]
 hydra = "hydra.cli:main"
 hydra-hyd-tools = "hydra.hyd.tools:main"
+hydra-project-tools = "hydra.project_tools:main"
 
 [tool.setuptools.packages.find]
 include = ["hydra*"]
