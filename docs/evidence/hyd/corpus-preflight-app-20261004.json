@@ -1,0 +1,54 @@
+{
+  "format": "hydra-corpus-preflight/1",
+  "manifest_sha256": "d0b03303ae776bfd8bfdc579a2a9cfb268e6d72f91da6725ced5256f2dfeb983",
+  "files": {
+    "calibration.jsonl": {
+      "sha256": "04325f5fe50c87781fbdb7dacacc4debd48cb1569bae133ad6cbfb7c9ff1bac3",
+      "rows": 315,
+      "valid_rows": 315
+    },
+    "test.jsonl": {
+      "sha256": "3b629a34232164fcb51bb2c2ba0a851d6c55e71b48df261b4e5765a6e18dfe84",
+      "rows": 313,
+      "valid_rows": 313
+    },
+    "train.jsonl": {
+      "sha256": "fb3f0b51ee5976e713a16e49ae2c5c5c497da3ebb286e78f039fc2a0d0c70473",
+      "rows": 1449,
+      "valid_rows": 1449
+    }
+  },
+  "records": 2077,
+  "splits": {
+    "calibration": 315,
+    "test": 313,
+    "train": 1449
+  },
+  "characters": 300439,
+  "tokens": null,
+  "tokenizer_sha256": null,
+  "token_count_basis": "not measured",
+  "duplicate_rows": 0,
+  "cross_split_duplicate_rows": 0,
+  "family_overlap_rows": 0,
+  "family_overlap_groups": 0,
+  "rows_with_family_id": 0,
+  "rows_with_declared_license": 2077,
+  "declared_license_hashes": {
+    "72d92915df9ad6dde47e8fd39a6fc85ef9343bb288f86c6ce4f37d2ad6c992e8": 2077
+  },
+  "source_hashes": {
+    "1ae92fc5c65d2d80eab297ba9829f8ed38c6e310098af934beee0b252e4d439b": 2077
+  },
+  "errors": {},
+  "integrity_checks_passed": true,
+  "ready_for_4b_training": false,
+  "activated": false,
+  "pending": [
+    "semantic leakage review",
+    "privacy and provenance review",
+    "independent evaluation",
+    "4B architecture, tokenizer, trainer and hardware validation"
+  ],
+  "limitation": "Structural checks do not certify licensing, factual quality or dataset sufficiency."
+}
