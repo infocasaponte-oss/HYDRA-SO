@@ -35,7 +35,7 @@ def test_only_admitted_licences_and_topics_are_kept():
     sa = {"text": ok["text"], "metadata": {"license": by.replace("/by/", "/by-sa/")}}
     assert fetch.keep_row(source, sa) == (None, "license")
     old = {"text": ok["text"], "metadata": {"license": by.replace("4.0", "3.0")}}
-    assert fetch.keep_row(source, old) == (None, "license")  # CC BY 3.0 is not on the policy list
+    assert fetch.keep_row(source, old) == ("CC-BY-3.0", "ok")  # earlier CC BY versions admitted 2026-10-04
 
 
 def test_stack_rows_need_language_permissive_and_not_vendor():
@@ -67,7 +67,31 @@ def test_plan_sources_exist_and_targets_are_declared():
             assert admit_record([source["license"]]).allowed
 
 
-def test_unversioned_cc_by_is_admitted_but_sa_and_old_versions_are_not():
-    assert admit_record(["CC-BY"]).allowed
-    assert not admit_record(["CC-BY-SA"]).allowed
-    assert not admit_record(["CC-BY-3.0"]).allowed
+def test_every_cc_by_version_is_admitted_but_sa_nc_nd_are_not():
+    for licence in ("CC-BY", "CC-BY-2.0", "CC-BY-2.5", "CC-BY-3.0", "CC-BY-4.0"):
+        assert admit_record([licence]).allowed
+    for licence in ("CC-BY-SA", "CC-BY-SA-3.0", "CC-BY-NC-3.0", "CC-BY-ND-4.0"):
+        assert not admit_record([licence]).allowed
+
+
+def test_run_source_streams_to_parts_and_counts_only_completed_shards(tmp_path, monkeypatch):
+    import gzip
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    by = "Creative Commons - Attribution - https://creativecommons.org/licenses/by/4.0/"
+    rows = [{"id": str(i), "text": "texto " * 50, "metadata": {"license": by, "url": f"https://math.libretexts.org/{i}"
+                                                                if i % 2 else f"https://chem.libretexts.org/{i}"}}
+            for i in range(6)] + [{"id": "sa", "text": "x", "metadata": {"license": by.replace("/by/", "/by-sa/")}}]
+    monkeypatch.setattr(fetch, "stream_jsonl_gz", lambda url, token: iter(rows))
+    plan = {"sources": {"lt": {"repo": "r/lt", "pattern": "lt-{:04d}.json.gz", "files": [0, 1], "kind": "licensed",
+                               "route": {"matematicas": ["math.libretexts"], "default": "educacion"}}}}
+    (tmp_path / "educacion" / "lt").mkdir(parents=True)
+    (tmp_path / "educacion" / "lt" / "manifest.json").write_text(json.dumps(
+        {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
+    need = {"educacion": 10 ** 9, "matematicas": 10 ** 9}
+    fetch.run_source(plan, "educacion", "lt", None, need)
+    status = json.loads((tmp_path / "educacion" / "lt" / "manifest.json").read_text(encoding="utf-8"))
+    assert status["files_done"] == ["lt-0000.json.gz", "lt-0001.json.gz"]
+    assert status["docs"] == {"educacion": 6, "matematicas": 6} and status["rejected"] == {"license": 2}
+    with gzip.open(tmp_path / "matematicas" / "lt" / "part-00000.jsonl.gz", "rt", encoding="utf-8") as stream:
+        assert len(stream.read().splitlines()) == 3
+    assert not list(tmp_path.rglob("*.tmp"))

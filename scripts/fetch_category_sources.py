@@ -18,6 +18,7 @@ import re
 import time
 import urllib.request
 import zlib
+from collections import Counter
 from pathlib import Path
 
 from hydra.training.base_data_policy import admit_record
@@ -158,32 +159,43 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
         if all(need_chars.get(c, 0) <= 0 for c in {category, *source.get("route", {})} - {"default"}):
             break
         url = HF.format(repo=source["repo"], revision=status["revision"], name=name)
-        parts: dict[str, list[str]] = {}
-        for row in stream_jsonl_gz(url, token):
-            licence, reason = keep_row(source, row)
-            if licence is None:
-                status["rejected"][reason] = status["rejected"].get(reason, 0) + 1
-                continue
-            target = route(source, row, category)
-            meta = row.get("metadata") or {}
-            record = {"text": row["text"], "id": row.get("id"), "license": licence, "source": source["repo"],
-                      "source_revision": status["revision"], "url": meta.get("url"), "title": meta.get("title"),
-                      "category": target, "language": meta.get("language")}
-            parts.setdefault(target, []).append(json.dumps(record, ensure_ascii=False))
-            status["chars"][target] = status["chars"].get(target, 0) + len(row["text"])
-            status["docs"][target] = status["docs"].get(target, 0) + 1
-            status["licenses"][licence] = status["licenses"].get(licence, 0) + 1
-        for target, lines in parts.items():
-            out = ROOT / target / source_id / f"part-{index:05d}.jsonl.gz"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            tmp = out.with_suffix(".tmp")
-            with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=6) as stream:
-                stream.write("\n".join(lines) + "\n")
+        # Rows go to disk as they stream (a shard can hold GBs of papers); the manifest is updated only
+        # once the whole shard is written, so an interrupted shard is redone without double counting.
+        writers, temps = {}, {}
+        chars, docs, rejected, licences = Counter(), Counter(), Counter(), Counter()
+        try:
+            for row in stream_jsonl_gz(url, token):
+                licence, reason = keep_row(source, row)
+                if licence is None:
+                    rejected[reason] += 1
+                    continue
+                target = route(source, row, category)
+                meta = row.get("metadata") or {}
+                record = {"text": row["text"], "id": row.get("id"), "license": licence, "source": source["repo"],
+                          "source_revision": status["revision"], "url": meta.get("url"), "title": meta.get("title"),
+                          "category": target, "language": meta.get("language")}
+                if target not in writers:
+                    out = ROOT / target / source_id / f"part-{index:05d}.jsonl.gz"
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    temps[target] = (out.with_suffix(".tmp"), out)
+                    writers[target] = gzip.open(temps[target][0], "wt", encoding="utf-8", compresslevel=6)
+                writers[target].write(json.dumps(record, ensure_ascii=False) + "\n")
+                chars[target] += len(row["text"])
+                docs[target] += 1
+                licences[licence] += 1
+        finally:
+            for writer in writers.values():
+                writer.close()
+        for tmp, out in temps.values():
             os.replace(tmp, out)
-            need_chars[target] = need_chars.get(target, 0) - sum(len(json.loads(x)["text"]) for x in lines)
+        for counter, key in ((chars, "chars"), (docs, "docs"), (rejected, "rejected"), (licences, "licenses")):
+            for k, v in counter.items():
+                status[key][k] = status[key].get(k, 0) + v
+        for target, n in chars.items():
+            need_chars[target] = need_chars.get(target, 0) - n
         status["files_done"].append(name)
         save_json(status_path, status)
-        print(f"{category}/{source_id} {name}: kept {sum(len(v) for v in parts.values())} docs; "
+        print(f"{category}/{source_id} {name}: kept {sum(docs.values())} docs ({sum(chars.values()) / 1e6:.0f} M chars); "
               f"remaining chars {({k: v for k, v in need_chars.items() if v > 0})}", flush=True)
 
 

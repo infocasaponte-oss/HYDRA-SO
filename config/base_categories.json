@@ -244,6 +244,11 @@
       "date": "2026-10-04",
       "change": "admit unversioned CC BY (licence id CC-BY)",
       "approved_by": "owner"
+    },
+    {
+      "date": "2026-10-04",
+      "change": "admit explicit CC BY 2.0, 2.5 and 3.0",
+      "approved_by": "owner"
     }
   ]
 }
