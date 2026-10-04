@@ -1,0 +1,236 @@
+{
+  "version": "hydra-base-categories-v1",
+  "date": "2026-10-04",
+  "purpose": "Ten data categories for the next HYDRA Base stage (target ~6B valid tokens, 350M-1B parameters). Targets are valid tokens after the corpus filters; the downloader keeps ~1.4x the gap in raw characters because filtering discards part of it. Priority = largest relative gap first.",
+  "chars_per_token": 3.9,
+  "categories": [
+    {
+      "id": "codigo",
+      "name": "Código (Python, JS, Java, C/C++, Go, Rust, SQL, shell)",
+      "target_tokens": 1000000000,
+      "current_tokens": 16000000,
+      "sources": [
+        "stackv2_code"
+      ]
+    },
+    {
+      "id": "castelan_moderno",
+      "name": "Castelán moderno xeral e divulgación",
+      "target_tokens": 1000000000,
+      "current_tokens": 0,
+      "sources": [],
+      "gap": "no clean ready-made source: needs a Common Corpus Spanish scan (per-document licence) or CC BY Spanish portals; pending decision"
+    },
+    {
+      "id": "ciencia",
+      "name": "Ciencia e investigación",
+      "target_tokens": 800000000,
+      "current_tokens": 0,
+      "sources": [
+        "arxiv_papers",
+        "pubmed"
+      ]
+    },
+    {
+      "id": "industria",
+      "name": "Robótica, drones, impresión 3D e automatización",
+      "target_tokens": 500000000,
+      "current_tokens": 0,
+      "sources": [
+        "uspto_industry"
+      ]
+    },
+    {
+      "id": "educacion",
+      "name": "Educación e manuais",
+      "target_tokens": 500000000,
+      "current_tokens": 0,
+      "sources": [
+        "libretexts_cc_by",
+        "doab_books",
+        "cosmopedia_openstax"
+      ]
+    },
+    {
+      "id": "matematicas",
+      "name": "Matemáticas e razoamento",
+      "target_tokens": 300000000,
+      "current_tokens": 0,
+      "sources": [],
+      "note": "filled by routing math/stats LibreTexts books from the educacion source"
+    },
+    {
+      "id": "documentacion_tecnica",
+      "name": "Documentación técnica",
+      "target_tokens": 400000000,
+      "current_tokens": 42000000,
+      "sources": [
+        "stackv2_markdown"
+      ]
+    },
+    {
+      "id": "lexislacion",
+      "name": "Lexislación e administración",
+      "target_tokens": 600000000,
+      "current_tokens": 156000000,
+      "sources": [
+        "regulations_us"
+      ],
+      "gap": "EUR-Lex Spanish needs EU Login bulk access"
+    },
+    {
+      "id": "prensa",
+      "name": "Prensa e actualidade",
+      "target_tokens": 300000000,
+      "current_tokens": 146000000,
+      "sources": [],
+      "gap": "modern Spanish news under an admitted licence not found; current data is public-domain 19th-20th c."
+    },
+    {
+      "id": "literatura",
+      "name": "Literatura e historia",
+      "target_tokens": 600000000,
+      "current_tokens": 497000000,
+      "sources": [],
+      "note": "close to target with PleIAs public-domain books; nothing downloaded"
+    }
+  ],
+  "sources": {
+    "stackv2_code": {
+      "repo": "common-pile/stackv2_edu_filtered",
+      "pattern": "stack-edu-{:04d}.json.gz",
+      "files": [
+        20,
+        96
+      ],
+      "kind": "stack",
+      "languages": [
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "c",
+        "c++",
+        "go",
+        "rust",
+        "sql",
+        "shell"
+      ]
+    },
+    "stackv2_markdown": {
+      "repo": "common-pile/stackv2_edu_filtered",
+      "pattern": "stack-edu-{:04d}.json.gz",
+      "files": [
+        1,
+        19
+      ],
+      "kind": "stack",
+      "languages": [
+        "markdown"
+      ]
+    },
+    "arxiv_papers": {
+      "repo": "common-pile/arxiv_papers_filtered",
+      "pattern": "arxiv-papers-{:04d}.json.gz",
+      "files": [
+        0,
+        9
+      ],
+      "kind": "licensed"
+    },
+    "pubmed": {
+      "repo": "common-pile/pubmed_filtered",
+      "pattern": "licensed_pubmed-{:04d}.json.gz",
+      "files": [
+        0,
+        18
+      ],
+      "kind": "licensed"
+    },
+    "uspto_industry": {
+      "repo": "common-pile/uspto_filtered",
+      "pattern": "USPTO-{:04d}.json.gz",
+      "files": [
+        0,
+        257
+      ],
+      "kind": "licensed",
+      "keywords": [
+        "robot",
+        "unmanned aerial",
+        "drone",
+        "multicopter",
+        "quadcopter",
+        "additive manufactur",
+        "three-dimensional print",
+        "3d print",
+        "fused deposition",
+        "stereolithograph",
+        "programmable logic controller",
+        "servo",
+        "actuator",
+        "end effector",
+        "manipulator arm",
+        "numerical control",
+        "autonomous vehicle",
+        "industrial automation"
+      ],
+      "min_keyword_hits": 3
+    },
+    "libretexts_cc_by": {
+      "repo": "common-pile/libretexts_filtered",
+      "pattern": "libretexts-{:04d}.json.gz",
+      "files": [
+        0,
+        2
+      ],
+      "kind": "licensed",
+      "route": {
+        "matematicas": [
+          "math.libretexts",
+          "stats.libretexts"
+        ],
+        "default": "educacion"
+      }
+    },
+    "doab_books": {
+      "repo": "common-pile/doab_filtered",
+      "pattern": "doab-{:04d}.json.gz",
+      "files": [
+        0,
+        6
+      ],
+      "kind": "licensed"
+    },
+    "regulations_us": {
+      "repo": "common-pile/regulations_filtered",
+      "pattern": "regulations-{:04d}.json.gz",
+      "files": [
+        0,
+        3
+      ],
+      "kind": "licensed"
+    },
+    "cosmopedia_openstax": {
+      "repo": "HuggingFaceTB/cosmopedia",
+      "prefix": "data/openstax/",
+      "kind": "parquet",
+      "license": "Apache-2.0",
+      "note": "synthetic (teacher Mixtral-8x7B, Apache-2.0) seeded from OpenStax (CC BY)"
+    }
+  },
+  "excluded": [
+    {
+      "source": "HuggingFaceTB/cosmopedia auto_math_text",
+      "reason": "seeded from AutoMathText (CC BY-SA 4.0); excluded as a precaution"
+    },
+    {
+      "source": "HuggingFaceTB/cosmopedia khanacademy, wikihow",
+      "reason": "seeds under NC/SA licences"
+    },
+    {
+      "source": "common-pile/peS2o_filtered",
+      "reason": "licence given as 'CCBY' without version; fail-closed"
+    }
+  ]
+}
