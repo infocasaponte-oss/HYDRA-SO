@@ -14,12 +14,19 @@
       ]
     },
     {
-      "id": "castelan_moderno",
-      "name": "Castelán moderno xeral e divulgación",
-      "target_tokens": 1000000000,
+      "id": "lingua_moderna",
+      "name": "Lingua moderna xeral (castelán + inglés)",
+      "target_tokens": 2000000000,
       "current_tokens": 0,
-      "sources": [],
-      "gap": "no clean ready-made source: needs a Common Corpus Spanish scan (per-document licence) or CC BY Spanish portals; pending decision"
+      "sources": [
+        "eurlex_es",
+        "common_corpus_mixed"
+      ],
+      "language_targets": {
+        "es": 1000000000,
+        "en": 1000000000
+      },
+      "note": "Spanish: EUR-Lex proposals and international agreements (formal register) and VoxPopuli; English: US government sites (dotgov). Bilingual by owner decision 2026-10-04."
     },
     {
       "id": "ciencia",
@@ -29,7 +36,8 @@
       "sources": [
         "arxiv_papers",
         "pubmed",
-        "pes2o"
+        "pes2o",
+        "common_corpus_mixed"
       ]
     },
     {
@@ -75,9 +83,10 @@
       "target_tokens": 600000000,
       "current_tokens": 156000000,
       "sources": [
-        "regulations_us"
-      ],
-      "gap": "EUR-Lex Spanish needs EU Login bulk access"
+        "eurlex_es",
+        "regulations_us",
+        "common_corpus_mixed"
+      ]
     },
     {
       "id": "prensa",
@@ -227,6 +236,47 @@
         92
       ],
       "kind": "licensed"
+    },
+    "eurlex_es": {
+      "repo": "joelniklaus/eurlex_resources",
+      "kind": "xz_jsonl",
+      "license": "eu-reuse-2011-833",
+      "attribution": "© Unión Europea, https://eur-lex.europa.eu",
+      "files": {
+        "data/es/regulation.jsonl.xz": "lexislacion",
+        "data/es/directive.jsonl.xz": "lexislacion",
+        "data/es/decision.jsonl.xz": "lexislacion",
+        "data/es/recommendation.jsonl.xz": "lexislacion",
+        "data/es/caselaw.jsonl.xz": "lexislacion",
+        "data/es/proposal.jsonl.xz": "lingua_moderna",
+        "data/es/intagr.jsonl.xz": "lingua_moderna"
+      },
+      "targets": [
+        "lexislacion",
+        "lingua_moderna"
+      ]
+    },
+    "common_corpus_mixed": {
+      "repo": "PleIAs/common_corpus",
+      "kind": "common_corpus",
+      "stride": 97,
+      "collections": {
+        "English|OpenAlex": "ciencia",
+        "English|dotgov": "lingua_moderna",
+        "English|Court Listener": "lexislacion",
+        "Spanish|VoxPopuli": "lingua_moderna"
+      },
+      "targets": [
+        "ciencia",
+        "lingua_moderna",
+        "lexislacion"
+      ],
+      "caps": {
+        "lingua_moderna": 5460000000,
+        "ciencia": 2184000000,
+        "lexislacion": 819000000
+      },
+      "note": "files are shuffled mixes; each ~470 MB parquet is downloaded, filtered and deleted"
     }
   },
   "excluded": [

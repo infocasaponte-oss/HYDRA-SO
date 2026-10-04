@@ -84,14 +84,50 @@ def test_run_source_streams_to_parts_and_counts_only_completed_shards(tmp_path, 
     monkeypatch.setattr(fetch, "stream_jsonl_gz", lambda url, token: iter(rows))
     plan = {"sources": {"lt": {"repo": "r/lt", "pattern": "lt-{:04d}.json.gz", "files": [0, 1], "kind": "licensed",
                                "route": {"matematicas": ["math.libretexts"], "default": "educacion"}}}}
-    (tmp_path / "educacion" / "lt").mkdir(parents=True)
-    (tmp_path / "educacion" / "lt" / "manifest.json").write_text(json.dumps(
+    (tmp_path / "_manifests").mkdir(parents=True)
+    (tmp_path / "_manifests" / "lt.json").write_text(json.dumps(
         {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
     need = {"educacion": 10 ** 9, "matematicas": 10 ** 9}
     fetch.run_source(plan, "educacion", "lt", None, need)
-    status = json.loads((tmp_path / "educacion" / "lt" / "manifest.json").read_text(encoding="utf-8"))
+    status = json.loads((tmp_path / "_manifests" / "lt.json").read_text(encoding="utf-8"))
     assert status["files_done"] == ["lt-0000.json.gz", "lt-0001.json.gz"]
     assert status["docs"] == {"educacion": 6, "matematicas": 6} and status["rejected"] == {"license": 2}
     with gzip.open(tmp_path / "matematicas" / "lt" / "part-00000.jsonl.gz", "rt", encoding="utf-8") as stream:
         assert len(stream.read().splitlines()) == 3
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_common_corpus_rows_filter_collection_language_and_licence(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    rows = {"identifier": ["a", "b", "c", "d", "e"],
+            "collection": ["OpenAlex", "OpenAlex", "Wikipedia", "dotgov", "VoxPopuli"],
+            "license": ["CC-By", "CC-By-SA", "CC-By-SA", "Public Domain", "CC0"],
+            "language": ["English", "English", "English", "English", "Spanish"],
+            "title": ["t"] * 5, "text": ["uno", "dos", "tres", "cuatro", "cinco"]}
+    pq.write_table(pa.table(rows), tmp_path / "f.parquet")
+    source = {"collections": {"English|OpenAlex": "ciencia", "English|dotgov": "lingua_moderna",
+                              "Spanish|VoxPopuli": "lingua_moderna"}}
+    out = list(fetch.common_corpus_rows(tmp_path / "f.parquet", source))
+    kept = [(r["id"], t, r["license"]) for r, t, _ in out if r]
+    assert kept == [("a", "ciencia", "CC-BY"), ("d", "lingua_moderna", "public-domain"),
+                    ("e", "lingua_moderna", "CC0-1.0")]
+    assert sorted(reason for r, _, reason in out if r is None) == ["collection", "license"]
+
+
+def test_one_source_feeding_two_categories_is_downloaded_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    monkeypatch.setattr(fetch, "stream_jsonl_xz", lambda url, token: iter(
+        [{"celex": url[-12:], "text": "artículo " * 30, "language": "es"}, {"celex": "x", "text": ""}]))
+    plan = {"sources": {"eu": {"repo": "r/eu", "kind": "xz_jsonl", "license": "eu-reuse-2011-833",
+                               "files": {"es/regulation.jsonl.xz": "lexislacion", "es/proposal.jsonl.xz": "lingua_moderna"},
+                               "targets": ["lexislacion", "lingua_moderna"]}}}
+    (tmp_path / "_manifests").mkdir()
+    (tmp_path / "_manifests" / "eu.json").write_text(json.dumps(
+        {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
+    need = {"lexislacion": 10 ** 6, "lingua_moderna": 10 ** 6}
+    fetch.run_source(plan, "lingua_moderna", "eu", None, need)
+    fetch.run_source(plan, "lexislacion", "eu", None, need)  # nothing left to download
+    status = json.loads((tmp_path / "_manifests" / "eu.json").read_text(encoding="utf-8"))
+    assert status["docs"] == {"lexislacion": 1, "lingua_moderna": 1} and status["rejected"] == {"empty": 2}
+    assert len(status["files_done"]) == 2

@@ -4,15 +4,19 @@
 Plan: config/base_categories.json (ten categories with target valid tokens). Categories with the
 largest relative gap go first; a category stops once its downloaded characters cover ~1.4x the gap
 (filters later discard part). Every row passes the licence policy (base_data_policy) on its own
-per-document licence; rows under share-alike, non-commercial, no-derivatives or unversioned licences
-are dropped. Raw shards are streamed and never stored; each input shard becomes one output part,
-written atomically, so an interrupted run resumes at the next shard. Nothing downloaded is executed.
+per-document licence; rows under share-alike, non-commercial or no-derivatives licences are dropped.
+Three source families: Common Pile json.gz shards and EUR-Lex json.xz files are streamed and never
+stored; Common Corpus parquet files are downloaded one at a time, filtered by language, collection and
+licence, and deleted. Each input unit becomes one output part per category, written atomically, so an
+interrupted run resumes at the next unit. Per-source caps keep one language or source from filling a
+category. Nothing downloaded is executed.
 """
 from __future__ import annotations
 
 import argparse
 import gzip
 import json
+import lzma
 import os
 import re
 import time
@@ -87,6 +91,54 @@ def stream_jsonl_gz(url: str, token: str | None, attempts: int = 5):
             time.sleep(min(300, 20 * 2 ** attempt))
 
 
+def stream_jsonl_xz(url: str, token: str | None, attempts: int = 5):
+    for attempt in range(1, attempts + 1):
+        try:
+            headers = {"User-Agent": "HYDRA-corpus/1.0"}
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            decoder, pending = lzma.LZMADecompressor(), b""
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as response:
+                while chunk := response.read(1 << 20):
+                    pending += decoder.decompress(chunk)
+                    *lines, pending = pending.split(b"\n")
+                    for line in lines:
+                        if line.strip():
+                            yield json.loads(line)
+            if pending.strip():
+                yield json.loads(pending)
+            return
+        except Exception as exc:
+            if attempt == attempts:
+                raise
+            print(f"retry {attempt} {url.rsplit('/', 1)[-1]}: {type(exc).__name__}", flush=True)
+            time.sleep(min(300, 20 * 2 ** attempt))
+
+
+COMMON_CORPUS_LICENSES = {"public domain": "public-domain", "publc domain": "public-domain", "cc-by": "CC-BY",
+                          "cc0": "CC0-1.0", "cc-by 4.0": "CC-BY-4.0", "mit": "MIT", "apache 2.0": "Apache-2.0"}
+
+
+def common_corpus_rows(path: Path, source: dict):
+    """(record, target category or None, reason) for each row of one Common Corpus parquet file."""
+    import pyarrow.parquet as pq
+
+    collections = source["collections"]  # "language|collection" -> category
+    columns = ["identifier", "collection", "license", "language", "title", "text"]
+    for batch in pq.ParquetFile(path).iter_batches(batch_size=2000, columns=columns):
+        for row in batch.to_pylist():
+            target = collections.get(f"{row['language']}|{row['collection']}")
+            if target is None:
+                yield None, None, "collection"
+                continue
+            licence = COMMON_CORPUS_LICENSES.get((row["license"] or "").strip().lower())
+            if licence is None or not admit_record([licence]).allowed:
+                yield None, None, "license"
+                continue
+            yield ({"text": row["text"] or "", "id": row["identifier"], "license": licence, "title": row["title"],
+                    "url": None, "language": row["language"], "collection": row["collection"]}, target, "ok")
+
+
 def keep_row(source: dict, row: dict) -> tuple[str | None, str]:
     """(licence id or None, reason) for one input row."""
     meta = row.get("metadata") or {}
@@ -135,54 +187,103 @@ def save_json(path: Path, data: dict):
 def downloaded_chars(category: str) -> int:
     """Characters already downloaded for a category, including rows routed from another folder."""
     return sum(json.loads(m.read_text(encoding="utf-8")).get("chars", {}).get(category, 0)
-               for m in ROOT.glob("*/*/manifest.json"))
+               for m in ROOT.glob("_manifests/*.json"))
+
+
+def units(source: dict, status: dict, token: str | None):
+    """(unit name, factory of an iterator of (record or None, target or None, reason)) per input unit."""
+    if source["kind"] in ("licensed", "stack"):
+        first, last = source["files"]
+        for index in range(first, last + 1):
+            name = source["pattern"].format(index)
+
+            def rows(name=name):
+                url = HF.format(repo=source["repo"], revision=status["revision"], name=name)
+                for row in stream_jsonl_gz(url, token):
+                    licence, reason = keep_row(source, row)
+                    if licence is None:
+                        yield None, None, reason
+                        continue
+                    meta = row.get("metadata") or {}
+                    yield ({"text": row["text"], "id": row.get("id"), "license": licence, "url": meta.get("url"),
+                            "title": meta.get("title"), "language": meta.get("language")}, route(source, row, None), "ok")
+            yield name, rows
+    elif source["kind"] == "xz_jsonl":
+        for name, target in source["files"].items():
+            def rows(name=name, target=target):
+                url = HF.format(repo=source["repo"], revision=status["revision"], name=name)
+                for row in stream_jsonl_xz(url, token):
+                    if not (row.get("text") or "").strip():
+                        yield None, None, "empty"
+                        continue
+                    yield ({"text": row["text"], "id": row.get("celex"), "license": source["license"],
+                            "title": row.get("title"), "date": row.get("date"), "language": row.get("language"),
+                            "url": f"https://eur-lex.europa.eu/legal-content/ES/TXT/?uri=CELEX:{row.get('celex')}"},
+                           target, "ok")
+            yield name, rows
+    elif source["kind"] == "common_corpus":
+        from huggingface_hub import HfApi, hf_hub_download
+
+        siblings = HfApi(token=token).dataset_info(source["repo"], revision=status["revision"]).siblings
+        files = sorted(x.rfilename for x in siblings if x.rfilename.endswith(".parquet"))[::source.get("stride", 1)]
+        for name in files:
+            def rows(name=name):
+                local = Path(hf_hub_download(source["repo"], name, repo_type="dataset", revision=status["revision"],
+                                             local_dir=ROOT / "_tmp", token=token))
+                try:
+                    yield from common_corpus_rows(local, source)
+                finally:
+                    local.unlink(missing_ok=True)
+            yield name, rows
+    else:
+        raise ValueError(f"unknown source kind {source['kind']}")
 
 
 def run_source(plan: dict, category: str, source_id: str, token: str | None, need_chars: dict[str, int]):
     from huggingface_hub import HfApi
 
     source = plan["sources"][source_id]
-    if source["kind"] == "parquet":
-        print(f"skip {source_id}: parquet sources run with fetch_cosmopedia (not implemented yet)", flush=True)
-        return
-    folder = ROOT / category / source_id
-    status_path = folder / "manifest.json"
+    status_path = ROOT / "_manifests" / f"{source_id}.json"  # one per source: it may feed several categories
     status = load_status(status_path)
     if "revision" not in status:
         status.update({"repo": source["repo"], "revision": HfApi(token=token).dataset_info(source["repo"]).sha,
                        "policy": "hydra/training/base_data_policy.py", "source_id": source_id})
-    first, last = source["files"]
-    for index in range(first, last + 1):
-        name = source["pattern"].format(index)
+    caps = source.get("caps", {})  # category -> max characters this source may contribute
+    targets = {category, *(c for c in source.get("route", {}) if c != "default"), *source.get("targets", [])}
+
+    def open_for(target, pending=0):
+        return (need_chars.get(target, 0) - pending > 0
+                and status["chars"].get(target, 0) + pending < caps.get(target, float("inf")))
+
+    for name, rows in units(source, status, token):
         if name in status["files_done"]:
             continue
-        if all(need_chars.get(c, 0) <= 0 for c in {category, *source.get("route", {})} - {"default"}):
+        if not any(open_for(t) for t in targets):
             break
-        url = HF.format(repo=source["repo"], revision=status["revision"], name=name)
-        # Rows go to disk as they stream (a shard can hold GBs of papers); the manifest is updated only
-        # once the whole shard is written, so an interrupted shard is redone without double counting.
+        # Rows go to disk as they stream; the manifest is updated only once the whole unit is written, so an
+        # interrupted unit is redone without double counting.
         writers, temps = {}, {}
         chars, docs, rejected, licences = Counter(), Counter(), Counter(), Counter()
+        index = len(status["files_done"])
         try:
-            for row in stream_jsonl_gz(url, token):
-                licence, reason = keep_row(source, row)
-                if licence is None:
+            for record, target, reason in rows():
+                if record is None:
                     rejected[reason] += 1
                     continue
-                target = route(source, row, category)
-                meta = row.get("metadata") or {}
-                record = {"text": row["text"], "id": row.get("id"), "license": licence, "source": source["repo"],
-                          "source_revision": status["revision"], "url": meta.get("url"), "title": meta.get("title"),
-                          "category": target, "language": meta.get("language")}
+                target = target or category
+                if not open_for(target, chars[target]):
+                    rejected["category_full"] += 1
+                    continue
+                record.update({"source": source["repo"], "source_revision": status["revision"], "category": target})
                 if target not in writers:
                     out = ROOT / target / source_id / f"part-{index:05d}.jsonl.gz"
                     out.parent.mkdir(parents=True, exist_ok=True)
                     temps[target] = (out.with_suffix(".tmp"), out)
                     writers[target] = gzip.open(temps[target][0], "wt", encoding="utf-8", compresslevel=6)
                 writers[target].write(json.dumps(record, ensure_ascii=False) + "\n")
-                chars[target] += len(row["text"])
+                chars[target] += len(record["text"])
                 docs[target] += 1
-                licences[licence] += 1
+                licences[record["license"]] += 1
         finally:
             for writer in writers.values():
                 writer.close()
@@ -195,8 +296,8 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
             need_chars[target] = need_chars.get(target, 0) - n
         status["files_done"].append(name)
         save_json(status_path, status)
-        print(f"{category}/{source_id} {name}: kept {sum(docs.values())} docs ({sum(chars.values()) / 1e6:.0f} M chars); "
-              f"remaining chars {({k: v for k, v in need_chars.items() if v > 0})}", flush=True)
+        print(f"{category}/{source_id} {name}: kept {sum(docs.values())} docs ({sum(chars.values()) / 1e6:.0f} M chars) "
+              f"{dict(chars)}; remaining {({k: v for k, v in need_chars.items() if v > 0})}", flush=True)
 
 
 def main():
