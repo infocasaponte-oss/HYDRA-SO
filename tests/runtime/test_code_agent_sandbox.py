@@ -42,7 +42,7 @@ async def test_code_agent_aborts_before_llm_when_sandbox_unavailable(tmp_path):
     events = JsonlEventStore(tmp_path / "events.jsonl")
     agent = CodeAgent(
         llm,
-        WorkspaceManager(tmp_path / "workspaces"),
+        WorkspaceManager(tmp_path / "workspaces", source_root=tmp_path),
         ArtifactStore(tmp_path / "artifacts"),
         events,
         sandbox_factory=UnavailableSandbox,
@@ -85,7 +85,7 @@ async def test_code_agent_requires_failing_baseline_before_llm(tmp_path):
     events = JsonlEventStore(tmp_path / "events-passing.jsonl")
     agent = CodeAgent(
         llm,
-        WorkspaceManager(tmp_path / "workspaces-passing"),
+        WorkspaceManager(tmp_path / "workspaces-passing", source_root=tmp_path),
         ArtifactStore(tmp_path / "artifacts-passing"),
         events,
         sandbox_factory=PassingSandbox,

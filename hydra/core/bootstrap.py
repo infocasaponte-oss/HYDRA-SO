@@ -108,6 +108,7 @@ class HydraRuntime:
     tracer: Any = None
     executor: Any = None
     capture_outbox: Any = None
+    documents: Any = None
     _goal_runner: Any = None
     _bg: list[Any] = field(default_factory=list)
 
@@ -231,7 +232,10 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     # ---- policy, cache, failure memory ---------------------------------------------------
     policy = overrides.get("policy") or PolicyKernel.from_yaml(settings.policy_config)
     cache = SemanticCache(embedder, memory)
-    failures = FailureMemory(settings.data_dir / "failure_memory.json")
+    from hydra.core.docstore import open_document_store
+
+    documents = overrides.get("documents") or open_document_store(settings.documents_backend, settings.postgres_url)
+    failures = FailureMemory(settings.data_dir / "failure_memory.json", docs=documents)
     for et in (EventType.MODEL_COMPLETED, EventType.MODEL_FAILED, EventType.TOOL_COMPLETED, EventType.TOOL_FAILED):
         await bus.subscribe(et, failures.observe)
 
@@ -249,27 +253,35 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.artifacts.store import ArtifactStore
     from hydra.core.capture import CapturePipeline
     from hydra.core.capture_outbox import CaptureOutbox
+    from hydra.core.capture_outbox_pg import open_outbox_store
     from hydra.corpus.capture import CapturePolicy
     from hydra.corpus.dedup import ContaminationGuard, Deduplicator
     from hydra.corpus.factory import DatasetFactory
     from hydra.corpus.gates import CorpusCurator
     from hydra.corpus.store import CorpusStore
+    from hydra.core.eventlog import open_log_space
+    from hydra.artifacts.blobs import open_blobs
     from hydra.governance.config_registry import ConfigRegistry, FeatureFlags
     from hydra.governance.policy_dsl import PolicyEngine
     from hydra.governance.secrets import SecretsBroker
-    from hydra.ledger.chain import Ledger
+    from hydra.ledger.pg import open_ledger
     from hydra.ledger.ip import IPRegistry
     from hydra.ledger.licenses import LicenseEngine
+    from hydra.core.keystore import KeyStore
     from hydra.ledger.signing import Signer
     from hydra.market import CapabilityMarket
     from hydra.world.knowledge import GraphRAG, KnowledgeCompiler
     from hydra.world.model import WorldModel
 
     data = settings.data_dir
-    signer = overrides.get("signer") or Signer.load_or_create(data / "keys")
-    ledger = Ledger(data / "ledger", signer, anchor_every=settings.ledger_anchor_every)
-    artifact_store = ArtifactStore(data / "artifacts")
-    world = WorldModel(data / "world")
+    keystore = overrides.get("keystore") or KeyStore.from_settings(settings)
+    signer = overrides.get("signer") or Signer.load_or_create(data / "keys", keystore=keystore)
+    ledger = open_ledger(settings.ledger_backend, data / "ledger", signer, settings.ledger_anchor_every,
+                         settings.postgres_url)
+    artifact_store = ArtifactStore(
+        data / "artifacts", logs=open_log_space(settings.artifacts_backend, settings.postgres_url, "artifacts"),
+        blobs=open_blobs(settings.artifact_objects, data / "artifacts" / "objects", settings.s3_endpoint_url))
+    world = WorldModel(data / "world", logs=open_log_space(settings.world_backend, settings.postgres_url, "world"))
     world_rag = GraphRAG(world)
 
     def family_of(model_id: str) -> str:
@@ -279,27 +291,29 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     knowledge = KnowledgeCompiler(world, family_of=family_of)
     corpus = CorpusStore(data / "corpus", CorpusCurator(
         dedup=Deduplicator(), contamination=ContaminationGuard.from_suites(load_suites(settings.evals_dir))),
-        ledger=ledger)
+        ledger=ledger, logs=open_log_space(settings.corpus_backend, settings.postgres_url, "corpus"))
     datasets = DatasetFactory(corpus, ledger)
-    ip = IPRegistry(data / "ip", ledger)
+    ip = IPRegistry(data / "ip", ledger, logs=open_log_space(settings.ip_backend, settings.postgres_url, "ip"))
     licenses = LicenseEngine.from_yaml(settings.licenses_config)
     workspaces = WorkspaceManager(data / "workspaces")
-    configs = ConfigRegistry(data / "configs", ledger)
-    flags = FeatureFlags(data / "flags.json")
+    configs = ConfigRegistry(data / "configs", ledger,
+                             logs=open_log_space(settings.documents_backend, settings.postgres_url, "configs"))
+    flags = FeatureFlags(data / "flags.json", docs=documents)
     secrets = SecretsBroker(data / "secrets", audit=lambda et, p: ledger.append(et, p, object_type="secret",
-                                                                                 object_id=p.get("ref", "")))
+                                                                                 object_id=p.get("ref", "")),
+                            keystore=keystore, docs=documents)
     policy_dsl = PolicyEngine.from_yaml(settings.policy_rules_config)
     market = CapabilityMarket()
     executor = ToolExecutor(tools, ToolPolicyEngine(policy), bus, simulator=Simulator(), secrets=secrets,
                             policy_dsl=policy_dsl)
     from hydra.cluster.capacity import TenantRegistry
-    from hydra.cluster.fabric import WorkQueue
+    from hydra.cluster.fabric import open_work_queue
     from hydra.cluster.nodes import NodeRegistry
     from hydra.cluster.scheduler import GlobalScheduler
 
     nodes = NodeRegistry(heartbeat_ttl_s=max(30.0, settings.heartbeat_interval_s * 3))
     scheduler = GlobalScheduler(nodes)
-    queue = WorkQueue(data / "fabric" / "queue.db")
+    queue = open_work_queue(settings.fabric_backend, data / "fabric" / "queue.db", settings.postgres_url)
 
     def config_ref():
         cur = configs.current("production")
@@ -310,7 +324,9 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         flight_dir=data / "flight",
         capture_policy=CapturePolicy(auto_training_max_sensitivity=settings.corpus_auto_training_max_sensitivity),
         policy_version=policy_dsl.version, config_ref=config_ref, registry=registry,
-        outbox=CaptureOutbox(data / "capture_outbox.db", ledger=ledger, corpus=corpus))
+        outbox=CaptureOutbox(data / "capture_outbox.db", ledger=ledger, corpus=corpus,
+                             store=open_outbox_store(settings.outbox_backend, data / "capture_outbox.db",
+                                                     settings.postgres_url)))
 
     # ---- backend health ------------------------------------------------------------
     # Probe providers before the first routing decision. Registry configuration remains
@@ -344,7 +360,19 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     except Exception:
         log.debug("no telemetry to fit the learned router yet")
     observer = None
-    if settings.decision_local_model_path:
+    if settings.hyd_enabled:
+        from hydra.hyd.controller import HydController
+        fallback = None
+        if (settings.hyd_fallback_model_path and settings.hyd_fallback_calibration_path
+                and settings.hyd_fallback_model_path != settings.hyd_model_path):
+            fallback = HydController(settings.hyd_fallback_model_path, settings.hyd_fallback_calibration_path)
+        if settings.offline and fallback is not None:
+            # offline mode is deterministic and never probes runtime services: CPU ranker only
+            observer = fallback
+        else:
+            observer = HydController(settings.hyd_model_path, settings.hyd_calibration_path,
+                                     settings.hyd_authority_evidence_path, fallback=fallback)
+    elif settings.decision_local_model_path:
         if not settings.decision_local_calibration_path:
             raise ValueError("local decision observer requires model-bound calibration")
         from hydra.router.local_observer import CalibratedLocalObserver
@@ -358,8 +386,8 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
             endpoint=settings.decision_shadow_endpoint, model=settings.decision_shadow_model,
             timeout=settings.decision_shadow_timeout_s), settings.decision_shadow_timeout_s,
             calibrator=calibrator, criteria=CRITERIA if settings.decision_full_contract else None)
-    authority = None
-    if settings.decision_authority_evidence_path:
+    authority = observer if settings.hyd_enabled else None
+    if settings.decision_authority_evidence_path and not settings.hyd_enabled:
         if observer is None:
             raise ValueError("decision authority requires a configured observer")
         import json
@@ -405,7 +433,7 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     market.sync_registry(registry, tools)
 
     evaluator = EvalEngine(providers, sandbox, tools, model_compiler, load_suites(settings.evals_dir))
-    lab = HydraLab(kernel, evaluator, settings.data_dir / "lab.json", bus)
+    lab = HydraLab(kernel, evaluator, settings.data_dir / "lab.json", bus, docs=documents)
 
     monitor = None
     if settings.runtime_monitor and not settings.offline and "registry" not in overrides:
@@ -454,5 +482,46 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     from hydra.model_factory.service import ModelFactory  # local import: optional heavy subsystem
 
     runtime.factory = ModelFactory.from_settings(settings, registry=registry, evaluator=evaluator,
-                                                 telemetry=telemetry, bus=bus, lab=lab)
+                                                 telemetry=telemetry, bus=bus, lab=lab, docs=documents)
+    runtime.documents = documents
+    if settings.require_shared_state:
+        check_shared_state(runtime, keystore)
     return runtime
+
+
+def _postgres_available(backend: str, postgres_url: str) -> bool:
+    if backend == "postgres":
+        return True
+    if backend != "auto" or not postgres_url:
+        return False
+    import importlib.util
+
+    return importlib.util.find_spec("psycopg") is not None
+
+
+def check_shared_state(runtime: HydraRuntime, keystore) -> None:
+    """HYDRA_REQUIRE_SHARED_STATE: every plane must resolve to PostgreSQL and the keys must not live in
+    the data directory; otherwise refuse to start, naming what is local."""
+    s = runtime.settings
+    planes = {
+        "ledger (HYDRA_LEDGER_BACKEND)": runtime.ledger.backend,
+        "corpus (HYDRA_CORPUS_BACKEND)": runtime.corpus.logs.backend,
+        "World Model (HYDRA_WORLD_BACKEND)": runtime.world.logs.backend,
+        "IP registry (HYDRA_IP_BACKEND)": runtime.ip.logs.backend,
+        "artifact manifests (HYDRA_ARTIFACTS_BACKEND)": runtime.artifact_store.logs.backend,
+        "fabric queue (HYDRA_FABRIC_BACKEND)": runtime.queue.backend,
+        "capture outbox (HYDRA_OUTBOX_BACKEND)": getattr(runtime.capture_outbox.outbox, "backend", "sqlite")
+        if runtime.capture_outbox is not None else "postgres",
+        "documents (HYDRA_DOCUMENTS_BACKEND)": runtime.documents.backend,
+        "config sets (HYDRA_DOCUMENTS_BACKEND)": runtime.configs.logs.backend,
+    }
+    if s.runtime_api:
+        planes["runtime line (HYDRA_RUNTIME_BACKEND)"] = (
+            "postgres" if _postgres_available(s.runtime_backend, s.postgres_url) else "file")
+    local = [name for name, backend in planes.items() if backend != "postgres"]
+    if keystore is not None and not keystore.secure():
+        local.append("private keys (set HYDRA_KEYS_DIR to a mounted secret, or HYDRA_KEY_<NAME>)")
+    if local:
+        raise RuntimeError("HYDRA_REQUIRE_SHARED_STATE is set but these are local to this node: "
+                           + "; ".join(local) + ". Set HYDRA_POSTGRES_URL (and install the postgres extra) "
+                           "or unset HYDRA_REQUIRE_SHARED_STATE for a single node.")

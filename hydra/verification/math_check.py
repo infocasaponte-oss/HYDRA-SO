@@ -16,6 +16,47 @@ _OPS = {
 ARITH = re.compile(r"(-?\d+(?:\.\d+)?(?:\s*[-+*/×x÷^%]\s*-?\d+(?:\.\d+)?)+)")
 NUM = re.compile(r"-?\d+(?:[.,]\d+)?")
 
+# Spanish operator words between two bare numbers ("17 por 23", "17 dividido entre 23", "17 más 5").
+# The right-hand number must end the expression: prose such as "3 por 100 de 200", "5 por ciento",
+# "10 por 2 horas", "15 entre 3 y 5" or "3 entre 5 personas" is left untouched.
+_WORD_OPS = (("multiplicado por", "*"), ("dividido entre", "/"), ("dividido por", "/"), ("por", "*"),
+             ("entre", "/"), ("más", "+"), ("mas", "+"), ("menos", "-"))
+_OP_WORD = "|".join(w.replace(" ", r"\s+") for w, _ in _WORD_OPS)
+_NUMBER = r"-?\d+(?:[.,]\d+)?"  # comma decimals too ("1,5 por 2")
+# A "." or "," right after the right operand is sentence punctuation unless a digit follows (decimal).
+_SPANISH_OP = re.compile(
+    r"(?<![\w/.,])(?<![\w/.,]-)(?P<a>" + _NUMBER + r")\s+(?P<op>" + _OP_WORD + r")\s+(?=" + _NUMBER +
+    r"(?![\w%/]|[.,]\d|\s*%|\s+(?:y|e|o|a|al|hasta)\s+-?\d|\s+por\s+(?:ciento|mil)\b"
+    r"|\s+(?!(?:" + _OP_WORD + r"|y|e|es|son|da|igual|equivale)\b)[^\W\d_]))", re.I)
+# "una imagen de 1920 por 1080", "el partido fue 3 por 2": dimensions and scores, not products.
+_NOT_ARITHMETIC = re.compile(r"\b(?:imagen|foto|v[íi]deo|resoluci[óo]n|pantalla|p[íi]xel\w*|tama[ñn]o|dimensi\w+|"
+                             r"medidas?|mide|habitaci[óo]n|tablero|partido|marcador|gan\w+|perdi\w+|empat\w+)\b",
+                             re.I)
+# An operator word still touching a number or bracket after rewriting means the expression was only
+# partly understood ("2 por (3 más 4)"); validating a fragment would reject correct answers.
+_RESIDUAL_OP = re.compile(r"[\d)]\s+(?:" + _OP_WORD + r")\s+[-\d(]", re.I)
+
+
+def normalize_operator_words(text: str) -> str:
+    """Rewrite unambiguous Spanish operator words between bare numbers ("17 por 23" -> "17 * 23").
+
+    Returns the text unchanged when the expression is only partly rewritable or reads as a
+    dimension or a score."""
+    ops = {w: sym for w, sym in _WORD_OPS}
+
+    def sub(m: re.Match) -> str:
+        if _NOT_ARITHMETIC.search(m.string[max(0, m.start() - 40):m.start()]):
+            return m.group(0)
+        return f"{m.group('a').replace(',', '.')} {ops[' '.join(m.group('op').lower().split())]} "
+
+    original, previous = text, None
+    while previous != text:  # chains such as "2 por 3 más 4"
+        previous, text = text, _SPANISH_OP.sub(sub, text)
+    if text == original or _RESIDUAL_OP.search(text):
+        return original
+    # the right-hand operand is only looked at, never consumed: canonicalise its decimal comma too
+    return re.sub(r"(?<=[*/+-] )(-?\d+),(\d+)", r"\1.\2", text)
+
 
 def safe_arith(expr: str) -> float | int | None:
     expr = expr.replace("×", "*").replace("x", "*").replace("÷", "/").replace("^", "**")
@@ -39,13 +80,40 @@ def safe_arith(expr: str) -> float | int | None:
         return None
 
 
+MATH_CUE = re.compile(r"cu[áa]nto (?:es|da|son|vale)|calcul|resultado|opera|how much|comput|evaluat|=", re.I)
+# "Ley 5/2007", "TRM/844/2026" (official numbers) and "4/11/2003" (dates) are not divisions.
+NUMBER_OR_DATE = re.compile(r"\d+(?:/\d+)*/(?:1[89]|20)\d\d")
+# A bare expression, optionally as a question ("¿17 * 23?").
+PURE_QUESTION = re.compile(r"\s*¿?\s*-?\d[\d\s.+\-*/×÷^()]*\??\s*")
+
+
+def _part_of_identifier(text: str, start: int, end: int) -> bool:
+    """Digits glued to letters, slashes or hyphenated codes (BOE-A-2003-20254, TRM/844/2026)."""
+    before = text[start - 1] if start > 0 else " "
+    after = text[end] if end < len(text) else " "
+    if before.isalnum() or before in "/_" or after.isalnum() or after in "/_":
+        return True
+    return before == "-" and start > 1 and text[start - 2].isalnum()
+
+
 def expected_value(question: str) -> tuple[str, float] | None:
-    """The arithmetic expression in a question and its exact value, if any."""
-    m = ARITH.search(question)
-    if not m:
-        return None
-    value = safe_arith(m.group(1))
-    return (m.group(1).strip(), float(value)) if value is not None else None
+    """The arithmetic expression in a question and its exact value, if any.
+
+    Official numbers, dates and codes are skipped unless the question explicitly asks to calculate.
+    """
+    explicit = MATH_CUE.search(question) is not None
+    normalized = normalize_operator_words(question)
+    if explicit or PURE_QUESTION.fullmatch(normalized):
+        question = normalized
+    for m in ARITH.finditer(question):
+        expr = m.group(1)
+        if not explicit and (_part_of_identifier(question, m.start(1), m.end(1))
+                             or NUMBER_OR_DATE.fullmatch(expr.strip().lstrip("-"))):
+            continue
+        value = safe_arith(expr)
+        if value is not None:
+            return expr.strip(), float(value)
+    return None
 
 
 def answer_matches(answer: str, value: float, rel: float = 1e-6) -> bool:

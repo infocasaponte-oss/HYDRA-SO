@@ -65,10 +65,11 @@ class OllamaEmbedder(Embedder):
 
 
 class OpenAIEmbedder(Embedder):
-    def __init__(self, base_url: str, model: str, api_key: str = "internal") -> None:
+    def __init__(self, base_url: str, model: str, api_key: str = "") -> None:
         self.model = model
         self.client = httpx.AsyncClient(base_url=base_url.rstrip("/"),
-                                        headers={"Authorization": f"Bearer {api_key}"}, timeout=30)
+                                        headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                                        timeout=30)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         r = await self.client.post("/embeddings", json={"model": self.model, "input": texts})

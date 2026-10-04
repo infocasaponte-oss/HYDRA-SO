@@ -72,10 +72,39 @@ CREATE TABLE IF NOT EXISTS model_metrics (
 
 
 -- =====================================================================================
--- HYDRA 1.0 planes (multi-node deployments; the local file stores are the default).
+-- Execution Fabric (hydra.cluster.fabric_pg.PostgresWorkQueue, which also creates these tables).
+-- Shared by every gateway and worker: leases, retries, dead letters, idempotency, checkpoints.
 -- =====================================================================================
+CREATE TABLE IF NOT EXISTS fabric_work (
+    id            TEXT PRIMARY KEY,
+    capability    TEXT NOT NULL,
+    priority      INTEGER NOT NULL,
+    status        TEXT NOT NULL,
+    available_at  DOUBLE PRECISION NOT NULL,
+    lease_expires DOUBLE PRECISION,
+    idem          TEXT NOT NULL,
+    body          JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS fabric_work_claim ON fabric_work (status, capability, priority, available_at);
+CREATE INDEX IF NOT EXISTS fabric_work_open_idem ON fabric_work (idem) WHERE status IN ('queued', 'leased');
+CREATE TABLE IF NOT EXISTS fabric_idempotency (
+    key    TEXT PRIMARY KEY,
+    result JSONB NOT NULL,
+    at     DOUBLE PRECISION NOT NULL
+);
+CREATE TABLE IF NOT EXISTS fabric_checkpoints (
+    task_id TEXT NOT NULL,
+    step    INTEGER NOT NULL,
+    state   JSONB NOT NULL,
+    at      DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (task_id, step)
+);
 
--- Append-only, hash-chained, signed provenance / IP ledger.
+
+-- =====================================================================================
+-- Signed IP / provenance ledger: hydra.ledger.pg.PostgresLedger (HYDRA_LEDGER_BACKEND), which
+-- also creates these tables. Append-only: triggers reject UPDATE, DELETE and TRUNCATE.
+-- =====================================================================================
 CREATE TABLE IF NOT EXISTS ip_events (
     sequence_id        BIGSERIAL PRIMARY KEY,
     event_id           UUID NOT NULL UNIQUE,
@@ -105,6 +134,12 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS ip_events_no_update ON ip_events;
 CREATE TRIGGER ip_events_no_update BEFORE UPDATE OR DELETE ON ip_events
     FOR EACH ROW EXECUTE FUNCTION hydra_ledger_immutable();
+DROP TRIGGER IF EXISTS ip_events_no_truncate ON ip_events;
+CREATE TRIGGER ip_events_no_truncate BEFORE TRUNCATE ON ip_events
+    FOR EACH STATEMENT EXECUTE FUNCTION hydra_ledger_immutable();
+-- Exact serialized event (what verification recomputes; TIMESTAMPTZ/JSONB are for querying).
+ALTER TABLE ip_events ADD COLUMN IF NOT EXISTS body TEXT;
+CREATE INDEX IF NOT EXISTS ip_events_type ON ip_events (event_type, sequence_id);
 
 CREATE TABLE IF NOT EXISTS ledger_anchors (
     first_sequence   BIGINT NOT NULL,
@@ -114,74 +149,120 @@ CREATE TABLE IF NOT EXISTS ledger_anchors (
     external_timestamp_ref TEXT,
     PRIMARY KEY (first_sequence, last_sequence)
 );
+ALTER TABLE ledger_anchors ADD COLUMN IF NOT EXISTS body TEXT;
 
-CREATE TABLE IF NOT EXISTS inventions (
-    invention_id     TEXT PRIMARY KEY,
-    title            TEXT NOT NULL,
-    status           TEXT NOT NULL,
-    conceived_at     TIMESTAMPTZ,
-    technical_problem TEXT,
-    technical_solution TEXT,
-    technical_effect TEXT,
-    confidentiality  TEXT,
-    record           JSONB NOT NULL
+-- =====================================================================================
+-- Event logs of the event-sourced planes: hydra.core.eventlog (HYDRA_CORPUS_BACKEND, HYDRA_WORLD_BACKEND,
+-- HYDRA_IP_BACKEND, HYDRA_ARTIFACTS_BACKEND),
+-- which also creates this table. One stream per log file (``corpus/log.jsonl``, ``world/deltas.jsonl``...),
+-- gap-free ``seq`` per stream,
+-- exact JSON line in ``body``. Append-only: triggers reject UPDATE, DELETE and TRUNCATE.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hydra_logs (
+    stream     TEXT NOT NULL,
+    seq        BIGINT NOT NULL,
+    body       TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (stream, seq)
 );
+CREATE OR REPLACE FUNCTION hydra_logs_immutable() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'hydra_logs is append-only';
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS hydra_logs_no_update ON hydra_logs;
+CREATE TRIGGER hydra_logs_no_update BEFORE UPDATE OR DELETE ON hydra_logs
+    FOR EACH ROW EXECUTE FUNCTION hydra_logs_immutable();
+DROP TRIGGER IF EXISTS hydra_logs_no_truncate ON hydra_logs;
+CREATE TRIGGER hydra_logs_no_truncate BEFORE TRUNCATE ON hydra_logs
+    FOR EACH STATEMENT EXECUTE FUNCTION hydra_logs_immutable();
 
--- Content-addressed artifacts (blobs live in object storage by sha256).
-CREATE TABLE IF NOT EXISTS artifacts (
+-- =====================================================================================
+-- Capture outbox: hydra.core.capture_outbox_pg.PostgresOutbox (HYDRA_OUTBOX_BACKEND), which also creates
+-- it. Deferred ledger/corpus writes; workers claim due rows with FOR UPDATE SKIP LOCKED and a lease.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS capture_outbox (
     id               UUID PRIMARY KEY,
-    artifact_type    TEXT NOT NULL,
-    sha256           TEXT NOT NULL,
-    uri              TEXT NOT NULL,
-    media_type       TEXT,
-    size_bytes       BIGINT,
-    metadata         JSONB NOT NULL DEFAULT '{}',
-    parents          JSONB NOT NULL DEFAULT '[]',
-    created_by_task  UUID,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    topic            TEXT NOT NULL,
+    aggregate_id     UUID NOT NULL,
+    trace_id         TEXT NOT NULL,
+    payload          JSONB NOT NULL,
+    created_at       TIMESTAMPTZ NOT NULL,
+    published_at     TIMESTAMPTZ,
+    attempts         INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at  TIMESTAMPTZ,
+    last_error       TEXT,
+    dead_lettered_at TIMESTAMPTZ
 );
-CREATE INDEX IF NOT EXISTS artifacts_sha ON artifacts (sha256);
+CREATE INDEX IF NOT EXISTS capture_outbox_due ON capture_outbox (next_attempt_at, created_at)
+    WHERE published_at IS NULL AND dead_lettered_at IS NULL;
 
--- Corpus Engine (canonical records; training exports are Parquet/JSONL releases).
-CREATE TABLE IF NOT EXISTS corpus_records (
-    id               TEXT PRIMARY KEY,
-    record_type      TEXT NOT NULL,
-    content          JSONB NOT NULL,
-    quality          DOUBLE PRECISION,
-    verification     DOUBLE PRECISION,
-    rights           JSONB NOT NULL,
-    privacy          JSONB NOT NULL,
-    provenance       JSONB NOT NULL,
-    training_status  TEXT NOT NULL,
-    classification   TEXT NOT NULL,
-    tenant_id        TEXT,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+-- =====================================================================================
+-- Runtime line (hydra.runtime.pg_stores, HYDRA_RUNTIME_BACKEND), which also creates these tables
+-- (runtime_outbox has the capture_outbox layout and is created by PostgresOutbox).
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS task_commits (
+    task_id      UUID PRIMARY KEY,
+    trace_id     TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    result       JSONB NOT NULL,
+    committed_at TIMESTAMPTZ NOT NULL
 );
-CREATE TABLE IF NOT EXISTS corpus_lineage (
-    parent_id        TEXT NOT NULL,
-    child_id         TEXT NOT NULL,
-    transformation   TEXT NOT NULL,
-    pipeline_version TEXT NOT NULL,
-    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS deployment_evidence (
+    id         BIGSERIAL PRIMARY KEY,
+    variant_id TEXT NOT NULL,
+    phase      TEXT NOT NULL,
+    payload    JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS deployment_evidence_variant_phase ON deployment_evidence (variant_id, phase, id);
+CREATE TABLE IF NOT EXISTS operating_metrics (
+    id          BIGSERIAL PRIMARY KEY,
+    node        TEXT NOT NULL,
+    captured_at TIMESTAMPTZ NOT NULL,
+    payload     JSONB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runtime_spans (
+    id          BIGSERIAL PRIMARY KEY,
+    node        TEXT NOT NULL,
+    span        JSONB NOT NULL,
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS runtime_health (
+    node              TEXT NOT NULL,
+    variant_id        TEXT NOT NULL,
+    state             TEXT NOT NULL,
+    failures          INTEGER NOT NULL,
+    failure_threshold INTEGER NOT NULL,
+    recovery_seconds  DOUBLE PRECISION NOT NULL,
+    opened_at_wall    DOUBLE PRECISION,
+    updated_at        TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (node, variant_id)
 );
 
--- World Model (bitemporal relations, beliefs with evidence).
-CREATE TABLE IF NOT EXISTS world_entities (
-    id TEXT PRIMARY KEY, entity_type TEXT NOT NULL, canonical_name TEXT, attributes JSONB NOT NULL DEFAULT '{}',
-    aliases JSONB NOT NULL DEFAULT '[]', visibility TEXT NOT NULL, confidence DOUBLE PRECISION,
+-- =====================================================================================
+-- Shared documents: hydra.core.docstore (HYDRA_DOCUMENTS_BACKEND), which also creates the table. One
+-- row per small registry (flags.json, models/jobs.json, secrets/vault...), changed by read-modify-write
+-- under a row lock (SELECT ... FOR UPDATE); version bumps tell nodes to refresh their cache.
+-- =====================================================================================
+CREATE TABLE IF NOT EXISTS hydra_documents (
+    name       TEXT PRIMARY KEY,
+    body       JSONB NOT NULL,
+    version    BIGINT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS world_relations (
-    id TEXT PRIMARY KEY, subject_id TEXT NOT NULL, predicate TEXT NOT NULL, object_id TEXT NOT NULL,
-    valid_from TIMESTAMPTZ, valid_until TIMESTAMPTZ, recorded_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    confidence DOUBLE PRECISION, evidence_ids JSONB NOT NULL DEFAULT '[]'
-);
-CREATE INDEX IF NOT EXISTS world_rel_subject ON world_relations (subject_id, predicate);
-CREATE TABLE IF NOT EXISTS beliefs (
-    id TEXT PRIMARY KEY, proposition TEXT NOT NULL, subject_id TEXT, predicate TEXT, object_value JSONB,
-    confidence DOUBLE PRECISION, status TEXT NOT NULL, supporting JSONB NOT NULL DEFAULT '[]',
-    contradicting JSONB NOT NULL DEFAULT '[]', valid_from TIMESTAMPTZ, valid_until TIMESTAMPTZ
-);
-CREATE TABLE IF NOT EXISTS world_deltas (
-    world_version BIGSERIAL PRIMARY KEY, delta JSONB NOT NULL, source TEXT, applied_at TIMESTAMPTZ DEFAULT now()
-);
+
+-- =====================================================================================
+-- Tables of earlier schema versions that were reserved and never written (safe to drop).
+-- =====================================================================================
+-- Artifact manifests live in hydra_logs (stream artifacts/manifests.jsonl); blobs in HYDRA_ARTIFACT_OBJECTS.
+-- The reserved artifacts table was never written; it may be dropped.
+
+-- The corpus lives in hydra_logs (streams corpus/*). The reserved corpus_records/corpus_lineage tables
+-- of earlier schema versions were never written; databases that created them may drop them.
+
+-- The invention registry lives in hydra_logs (stream ip/inventions.jsonl). The reserved inventions
+-- table of earlier schema versions was never written; it may be dropped.
+
+-- The World Model lives in hydra_logs (streams world/*). The reserved world_entities, world_relations,
+-- beliefs and world_deltas tables of earlier schema versions were never written; they may be dropped.

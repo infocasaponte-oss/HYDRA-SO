@@ -22,9 +22,10 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
+from hydra.core.atomic import write_text_atomic
 from hydra.core.hashing import canonical_json, now_iso, sha256_hex
 from hydra.edge.profiles import HardwareProfile, detect_profile, llama_server_args
-from hydra.runtime.gpu_telemetry import PeakVramMonitor
+from hydra.model_factory.physical.gpu_telemetry import PeakVramMonitor
 
 PROMPT = "Reply with exactly ten short English words about local AI inference."
 
@@ -207,7 +208,7 @@ def apply_manifest(manifest: RuntimeManifest, *, env_path: Path | None = None, r
                     k, v = line.split("=", 1)
                     existing[k.strip()] = v
         existing.update(applied)
-        env_path.write_text("\n".join(f"{k}={v}" for k, v in existing.items()) + "\n", encoding="utf-8")
+        write_text_atomic(env_path, "\n".join(f"{k}={v}" for k, v in existing.items()) + "\n")
     if registry is not None:
         for m in registry.all():
             if (model_id and m.id == model_id) or m.physical_name == manifest.model:
@@ -218,5 +219,5 @@ def apply_manifest(manifest: RuntimeManifest, *, env_path: Path | None = None, r
 
 def save_manifest(m: RuntimeManifest, path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(m.model_dump_json(indent=2), encoding="utf-8")
+    write_text_atomic(path, m.model_dump_json(indent=2))
     return path

@@ -1,10 +1,13 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-.venv/
-.env
-.git/
-workspace/
-tests/
+# Allow-list: only what the image needs reaches the Docker daemon. Never models/ (tens of GB),
+# data/ (keys, secrets, ledger), runtime/, workspaces, caches or local build output.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!NOTICE
+!hydra/
+!config/
+!sql/
+**/__pycache__
+**/*.py[cod]

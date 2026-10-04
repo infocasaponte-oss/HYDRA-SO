@@ -28,23 +28,9 @@ import json
 import sys
 from pathlib import Path
 
+from hydra.cli_io import kv_pairs as _kv
+from hydra.cli_io import print_json as _print
 
-def _print(obj) -> None:
-    if hasattr(obj, "model_dump_json"):
-        print(obj.model_dump_json(indent=2))
-    else:
-        print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
-
-
-def _kv(pairs):
-    out = {}
-    for p in pairs or []:
-        k, _, v = p.partition("=")
-        try:
-            out[k] = json.loads(v)
-        except json.JSONDecodeError:
-            out[k] = v
-    return out
 
 
 def add_platform_parsers(sub) -> None:
@@ -199,6 +185,10 @@ def add_platform_parsers(sub) -> None:
     cf.add_argument("values", nargs="*")
     cf.add_argument("--version", type=int)
 
+    ks = sub.add_parser("keys", help="private keys: export them as files for a mounted secret")
+    ks.add_argument("action", choices=["export"])
+    ks.add_argument("--out", required=True, help="directory for <name>.key files (keep it private)")
+
     bk = sub.add_parser("backup", help="coherent backup of the data plane")
     bk.add_argument("out")
     bk.add_argument("--include-private-keys", action="store_true")
@@ -213,6 +203,9 @@ def add_platform_parsers(sub) -> None:
     sy.add_argument("--origin", default="")
     sy.add_argument("--world-version", type=int, default=0)
     sy.add_argument("--corpus-offset", type=int, default=0)
+    sy.add_argument("--trust-key", action="append", default=[], metavar="PUB_PEM",
+                    help="extra public key file trusted for this import (operator decision; "
+                         "the node key and <data_dir>/keys/trusted/*.pub.pem are always trusted)")
 
 
 def argparse_remainder():
@@ -221,7 +214,7 @@ def argparse_remainder():
     return argparse.REMAINDER
 
 
-NO_RUNTIME = {"backup", "restore", "build", "edge", "profile", "release_verify"}
+NO_RUNTIME = {"backup", "restore", "build", "edge", "profile", "release_verify", "keys"}
 
 
 async def run_platform(args, rt) -> int:  # noqa: C901 - command table
@@ -330,8 +323,13 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
                 _print(rt.datasets.verify_release(args.target))
         return 0
     if cmd == "train":
-        from hydra.training.lab import (SpecialistDiscovery, TrainingOrchestrator, TrainingRecipe,
-                                        meta_learning_dashboard, traces_from_tasks)
+        from hydra.training.lab import (
+            SpecialistDiscovery,
+            TrainingOrchestrator,
+            TrainingRecipe,
+            meta_learning_dashboard,
+            traces_from_tasks,
+        )
 
         match args.action:
             case "run":
@@ -351,8 +349,7 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
                 _print(meta_learning_dashboard(await rt.telemetry.recent_runs(), rt.registry))
         return 0
     if cmd == "ip":
-        from hydra.ledger.ip import (InventionStatus, PriorArtReference, PriorArtSearch, TechnicalEffect,
-                                     export_bundle)
+        from hydra.ledger.ip import InventionStatus, PriorArtReference, PriorArtSearch, TechnicalEffect, export_bundle
 
         t = args.target
         match args.action:
@@ -498,7 +495,7 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
     if cmd == "glossary":
         from hydra.edge.translation import GlossaryStore
 
-        store = GlossaryStore(rt.settings.data_dir / "glossaries.json")
+        store = GlossaryStore(rt.settings.data_dir / "glossaries.json", docs=rt.documents)
         match args.action:
             case "set":
                 _print(store.put(args.name, {k: str(v) for k, v in _kv(args.terms).items()}))
@@ -567,7 +564,7 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
                 _print(rt.configs.rollback(args.env, args.version, "cli"))
         return 0
     if cmd == "sync":
-        from hydra.edge.sync import SyncBundle, SyncCursor, export_delta, import_delta, save_bundle
+        from hydra.edge.sync import SyncBundle, SyncCursor, export_delta, import_delta, save_bundle, trusted_sync_keys
 
         if args.action == "export":
             b = export_delta(rt, SyncCursor(world_version=args.world_version, corpus_offset=args.corpus_offset),
@@ -575,8 +572,9 @@ async def run_platform(args, rt) -> int:  # noqa: C901 - command table
             print(save_bundle(b, Path(args.file)))
         else:
             b = SyncBundle.model_validate_json(Path(args.file).read_text(encoding="utf-8"))
-            _print(import_delta(rt, b, {rt.signer.public_pem, b.signature.get("public_key", "")}
-                                if b.signature else {rt.signer.public_pem}))
+            # Never trust the key embedded in the bundle itself: a self-signed bundle proves nothing.
+            keys = trusted_sync_keys(rt) | {Path(k).read_text(encoding="utf-8") for k in args.trust_key}
+            _print(import_delta(rt, b, keys))
         return 0
     raise SystemExit(f"unknown command {cmd}")
 
@@ -586,13 +584,38 @@ def run_without_runtime(args, settings) -> int:
     if cmd == "backup":
         from hydra.governance.recovery import backup
 
+        from hydra.core.keystore import KeyStore
+        from hydra.core.docstore import open_document_store
+        from hydra.core.eventlog import open_log_space
+        from hydra.ledger.pg import open_ledger
+
+        ledger = open_ledger(settings.ledger_backend, settings.data_dir / "ledger", None, 0, settings.postgres_url)
+        logs = [open_log_space(settings.corpus_backend, settings.postgres_url, "corpus"),
+                open_log_space(settings.world_backend, settings.postgres_url, "world"),
+                open_log_space(settings.ip_backend, settings.postgres_url, "ip"),
+                open_log_space(settings.artifacts_backend, settings.postgres_url, "artifacts"),
+                open_log_space(settings.runtime_backend, settings.postgres_url, "runtime"),
+                open_log_space(settings.documents_backend, settings.postgres_url, "configs"),
+                open_document_store(settings.documents_backend, settings.postgres_url)]
         _print(backup(settings.data_dir, Path(args.out), include_private_keys=args.include_private_keys,
-                      postgres_url=settings.postgres_url or None))
+                      postgres_url=settings.postgres_url or None, ledger=ledger, logs=logs,
+                      keystore=KeyStore.from_settings(settings) if args.include_private_keys else None))
+        return 0
+    if cmd == "keys":
+        from hydra.core.keystore import export_keys
+
+        written = export_keys(settings, Path(args.out))
+        _print({"written": [str(p) for p in written],
+                "next": f"kubectl -n hydra create secret generic hydra-keys --from-file={args.out}"})
         return 0
     if cmd == "restore":
+        from hydra.artifacts.blobs import open_blobs
         from hydra.governance.recovery import restore
 
-        rep = restore(Path(args.archive), Path(args.data_dir), overwrite=args.overwrite)
+        data_dir = Path(args.data_dir)
+        blobs = open_blobs(settings.artifact_objects, data_dir / "artifacts" / "objects",
+                           settings.s3_endpoint_url) if settings.artifact_objects else None
+        rep = restore(Path(args.archive), data_dir, overwrite=args.overwrite, blobs=blobs)
         _print(rep)
         return 0 if rep.ok else 4
     if cmd == "profile":
@@ -634,7 +657,9 @@ def run_without_runtime(args, settings) -> int:
         model = args.model or __import__("os").environ.get("HYDRA_MODEL")
         if not model:
             raise SystemExit("provide --model (an Ollama tag or a .gguf path) or set HYDRA_MODEL")
-        signer = Signer.load_or_create(settings.data_dir / "keys")
+        from hydra.core.keystore import KeyStore
+
+        signer = Signer.load_or_create(settings.data_dir / "keys", keystore=KeyStore.from_settings(settings))
         m = asyncio.run(autobuild(model=model, runtime=args.runtime, ollama_url=settings.ollama_base_url,
                                   llama_server=args.llama_server or settings.llama_server or None, signer=signer))
         for r in m.all_results:

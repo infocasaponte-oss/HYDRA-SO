@@ -90,6 +90,19 @@ def test_deterministic_solvers():
     assert s.solve("¿Cuál es la capital de Galicia?") is None
 
 
+def test_deterministic_solvers_spanish_operator_words():
+    s = DeterministicSolvers()
+    for text, value in (("¿Cuánto es 17 por 23? Solo el resultado.", 391), ("17 por 23", 391),
+                        ("17 multiplicado por 23", 391), ("17 entre 4", 4.25), ("17 dividido entre 4", 4.25),
+                        ("17 más 5", 22), ("17 menos 5", 12), ("¿Cuánto es 2 por 3 más 4?", 10)):
+        r = s.solve(text)
+        assert r is not None and r.solver == "calculator" and r.output == value, text
+    for text in ("¿Qué números hay entre 3 y 5?", "¿Cuánto es 3 por ciento de 200?", "el 5 por 100 de 200",
+                 "10 por 2 horas", "elige 15 entre 3 y 5"):
+        assert s.solve(text) is None, text
+    assert s.solve("¿Cuánto es 5% de 200?").output == 10
+
+
 async def test_deterministic_first_kernel(runtime, mock):
     runtime.kernel.config = runtime.kernel.config.merged({"deterministic_first": True})
     before = len(mock.calls)

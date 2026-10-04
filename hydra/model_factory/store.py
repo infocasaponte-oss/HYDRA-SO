@@ -7,13 +7,11 @@
 
 from __future__ import annotations
 
-import json
-import threading
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel
 
+from hydra.core.docstore import DocumentStore, KeyedModels
 from hydra.model_factory.hardware import HardwareProfile, preferred_formats
 from hydra.model_factory.manifest import FactoryJob, ModelArtifact, ModelFormat, ModelLineage, ModelVariant
 
@@ -29,27 +27,38 @@ class ResolveConstraints(BaseModel):
 
 
 class FactoryStore:
-    def __init__(self, root: Path) -> None:
+    """Factory registry: artifacts, variants, lineage and jobs, one ``hydra.core.docstore`` document
+    each (``models/<name>.json``, or PostgreSQL shared by the gateway, the factory workers and every
+    other node). Each write changes one entry on the latest document."""
+
+    def __init__(self, root: Path, docs: DocumentStore | None = None) -> None:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self.artifacts: dict[str, ModelArtifact] = self._load("artifacts.json", ModelArtifact)
-        self.variants: dict[str, ModelVariant] = self._load("variants.json", ModelVariant)
-        self.lineage: dict[str, ModelLineage] = self._load("lineage.json", ModelLineage)
-        self.jobs: dict[str, FactoryJob] = self._load("jobs.json", FactoryJob)
+        docs = self.docs = docs or DocumentStore()
 
-    def _load(self, name: str, model: type[BaseModel]) -> dict[str, Any]:
-        p = self.root / name
-        if not p.exists():
-            return {}
-        return {k: model.model_validate(v) for k, v in json.loads(p.read_text(encoding="utf-8")).items()}
+        def registry(name: str, model: type[BaseModel]) -> KeyedModels:
+            return KeyedModels(docs.document(f"models/{name}", root / name), model)
 
-    def _save(self, name: str, data: dict[str, BaseModel]) -> None:
-        with self._lock:
-            tmp = self.root / f".{name}.tmp"
-            tmp.write_text(json.dumps({k: v.model_dump(mode="json") for k, v in data.items()}, indent=1),
-                           encoding="utf-8")
-            tmp.replace(self.root / name)
+        self._artifacts = registry("artifacts.json", ModelArtifact)
+        self._variants = registry("variants.json", ModelVariant)
+        self._lineage = registry("lineage.json", ModelLineage)
+        self._jobs = registry("jobs.json", FactoryJob)
+
+    @property
+    def artifacts(self) -> dict[str, ModelArtifact]:
+        return self._artifacts.all()
+
+    @property
+    def variants(self) -> dict[str, ModelVariant]:
+        return self._variants.all()
+
+    @property
+    def lineage(self) -> dict[str, ModelLineage]:
+        return self._lineage.all()
+
+    @property
+    def jobs(self) -> dict[str, FactoryJob]:
+        return self._jobs.all()
 
     def dir_for(self, logical: str) -> Path:
         d = self.root / "builds" / logical.replace("/", "_").replace(":", "_")
@@ -58,11 +67,8 @@ class FactoryStore:
 
     # ------------------------------------------------------------------ artifacts
     def add_artifact(self, a: ModelArtifact, lineage: ModelLineage) -> ModelArtifact:
-        self.artifacts[a.id] = a
-        self.lineage[a.id] = lineage
-        self._save("artifacts.json", self.artifacts)
-        self._save("lineage.json", self.lineage)
-        return a
+        self._lineage.put(a.id, lineage)
+        return self._artifacts.put(a.id, a)
 
     def source_of(self, logical: str) -> ModelArtifact | None:
         cands = [a for a in self.artifacts.values() if a.logical_model == logical and a.parent_id is None]
@@ -86,9 +92,7 @@ class FactoryStore:
 
     # ------------------------------------------------------------------ variants
     def upsert_variant(self, v: ModelVariant) -> ModelVariant:
-        self.variants[v.id] = v
-        self._save("variants.json", self.variants)
-        return v
+        return self._variants.put(v.id, v)
 
     def variants_of(self, logical: str) -> list[ModelVariant]:
         return [v for v in self.variants.values() if v.logical_model == logical]
@@ -98,12 +102,11 @@ class FactoryStore:
 
     # ------------------------------------------------------------------ jobs
     def save_job(self, job: FactoryJob) -> FactoryJob:
-        self.jobs[job.id] = job
-        self._save("jobs.json", self.jobs)
-        return job
+        return self._jobs.put(job.id, job)
 
     def reload_jobs(self) -> None:
-        self.jobs = self._load("jobs.json", FactoryJob)
+        """Kept for callers: ``jobs`` always reflects the stored registry (refreshed per document version)."""
+        self._jobs.doc.get()
 
     # ------------------------------------------------------------------ resolver
     def resolve(self, logical: str, constraints: ResolveConstraints | dict | None = None) -> ModelVariant | None:

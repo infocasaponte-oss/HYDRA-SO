@@ -28,6 +28,8 @@ import sys
 from pathlib import Path
 
 import hydra
+from hydra.cli_io import kv_pairs as _kv
+from hydra.cli_io import print_json as _print
 
 
 def _settings(args):
@@ -39,29 +41,11 @@ def _settings(args):
     return Settings()
 
 
-def _print(obj) -> None:
-    if hasattr(obj, "model_dump_json"):
-        print(obj.model_dump_json(indent=2))
-    else:
-        print(json.dumps(obj, indent=2, ensure_ascii=False, default=str))
-
-
 def _image(path: str) -> str:
     if path.startswith(("http://", "https://", "data:")):
         return path
     mime = mimetypes.guess_type(path)[0] or "image/png"
     return f"data:{mime};base64," + base64.b64encode(Path(path).read_bytes()).decode()
-
-
-def _kv(pairs: list[str] | None) -> dict:
-    out = {}
-    for p in pairs or []:
-        k, _, v = p.partition("=")
-        try:
-            out[k] = json.loads(v)
-        except json.JSONDecodeError:
-            out[k] = v
-    return out
 
 
 def _source(spec: str):
@@ -233,10 +217,9 @@ async def cmd_failures(args, runtime) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(encoding="utf-8")
+def build_parser() -> argparse.ArgumentParser:
+    """The whole ``hydra`` command tree (engine and model factory); its shape is pinned by
+    ``tests/contracts/cli.json``."""
     p = argparse.ArgumentParser(prog="hydra", description=f"HYDRA OS {hydra.__version__}. {hydra.__copyright__}")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--offline", action="store_true", help="deterministic offline models (no runtime)")
@@ -297,10 +280,19 @@ def main(argv: list[str] | None = None) -> int:
     fac.add_argument("--param", nargs="*")
     fac.add_argument("--once", action="store_true")
 
-    from hydra.cli_platform import NO_RUNTIME, add_platform_parsers, run_platform, run_without_runtime
+    from hydra.cli_platform import add_platform_parsers
 
     add_platform_parsers(sub)
-    args = p.parse_args(argv)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    from hydra.cli_platform import NO_RUNTIME, run_platform, run_without_runtime
+
+    args = build_parser().parse_args(argv)
     if args.cmd in NO_RUNTIME:
         return run_without_runtime(args, _settings(args))
     if args.cmd == "serve":

@@ -12,6 +12,7 @@ import logging
 import re
 
 from hydra.core.contracts import (
+    DecisionObservation,
     ExecutionMode,
     HydraRequest,
     ModelRequest,
@@ -19,6 +20,8 @@ from hydra.core.contracts import (
     TaskType,
 )
 from hydra.router.observer import DecisionObserver
+from hydra.router.scoring import SOURCE_SIGNAL
+from hydra.verification.grounding import has_source
 from hydra.router.decision_authority import DecisionAuthority
 
 log = logging.getLogger("hydra.router")
@@ -86,6 +89,12 @@ def _hits(text: str, words: tuple[str, ...]) -> int:
 
 
 class CognitiveRouter:
+    def route_native(self, task):
+        """Route the published native contract without applying request-schema defaults."""
+        from hydra.router.native import CapabilityRouter
+
+        return CapabilityRouter().route(task)
+
     def __init__(self, classifier=None, classifier_model: str | None = None,
                  *, observer: DecisionObserver | None = None,
                  authority: DecisionAuthority | None = None) -> None:
@@ -101,13 +110,21 @@ class CognitiveRouter:
             decision = await self._refine(request, decision)
         decision = self._policy(request, decision)
         if self.observer is not None:
-            decision.observation = await self.observer.observe(request)
+            try:
+                decision.observation = await self.observer.observe(request)
+            except Exception:
+                # An advisory backend must not break policy routing. Cancellation
+                # still propagates (CancelledError is a BaseException).
+                log.warning("decision observer failed; preserving policy routing")
+                decision.observation = DecisionObservation(status="error",
+                    model=getattr(self.observer, "model", "unknown"), reason="observer.failure")
+                return decision
             hint = self.authority.task_hint(decision.observation) if self.authority else None
             if (hint is not None and decision.risk < .5 and not request.images
                     and hint != TaskType.VISION and not (decision.observation.reason or "").startswith("policy_gate")):
                 decision.task_type = hint
-                decision.requires_reasoning = hint == TaskType.REASONING
-                decision.requires_tools = hint == TaskType.CODING
+                decision.requires_reasoning = decision.requires_reasoning or hint == TaskType.REASONING
+                decision.requires_tools = decision.requires_tools or hint == TaskType.CODING
                 decision.signals["decision.controlled_hint"] = 1
                 decision = self._policy(request, decision)
         return decision
@@ -131,6 +148,9 @@ class CognitiveRouter:
         risk = min(1.0, 0.1 + 0.25 * _hits(text, HIGH_RISK))
 
         signals = {f"kw.{t.value}": float(n) for t, n in hits.items()}
+        # Only the latest message: a source pasted turns ago must not pin the whole chat to a specialist.
+        if has_source(request.last_user_text):
+            signals[SOURCE_SIGNAL] = 1.0
         return RoutingDecision(
             task_type=task,
             complexity=complexity,

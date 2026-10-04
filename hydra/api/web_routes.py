@@ -2,8 +2,10 @@
 """Authenticated, read-only public-web tools for Studio and local integrations."""
 from typing import Literal
 from uuid import uuid4
+
 from fastapi import HTTPException, Request
 from pydantic import BaseModel, Field
+
 from hydra.tools.capabilities import RESEARCHER
 from hydra.tools.definitions import ToolCall, ToolContext
 

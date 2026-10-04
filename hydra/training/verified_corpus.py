@@ -7,9 +7,10 @@ Families, rather than random rows, define the held-out partitions.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
+
+from hydra.core.hashing import sha256_file
 
 SYSTEM = "Eres HYDRA, asistente de programación. Responde con código Python correcto, sin explicaciones."
 FAMILIES = {
@@ -32,11 +33,7 @@ FAMILIES = {
 
 
 def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(8*1024*1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return sha256_file(path, chunk=8 * 1024 * 1024)
 
 
 def build(output: Path, per_family: int = 32) -> dict:
@@ -61,7 +58,8 @@ def build(output: Path, per_family: int = 32) -> dict:
                 exec(compile(code, "<trusted-curriculum>", "exec"), scope)
                 inputs = [-10, 0, 1, n, n+1, 2*n] if arg == "x" else [[], [n], [n, n, 0], [-10, 0, n, n+1]]
                 cases = [{"input": x, "expected": oracle(x,n,k)} for x in inputs]
-                assert all(scope["solve"](c["input"]) == c["expected"] for c in cases)
+                if not all(scope["solve"](c["input"]) == c["expected"] for c in cases):
+                    raise ValueError(f"template {family}-{i} disagrees with its oracle")
                 rows.append({"id": f"{family}-{i}", "family": family,
                              "messages": [{"role":"system","content":SYSTEM},
                                           {"role":"user","content":prompt},

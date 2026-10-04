@@ -174,8 +174,14 @@ async def definition_of_done(rt, *, run_recovery: bool = True) -> list[Check]:
 
         tmp = Path(tempfile.mkdtemp(prefix="hydra-dr-"))
         try:
-            man = backup(s.data_dir, tmp / "b.tar.gz")
-            rep = restore(tmp / "b.tar.gz", tmp / "restored")
+            from hydra.core.eventlog import open_log_space
+
+            runtime_line = open_log_space(s.runtime_backend, s.postgres_url, "runtime")
+            man = backup(s.data_dir, tmp / "b.tar.gz", ledger=rt.ledger,
+                         logs=[rt.corpus.logs, rt.world.logs, rt.ip.logs, rt.artifact_store.logs, runtime_line,
+                               rt.configs.logs, rt.documents])
+            shared_blobs = rt.artifact_store.blobs if rt.settings.artifact_objects else None
+            rep = restore(tmp / "b.tar.gz", tmp / "restored", blobs=shared_blobs)
             row("Recovery: restore probado", rep.ok, files=man.files.__len__(), ledger=rep.ledger.get("ok"),
                 artifacts=rep.artifacts.get("ok"))
         except Exception as exc:

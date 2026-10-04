@@ -54,7 +54,8 @@ def build(output: Path) -> dict:
         scope = {}
         exec(code, scope)  # Only the static trusted references above.
         for value, expected in cases:
-            assert scope["solve"](value) == expected, family
+            if scope["solve"](value) != expected:
+                raise ValueError(f"regression reference {family} fails its own case {value!r}")
         rows.append({"id": family, "family": family,
                      "messages": [{"role": "system", "content": SYSTEM},
                                   {"role": "user", "content": "Escribe solve(xs). " + instruction},

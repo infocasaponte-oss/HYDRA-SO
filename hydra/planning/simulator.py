@@ -12,7 +12,6 @@ expected success, variance and tail risk; branch-and-bound prunes hopeless plans
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import random
@@ -64,26 +63,33 @@ class ActionStats(BaseModel):
 
 
 class HistoricalSimulator:
-    """Per (goal_type, action) statistics learned from executions."""
+    """Per (goal_type, action) statistics learned from executions, in the ``planning/historical.json``
+    document (``hydra.core.docstore``): every node adds its executions to the shared counts."""
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, docs=None) -> None:
+        from hydra.core.docstore import DocumentStore, KeyedModels
+
         self.path = path
-        self.stats: dict[str, ActionStats] = {}
-        if path and path.exists():
-            self.stats = {k: ActionStats(**v) for k, v in json.loads(path.read_text()).items()}
+        self._registry = KeyedModels((docs or DocumentStore()).document("planning/historical.json", path),
+                                     ActionStats)
+
+    @property
+    def stats(self) -> dict[str, ActionStats]:
+        return self._registry.all()
 
     def key(self, goal_type: str, action: str) -> str:
         return f"{goal_type}|{action.split(':')[0]}"
 
     def record(self, goal_type: str, action: str, success: bool, ms: float, cost: float = 0.0) -> None:
-        s = self.stats.setdefault(self.key(goal_type, action), ActionStats())
-        s.n += 1
-        s.successes += int(success)
-        s.total_ms += ms
-        s.total_cost += cost
-        if self.path:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps({k: v.model_dump() for k, v in self.stats.items()}))
+        def add(s: ActionStats | None) -> ActionStats:
+            s = s or ActionStats()
+            s.n += 1
+            s.successes += int(success)
+            s.total_ms += ms
+            s.total_cost += cost
+            return s
+
+        self._registry.change(self.key(goal_type, action), add)
 
     def predict(self, goal_type: str, node: PlanNode) -> SimulationResult | None:
         s = self.stats.get(self.key(goal_type, node.action))
@@ -112,19 +118,28 @@ class CalibrationRecord(BaseModel):
 
 
 class CalibrationEngine:
-    """predicted .80 vs actual 62% -> over-confident: bias = mean(actual - predicted)."""
+    """predicted .80 vs actual 62% -> over-confident: bias = mean(actual - predicted). Records live in the
+    ``planning/calibration.json`` document; every node appends to the shared history (last 500 per key)."""
 
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, docs=None) -> None:
+        from hydra.core.docstore import DocumentStore, KeyedModels
+
         self.path = path
-        self.data: dict[str, list[CalibrationRecord]] = {}
-        if path and path.exists():
-            self.data = {k: [CalibrationRecord(**x) for x in v] for k, v in json.loads(path.read_text()).items()}
+        self._registry = KeyedModels((docs or DocumentStore()).document("planning/calibration.json", path))
+        self._raw = None
+        self._data: dict[str, list[CalibrationRecord]] = {}
+
+    @property
+    def data(self) -> dict[str, list[CalibrationRecord]]:
+        raw = self._registry.all()
+        if raw is not self._raw:
+            self._data = {k: [CalibrationRecord(**x) for x in v] for k, v in raw.items()}
+            self._raw = raw
+        return self._data
 
     def record(self, simulator: str, domain: str, predicted: float, actual: bool) -> None:
-        self.data.setdefault(f"{simulator}|{domain}", []).append(CalibrationRecord(predicted=predicted, actual=actual))
-        if self.path:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps({k: [r.model_dump() for r in v[-500:]] for k, v in self.data.items()}))
+        rec = CalibrationRecord(predicted=predicted, actual=actual).model_dump()
+        self._registry.change(f"{simulator}|{domain}", lambda cur: [*(cur or []), rec][-500:])
 
     def bias(self, simulator: str, domain: str) -> float:
         recs = self.data.get(f"{simulator}|{domain}", [])[-200:]

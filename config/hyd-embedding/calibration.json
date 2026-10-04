@@ -1,0 +1,107 @@
+{
+  "format": "hyd-calibration/1",
+  "model_sha256": "b1b7527054db5c4f1eb900523dbeff8f1332445b7f93a6d4b9681cff9098ccb7",
+  "implementation_sha256": "628439272647074fa3a56a38894fef658577682c4ad5d44b7d35069b050d8202",
+  "temperature": 0.75,
+  "dataset_sha256": "97b67a51aa9f8be3eb0e54b769b82f29dcb96edbdfb8d76706c8e17ad1201d96",
+  "criteria": {
+    "chat": "Write a conversational or creative response; no code or external search needed.",
+    "coding": "Write, debug or explain software code; do not execute an environment action.",
+    "reasoning": "Solve a logical or mathematical problem from the supplied facts.",
+    "research": "Find or compare external evidence and cite sources.",
+    "vision": "Interpret an attached image, screenshot or photographed document.",
+    "tool_use": "Perform an actual operation using environment tools.",
+    "abstain": "Required question, input or context is missing; ask for clarification.",
+    "security": "Assess malicious commands, threats, exploits or exposed credentials.",
+    "privacy": "Assess or handle personal information and sharing restrictions.",
+    "high_risk_review": "Review authorization for a consequential or irreversible action; do not execute it."
+  },
+  "min_confidence": 0.95,
+  "min_margin": 0.1,
+  "status": "SHADOW_ONLY",
+  "independent_test": false,
+  "encoder": {
+    "kind": "llamacpp-embeddings",
+    "endpoint": "http://127.0.0.1:18094",
+    "model": "hydra-instruction-v8",
+    "dims": 1536,
+    "pooling": "mean",
+    "gguf_sha256": "0ef14148ababf98c52623f164d776ed76f17a583175ea91301e024a157231761",
+    "base": "Qwen2.5-1.5B (Apache-2.0) fine-tuned as HYDRA v8",
+    "license": "Apache-2.0"
+  },
+  "l2": 0.1,
+  "metrics": {
+    "requested": 828,
+    "valid": 828,
+    "accepted": 234,
+    "coverage": 0.2826086956521739,
+    "accuracy": 0.9957264957264957,
+    "accuracy_wilson_lower_95": 0.9761938735442534,
+    "ece_10_bins": 0.07559087024042753,
+    "brier_multiclass_sum": 0.291716289989881,
+    "nll": 0.6169224879543029,
+    "bins": [
+      {
+        "bin": 2,
+        "n": 5,
+        "confidence": 0.26325852518876186,
+        "accuracy": 1.0
+      },
+      {
+        "bin": 3,
+        "n": 27,
+        "confidence": 0.37028748566600994,
+        "accuracy": 0.5925925925925926
+      },
+      {
+        "bin": 4,
+        "n": 43,
+        "confidence": 0.45343651332836826,
+        "accuracy": 0.6046511627906976
+      },
+      {
+        "bin": 5,
+        "n": 71,
+        "confidence": 0.5428043882237542,
+        "accuracy": 0.7605633802816901
+      },
+      {
+        "bin": 6,
+        "n": 71,
+        "confidence": 0.6463566614432618,
+        "accuracy": 0.7887323943661971
+      },
+      {
+        "bin": 7,
+        "n": 99,
+        "confidence": 0.7517110572913884,
+        "accuracy": 0.7575757575757576
+      },
+      {
+        "bin": 8,
+        "n": 166,
+        "confidence": 0.8538681605511261,
+        "accuracy": 0.7771084337349398
+      },
+      {
+        "bin": 9,
+        "n": 346,
+        "confidence": 0.9610080344446201,
+        "accuracy": 0.9393063583815029
+      }
+    ],
+    "acceptance_rule": {
+      "min_confidence": 0.95,
+      "min_margin": 0.1
+    }
+  },
+  "probes_dev": {
+    "synonyms": 0.707,
+    "typos": 0.72,
+    "preamble": 0.453,
+    "shuffled_order": 0.5,
+    "negation": 0.22
+  },
+  "limitation": "Synthetic training and dev data; authority requires an independent human test."
+}

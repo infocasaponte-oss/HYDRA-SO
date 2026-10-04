@@ -5,20 +5,24 @@
 
 Patches, stdout, reports, datasets, model manifests and evidence bundles all share the
 same identity mechanism. Metadata and relations (task, parents/lineage) live in an
-append-only manifest log; an S3-compatible bucket can replace ``objects/`` in production
-(the URI scheme ``cas://sha256/<hex>`` does not change)."""
+append-only manifest log, a ``hydra.core.eventlog`` log on files or on the PostgreSQL stream
+``artifacts/manifests.jsonl`` (HYDRA_ARTIFACTS_BACKEND). Blobs live in ``objects/`` or in an
+S3-compatible bucket (``hydra.artifacts.blobs``); the URI scheme ``cas://sha256/<hex>`` does not change.
+Several nodes share artifacts when both the manifest log and the blobs are shared."""
 
 from __future__ import annotations
 
 import json
-import shutil
 import threading
+import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.artifacts.blobs import LocalBlobs, S3Blobs
+from hydra.core.eventlog import LogSpace
 from hydra.core.hashing import now_iso, sha256_file, sha256_hex
 
 
@@ -43,27 +47,42 @@ class ArtifactManifest(BaseModel):
 
 
 class ArtifactStore:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, logs: LogSpace | None = None, blobs: LocalBlobs | S3Blobs | None = None,
+                 refresh_s: float = 1.0) -> None:
         self.root = root
-        self.objects = root / "objects"
-        self.objects.mkdir(parents=True, exist_ok=True)
-        self.log = root / "manifests.jsonl"
-        self._lock = threading.Lock()
-        self.manifests: dict[str, ArtifactManifest] = {}
-        if self.log.exists():
-            for line in self.log.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    m = ArtifactManifest.model_validate_json(line)
-                    self.manifests[m.artifact_id] = m
+        root.mkdir(parents=True, exist_ok=True)
+        self.blobs = blobs or LocalBlobs(root / "objects")
+        self.logs = logs or LogSpace(label="artifacts")
+        self._log = self.logs.open(root / "manifests.jsonl", "artifacts/manifests.jsonl")
+        self.refresh_s = refresh_s
+        self._lock = threading.RLock()
+        self._manifests: dict[str, ArtifactManifest] = {}
+        self._seen = 0
+        self._synced_at = 0.0
+        self._catch_up()
 
-    def object_path(self, digest: str) -> Path:
-        return self.objects / digest[:2] / digest[2:4] / digest
+    @property
+    def manifests(self) -> dict[str, ArtifactManifest]:
+        if self._log.shared and time.monotonic() - self._synced_at >= self.refresh_s:
+            self._catch_up()
+        return self._manifests
+
+    def _catch_up(self) -> None:
+        with self._lock:
+            for seq, line in self._log.read(self._seen):
+                m = ArtifactManifest.model_validate_json(line)
+                self._manifests[m.artifact_id] = m
+                self._seen = seq
+            self._synced_at = time.monotonic()
 
     def _record(self, m: ArtifactManifest) -> ArtifactManifest:
+        """Append the manifest; the blob is already stored, so a manifest never points at nothing."""
         with self._lock:
-            with open(self.log, "a", encoding="utf-8") as f:
-                f.write(m.model_dump_json() + "\n")
-            self.manifests[m.artifact_id] = m
+            seq, _ = self._log.append(m.model_dump_json())
+            if self._log.shared:
+                self._catch_up()
+            else:
+                self._manifests[m.artifact_id], self._seen = m, seq
         return m
 
     def put(self, data: bytes | str, *, media_type: str = "text/plain", artifact_type: str = "blob",
@@ -71,12 +90,7 @@ class ArtifactStore:
             metadata: dict[str, Any] | None = None) -> ArtifactManifest:
         raw = data.encode("utf-8") if isinstance(data, str) else data
         digest = sha256_hex(raw)
-        path = self.object_path(digest)
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_bytes(raw)
-            tmp.replace(path)
+        self.blobs.put(digest, raw)
         return self._record(ArtifactManifest(
             sha256=digest, size_bytes=len(raw), media_type=media_type, artifact_type=artifact_type,
             uri=f"cas://sha256/{digest}", created_by_task=task_id, parents=parents or [], created_by=created_by,
@@ -88,10 +102,7 @@ class ArtifactStore:
 
     def put_file(self, src: Path, **kw) -> ArtifactManifest:
         digest = sha256_file(src)
-        path = self.object_path(digest)
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(src, path)
+        self.blobs.put_file(digest, src)
         kw.setdefault("metadata", {})["filename"] = src.name
         return self._record(ArtifactManifest(sha256=digest, size_bytes=src.stat().st_size,
                                              uri=f"cas://sha256/{digest}",
@@ -102,7 +113,7 @@ class ArtifactStore:
         """``ref`` may be an artifact id, a sha256 or a ``cas://`` URI."""
         digest = ref.rsplit("/", 1)[-1] if ref.startswith("cas://") else (
             self.manifests[ref].sha256 if ref in self.manifests else ref)
-        return self.object_path(digest).read_bytes()
+        return self.blobs.get(digest)
 
     def text(self, ref: str) -> str:
         return self.get(ref).decode("utf-8", "replace")
@@ -125,10 +136,9 @@ class ArtifactStore:
     def verify(self) -> dict[str, Any]:
         """Re-hash every stored object (disaster recovery / audit)."""
         bad, checked = [], 0
-        for digest in {m.sha256 for m in self.manifests.values()}:
-            p = self.object_path(digest)
+        for digest in sorted({m.sha256 for m in self.manifests.values()}):
             checked += 1
-            if not p.exists() or sha256_file(p) != digest:
+            if self.blobs.digest_of(digest) != digest:
                 bad.append(digest)
         return {"ok": not bad, "objects": checked, "corrupt_or_missing": bad}
 

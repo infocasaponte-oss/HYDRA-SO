@@ -1,26 +1,9 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-from __future__ import annotations
+"""Compatibility export; implementation lives in hydra.deploy.health_gate."""
+import sys
+from hydra.deploy import health_gate as _implementation
+from hydra.deploy.health_gate import wait_for_health
 
-import asyncio
-from time import monotonic
-
-import httpx
-
-
-async def wait_for_health(
-    url: str,
-    *,
-    timeout_seconds: float = 60.0,
-    interval_seconds: float = 0.25,
-) -> bool:
-    deadline = monotonic() + timeout_seconds
-    async with httpx.AsyncClient(timeout=2.0) as client:
-        while monotonic() < deadline:
-            try:
-                response = await client.get(url)
-                if 200 <= response.status_code < 300:
-                    return True
-            except httpx.HTTPError:
-                pass
-            await asyncio.sleep(interval_seconds)
-    return False
+__all__ = ["wait_for_health"]
+# Preserve module identity so existing probe monkeypatches affect its globals.
+sys.modules[__name__] = _implementation

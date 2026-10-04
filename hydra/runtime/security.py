@@ -1,67 +1,15 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
-from __future__ import annotations
+"""Compatibility module alias for hydra.api.native_access."""
+import sys
 
-import hashlib
-import hmac
-from dataclasses import dataclass
+from hydra.api import native_access as _implementation
+from hydra.api.native_access import (
+    SecurityConfig,
+    _provided_token,
+    _matches,
+    require_api_access,
+    require_admin_access,
+)
 
-from fastapi import HTTPException, Request, status
-
-_LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
-
-
-@dataclass(frozen=True)
-class SecurityConfig:
-    api_token: str | None
-    admin_token: str | None
-
-
-def _provided_token(request: Request) -> str | None:
-    authorization = request.headers.get("authorization", "")
-    if authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
-    return request.headers.get("x-hydra-token") or request.headers.get("x-api-key")
-
-
-def _local_request(request: Request) -> bool:
-    client = request.client
-    return client is not None and client.host in _LOCAL_HOSTS
-
-
-def _matches(provided: str | None, expected: str | None) -> bool:
-    if not provided or not expected:
-        return False
-    return hmac.compare_digest(provided.encode(), expected.encode())
-
-
-def require_api_access(request: Request, config: SecurityConfig) -> str:
-    provided = _provided_token(request)
-    if config.api_token:
-        if not _matches(provided, config.api_token):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid HYDRA API token",
-            )
-        return hashlib.sha256(provided.encode()).hexdigest()
-
-    if not _local_request(request):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="HYDRA API token is not configured; remote access is disabled",
-        )
-    return f"local:{request.client.host}"
-
-
-def require_admin_access(request: Request, config: SecurityConfig) -> str:
-    provided = _provided_token(request)
-    if not config.admin_token:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="HYDRA admin token is not configured",
-        )
-    if not _matches(provided, config.admin_token):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid HYDRA admin token",
-        )
-    return hashlib.sha256(provided.encode()).hexdigest()
+__all__ = ['SecurityConfig', '_provided_token', '_matches', 'require_api_access', 'require_admin_access']
+sys.modules[__name__] = _implementation

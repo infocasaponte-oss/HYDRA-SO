@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from hydra.core.vectors import cosine as _cos
 from hydra.world.model import (
     VISIBILITY_RANK,
     Belief,
@@ -80,10 +81,6 @@ class EntityResolver:
         return best.entity_id if best.entity_id and best.probability >= self.threshold else None
 
 
-def _cos(a: list[float], b: list[float]) -> float:
-    num = sum(x * y for x, y in zip(a, b))
-    da, db = math.sqrt(sum(x * x for x in a)), math.sqrt(sum(y * y for y in b))
-    return num / (da * db) if da and db else 0.0
 
 
 # =========================================================================================
@@ -141,10 +138,7 @@ class KnowledgeCompiler:
                                              properties={"task_type": task_type, "confidence": confidence,
                                                          "verified": verified}))
         # 2) per-task world state (text facts, perception, tool facts) as observations
-        interim = WorldModel(None)
-        interim.entities, interim.beliefs = dict(self.world.entities), dict(self.world.beliefs)
-        interim.evidence, interim.relations = dict(self.world.evidence), dict(self.world.relations)
-        interim.aliases = dict(self.world.aliases)
+        interim = self.world.scratch()
 
         def feed(obs: Observation) -> None:
             d = interim.observe(obs, visibility=vis)

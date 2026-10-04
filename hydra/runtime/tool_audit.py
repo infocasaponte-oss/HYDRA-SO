@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from hydra.runtime.events import JsonlEventStore
+from hydra.core.durable_events import JsonlEventStore
 from hydra.runtime.policy import ToolPermission
 from hydra.runtime.tool_runtime import ToolResult, ToolRuntime
 

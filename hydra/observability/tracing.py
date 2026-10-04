@@ -31,6 +31,10 @@ from hydra.core.events import EventType, HydraEvent
 log = logging.getLogger("hydra.tracing")
 
 BUCKETS_MS = (50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000)
+BUCKETS_PCT = (10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100)
+# Histograms whose unit is not milliseconds get their own buckets (a percentage in ms buckets
+# piles every observation into the first two and makes quantiles meaningless).
+BUCKETS_BY_METRIC = {"hydra_confidence_pct": BUCKETS_PCT}
 
 
 def _hex(uuid_like: str, n: int) -> str:
@@ -79,16 +83,25 @@ class _Trace:
         return f"{int(self.root.span_id[:8], 16) ^ self.counter:08x}{self.counter:08x}"
 
 
+class _HistogramMap(dict):
+    """defaultdict(Histogram) that picks the buckets from the metric name (key[0])."""
+
+    def __missing__(self, key: tuple) -> Histogram:
+        h = self[key] = Histogram(BUCKETS_BY_METRIC.get(key[0], BUCKETS_MS))
+        return h
+
+
 class Histogram:
-    def __init__(self) -> None:
-        self.counts = [0] * (len(BUCKETS_MS) + 1)
+    def __init__(self, buckets: tuple[float, ...] = BUCKETS_MS) -> None:
+        self.buckets = buckets
+        self.counts = [0] * (len(buckets) + 1)
         self.sum = 0.0
         self.n = 0
 
     def observe(self, v: float) -> None:
         self.n += 1
         self.sum += v
-        for i, b in enumerate(BUCKETS_MS):
+        for i, b in enumerate(self.buckets):
             if v <= b:
                 self.counts[i] += 1
                 return
@@ -104,8 +117,9 @@ class CognitiveTracer:
         self.active: dict[str, _Trace] = {}
         self.finished: deque[_Trace] = deque(maxlen=keep)
         self.counters: dict[tuple, float] = defaultdict(float)
-        self.hist: dict[tuple, Histogram] = defaultdict(Histogram)
+        self.hist: dict[tuple, Histogram] = _HistogramMap()
         self._pending: list[dict] = []
+        self._exports: set[asyncio.Task] = set()
 
     # ------------------------------------------------------------------ event -> spans/metrics
     async def observe(self, e: HydraEvent) -> None:
@@ -115,7 +129,9 @@ class CognitiveTracer:
             log.debug("tracer failed on %s", e.type, exc_info=True)
         if self._pending and self.endpoint:
             batch, self._pending = self._pending, []
-            asyncio.get_running_loop().create_task(self._export(batch))
+            task = asyncio.get_running_loop().create_task(self._export(batch))
+            self._exports.add(task)  # the loop keeps only weak references to tasks
+            task.add_done_callback(self._exports.discard)
 
     def _observe(self, e: HydraEvent) -> None:
         tid = str(e.task_id)
@@ -279,7 +295,7 @@ class CognitiveTracer:
                 f'tool="{extra[0]}",' if extra else ""
             lines.append(f"# TYPE {name} histogram")
             cum = 0
-            for b, c in zip(BUCKETS_MS, h.counts):
+            for b, c in zip(h.buckets, h.counts):
                 cum += c
                 lines.append(f'{name}_bucket{{{lab}le="{b}"}} {cum}')
             lines.append(f'{name}_bucket{{{lab}le="+Inf"}} {h.n}')
@@ -288,5 +304,6 @@ class CognitiveTracer:
         for k, v in sorted((gauges or {}).items()):
             lines.append(f"# TYPE {k} gauge")
             lines.append(f"{k} {v}")
+        lines.append("# TYPE hydra_process_pid gauge")
         lines.append(f"hydra_process_pid {os.getpid()}")
         return "\n".join(lines) + "\n"

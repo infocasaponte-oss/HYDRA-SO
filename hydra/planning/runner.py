@@ -27,7 +27,7 @@ from hydra.planning.goals import ExecutionPlan, Goal, PlanNode, PlanWeights, par
 from hydra.planning.htn import decompose, infer_goal
 from hydra.planning.procedures import ProcedureMiner, ProcedureStore, Trace, ValueModel
 from hydra.planning.simulator import CalibrationEngine, HistoricalSimulator, SimulatorEnsemble, branch_and_bound
-from hydra.runtime.code_verification import changed_python_paths
+from hydra.verification.code import changed_python_paths
 
 FILE_BLOCK = re.compile(r"(?:###\s*FILE:\s*|#\s*file:\s*)(?P<path>[\w./\\-]+)\s*\n```[\w+-]*\s*\n(?P<body>.*?)```", re.S)
 DIFF_BLOCK = re.compile(r"```(?:diff|patch)\s*\n(.*?)```", re.S)
@@ -92,10 +92,11 @@ class GoalRunner:
         data = runtime.settings.data_dir
         self.checkpoints = data / "goals"
         self.checkpoints.mkdir(parents=True, exist_ok=True)
-        self.historical = HistoricalSimulator(data / "planning" / "historical.json")
-        self.calibration = CalibrationEngine(data / "planning" / "calibration.json")
-        self.procedures = ProcedureStore(data / "planning" / "procedures.json")
-        self.value = ValueModel(data / "planning" / "value.json")
+        docs = getattr(runtime, "documents", None)
+        self.historical = HistoricalSimulator(data / "planning" / "historical.json", docs=docs)
+        self.calibration = CalibrationEngine(data / "planning" / "calibration.json", docs=docs)
+        self.procedures = ProcedureStore(data / "planning" / "procedures.json", docs=docs)
+        self.value = ValueModel(data / "planning" / "value.json", docs=docs)
         self.traces_path = data / "planning" / "traces.jsonl"
         self.gate = ActionGate(audit=self._audit)
         self.sim = SimulatorEnsemble(self.historical, self.calibration, self.gate.risk)

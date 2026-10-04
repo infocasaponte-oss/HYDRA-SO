@@ -8,19 +8,26 @@
     ├── snapshots.jsonl    Corpus Time Machine (log offset + content hash)
     ├── curated/           partitioned export  year=/month=/domain=  (Parquet if pyarrow, else JSONL)
     └── releases/          frozen dataset releases (never "latest")
+
+The four logs are ``hydra.core.eventlog`` logs: JSONL files on one node, or streams of the PostgreSQL
+table ``hydra_logs`` (HYDRA_CORPUS_BACKEND) shared by every node. The in-memory state is the replay of
+the logs; with a shared backend it picks up other nodes' writes at most ``refresh_s`` seconds after
+them, and always before its own writes and snapshots.
 """
 
 from __future__ import annotations
 
 import json
 import threading
+import time
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterator
 
 from pydantic import BaseModel, Field
 
+from hydra.core.eventlog import FileLog, LogSpace, PostgresLog
 from hydra.core.hashing import hash_obj, now_iso
 from hydra.corpus.dedup import ContaminationGuard, Deduplicator
 from hydra.corpus.gates import CorpusCurator, GateDecision
@@ -36,57 +43,108 @@ class CorpusSnapshot(BaseModel):
     parent: str | None = None
 
 
+_TRAINABLE_STATES = (TrainingStatus.CURATED, TrainingStatus.GOLD)
+
+
 class CorpusStore:
-    def __init__(self, root: Path, curator: CorpusCurator | None = None, ledger=None) -> None:
+    def __init__(self, root: Path, curator: CorpusCurator | None = None, ledger=None,
+                 logs: LogSpace | None = None, refresh_s: float = 1.0) -> None:
         self.root = root
         root.mkdir(parents=True, exist_ok=True)
         (root / "releases").mkdir(exist_ok=True)
-        self.log_path = root / "log.jsonl"
-        self.lineage_path = root / "lineage.jsonl"
-        self.tomb_path = root / "tombstones.jsonl"
-        self.snap_path = root / "snapshots.jsonl"
+        self.logs = logs or LogSpace(label="corpus")
+        self._log = self.logs.open(root / "log.jsonl", "corpus/log.jsonl")
+        self._lineage = self.logs.open(root / "lineage.jsonl", "corpus/lineage.jsonl")
+        self._tombs = self.logs.open(root / "tombstones.jsonl", "corpus/tombstones.jsonl")
+        self._snaps = self.logs.open(root / "snapshots.jsonl", "corpus/snapshots.jsonl")
         self.ledger = ledger
+        self.refresh_s = refresh_s
         self._lock = threading.RLock()
-        self.records: dict[str, CorpusRecord] = {}
-        self.offset = 0
-        self.edges: list[LineageEdge] = []
-        self.tombstones: dict[str, Tombstone] = {}
+        self._records: dict[str, CorpusRecord] = {}
+        self.offset = 0  # record log entries replayed
+        self._edges: list[LineageEdge] = []
+        self._edges_seen = 0
+        self._tombstones: dict[str, Tombstone] = {}
+        self._tombs_seen = 0
+        self._synced_at = 0.0
+        self._deduped: set[str] = set()
         self.dedup = curator.dedup if curator and curator.dedup else Deduplicator()
         self.curator = curator or CorpusCurator(dedup=self.dedup)
         if self.curator.dedup is None:
             self.curator.dedup = self.dedup
-        for line in self._lines(self.log_path):
-            rec = CorpusRecord.model_validate_json(line)
-            self.records[rec.id] = rec
-            self.offset += 1
-        for rec in self.records.values():
-            if rec.training_status in (TrainingStatus.CURATED, TrainingStatus.GOLD):
-                self.dedup.add(rec)
-        self.edges = [LineageEdge.model_validate_json(x) for x in self._lines(self.lineage_path)]
-        for x in self._lines(self.tomb_path):
-            t = Tombstone.model_validate_json(x)
-            self.tombstones[t.record_id] = t
+        self._catch_up(initial=True)
 
-    @staticmethod
-    def _lines(path: Path) -> Iterable[str]:
-        if path.exists():
-            for line in path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    yield line
+    # ------------------------------------------------------------------ state (replay of the logs)
+    @property
+    def records(self) -> dict[str, CorpusRecord]:
+        self._sync()
+        return self._records
 
-    def _append(self, path: Path, model: BaseModel) -> None:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(model.model_dump_json() + "\n")
+    @property
+    def edges(self) -> list[LineageEdge]:
+        self._sync()
+        return self._edges
+
+    @property
+    def tombstones(self) -> dict[str, Tombstone]:
+        self._sync()
+        return self._tombstones
+
+    def _sync(self) -> None:
+        """Pick up other nodes' writes (shared backends only, at most every ``refresh_s``)."""
+        if self._log.shared and time.monotonic() - self._synced_at >= self.refresh_s:
+            self._catch_up()
+
+    def _catch_up(self, initial: bool = False) -> None:
+        with self._lock:
+            for seq, line in self._log.read(self.offset):
+                rec = CorpusRecord.model_validate_json(line)
+                self._records[rec.id] = rec
+                self.offset = seq
+                if not initial and rec.training_status in _TRAINABLE_STATES:
+                    self._dedup_add(rec)
+            if initial:  # the dedup index holds what is curated now, not what once was
+                for rec in self._records.values():
+                    if rec.training_status in _TRAINABLE_STATES:
+                        self._dedup_add(rec)
+            for seq, line in self._lineage.read(self._edges_seen):
+                self._edges.append(LineageEdge.model_validate_json(line))
+                self._edges_seen = seq
+            for seq, line in self._tombs.read(self._tombs_seen):
+                t = Tombstone.model_validate_json(line)
+                self._tombstones[t.record_id] = t
+                self._tombs_seen = seq
+            self._synced_at = time.monotonic()
+
+    def _dedup_add(self, rec: CorpusRecord) -> None:
+        if rec.id not in self._deduped:
+            self._deduped.add(rec.id)
+            self.dedup.add(rec)
+
+    def _append(self, log: FileLog | PostgresLog, model: BaseModel, apply: Callable[[int], None]) -> None:
+        """Write one entry. A local log applies it directly; a shared one replays it in the global
+        order, together with whatever other nodes wrote before it."""
+        seq, _ = log.append(model.model_dump_json())
+        if log.shared:
+            self._catch_up()
+        else:
+            apply(seq)
+
+    def history(self, after: int = 0) -> Iterator[tuple[int, str]]:
+        """``(seq, JSON line)`` of every record version written after entry ``after`` (edge sync)."""
+        return self._log.read(after)
 
     def set_contamination(self, guard: ContaminationGuard) -> None:
         self.curator.contamination = guard
 
     # ------------------------------------------------------------------ write
     def _write(self, rec: CorpusRecord) -> CorpusRecord:
+        def apply(seq: int) -> None:
+            self._records[rec.id] = rec
+            self.offset = seq
+
         with self._lock:
-            self._append(self.log_path, rec)
-            self.records[rec.id] = rec
-            self.offset += 1
+            self._append(self._log, rec, apply)
         return rec
 
     def ingest(self, rec: CorpusRecord, curate: bool = True) -> tuple[CorpusRecord, GateDecision | None]:
@@ -100,8 +158,8 @@ class CorpusStore:
             decision = self.curator.curate(rec)
             rec.training_status = decision.status
             rec.metadata["gate_reasons"] = decision.reasons
-            if decision.status in (TrainingStatus.CURATED, TrainingStatus.GOLD):
-                self.dedup.add(rec)
+            if decision.status in _TRAINABLE_STATES:
+                self._dedup_add(rec)
         self._write(rec)
         if self.ledger is not None and rec.training_status in (TrainingStatus.CURATED, TrainingStatus.GOLD):
             self.ledger.append("CORPUS_RECORD_CREATED", {
@@ -123,16 +181,20 @@ class CorpusStore:
         rec.metadata["human_reviewed"] = approve
         if approve:
             rec.training_status = TrainingStatus.GOLD if rec.quality > 0.92 else TrainingStatus.CURATED
-            self.dedup.add(rec)
+            self._dedup_add(rec)
         else:
             rec.training_status = TrainingStatus.BLOCKED
         return self._write(rec)
 
     def add_lineage(self, parent: str, child: str, transformation: str) -> LineageEdge:
         e = LineageEdge(parent_id=parent, child_id=child, transformation=transformation)
+
+        def apply(seq: int) -> None:
+            self._edges.append(e)
+            self._edges_seen = seq
+
         with self._lock:
-            self._append(self.lineage_path, e)
-            self.edges.append(e)
+            self._append(self._lineage, e, apply)
         return e
 
     # ------------------------------------------------------------------ lineage / impact
@@ -168,11 +230,14 @@ class CorpusStore:
                     kinds[k].append(e.child_id)
         t = Tombstone(record_id=record_id, reason=reason, affected_datasets=sorted(set(kinds["dataset"])),
                       affected_models=sorted(set(kinds["model"])), affected_artifacts=sorted(set(kinds["artifact"])))
+        def apply(seq: int) -> None:
+            self._tombstones[record_id] = t
+            self._tombs_seen = seq
+
         with self._lock:
-            self._append(self.tomb_path, t)
-            self.tombstones[record_id] = t
-            if record_id in self.records:
-                rec = self.records[record_id].model_copy(deep=True)
+            self._append(self._tombs, t, apply)
+            if record_id in self._records:
+                rec = self._records[record_id].model_copy(deep=True)
                 rec.training_status = TrainingStatus.TOMBSTONED
                 self._write(rec)
         if self.ledger is not None:
@@ -224,24 +289,29 @@ class CorpusStore:
 
     # ------------------------------------------------------------------ snapshots
     def snapshot(self) -> CorpusSnapshot:
+        """Freeze the state at the current log offset. The id and parent are assigned while the
+        snapshot stream is locked, so two nodes never mint the same snapshot id."""
         with self._lock:
-            state = sorted((r.id, r.training_status.value) for r in self.records.values())
-            snaps = list(self._lines(self.snap_path))
-            parent = CorpusSnapshot.model_validate_json(snaps[-1]).id if snaps else None
-            s = CorpusSnapshot(id=f"hc-{datetime.now().strftime('%Y.%m.%d')}-{len(snaps) + 1}", log_offset=self.offset,
-                               records=len(self.records), content_hash=hash_obj(state), parent=parent)
-            self._append(self.snap_path, s)
-        return s
+            if self._log.shared:
+                self._catch_up()
+            state = sorted((r.id, r.training_status.value) for r in self._records.values())
+            offset, count, day = self.offset, len(self._records), datetime.now().strftime("%Y.%m.%d")
+
+            def build(seq: int, last: str | None) -> str:
+                parent = CorpusSnapshot.model_validate_json(last).id if last else None
+                return CorpusSnapshot(id=f"hc-{day}-{seq}", log_offset=offset, records=count,
+                                      content_hash=hash_obj(state), parent=parent).model_dump_json()
+
+            _, body = self._snaps.append(build)
+        return CorpusSnapshot.model_validate_json(body)
 
     def snapshots(self) -> list[CorpusSnapshot]:
-        return [CorpusSnapshot.model_validate_json(x) for x in self._lines(self.snap_path)]
+        return [CorpusSnapshot.model_validate_json(x) for _, x in self._snaps.read()]
 
     def at_snapshot(self, snapshot_id: str) -> dict[str, CorpusRecord]:
         snap = next(s for s in self.snapshots() if s.id == snapshot_id)
         state: dict[str, CorpusRecord] = {}
-        for i, line in enumerate(self._lines(self.log_path)):
-            if i >= snap.log_offset:
-                break
+        for _, line in self._log.read(0, snap.log_offset):
             rec = CorpusRecord.model_validate_json(line)
             state[rec.id] = rec
         return state

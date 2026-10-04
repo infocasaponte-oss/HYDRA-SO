@@ -1,0 +1,269 @@
+# Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+import hashlib
+import json
+
+import numpy as np
+import pytest
+
+from hydra.hyd import probes
+from hydra.hyd import route_corpus_v5 as v5
+from hydra.hyd.embedding import EmbeddingRanker, fit_head
+from hydra.router.decision_contract import CRITERIA
+
+LABELS = list(CRITERIA)
+
+
+class FakeEncoder:
+    """Deterministic bag-of-hashed-words embedding: enough to exercise the head and the engine."""
+    dims = 64
+
+    def __init__(self):
+        self.calls = 0
+
+    def embed(self, texts, deadline=None):
+        self.calls += 1
+        out = np.zeros((len(texts), self.dims))
+        for i, text in enumerate(texts):
+            for word in text.lower().split():
+                out[i, int(hashlib.sha256(word.encode()).hexdigest(), 16) % self.dims] += 1
+        return out
+
+
+def trained_head(encoder):
+    texts = [f"{label} petición número {i}" for label in LABELS for i in range(6)]
+    y = np.array([LABELS.index(t.split()[0]) for t in texts])
+    x = encoder.embed(texts)
+    mean, scale = x.mean(0), x.std(0) + 1e-6
+    w, b = fit_head((x - mean) / scale, y, len(LABELS), 0.01)
+    model = EmbeddingRanker(encoder, LABELS, mean, scale, w, b)
+    model.training = {"criteria": CRITERIA}
+    return model
+
+
+def test_head_learns_saves_loads_and_refuses_unknown_option_sets(tmp_path):
+    encoder = FakeEncoder()
+    model = trained_head(encoder)
+    p = model.probabilities("coding por favor", None, CRITERIA)
+    assert max(p, key=p.get) == "coding" and abs(sum(p.values()) - 1) < 1e-9
+    other = model.probabilities("lo que sea", None, {"a": "x", "b": "y"})
+    assert other == {"a": 0.5, "b": 0.5}  # no opinion outside the trained label set
+    spec = {"kind": "llamacpp-embeddings", "endpoint": "http://127.0.0.1:1", "model": "m", "dims": 64}
+    model.save(tmp_path / "model.json", spec)
+    loaded = EmbeddingRanker.load(tmp_path / "model.json", encoder=encoder)
+    assert loaded.revision == model.revision and loaded.exclusive
+    assert loaded.probabilities("coding por favor", None, CRITERIA) == pytest.approx(p)
+    data = json.loads((tmp_path / "model.json").read_text(encoding="utf-8"))
+    data["scale"][0] = 0
+    (tmp_path / "bad.json").write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError):
+        EmbeddingRanker.load(tmp_path / "bad.json", encoder=encoder)
+
+
+def test_encoder_must_be_local():
+    from hydra.hyd.embedding import LlamaCppEncoder
+    with pytest.raises(ValueError):
+        LlamaCppEncoder("https://example.org", "m", 8)
+
+
+def test_controller_serves_embedding_head_with_one_slot(tmp_path, monkeypatch):
+    from hydra.hyd import embedding
+    from hydra.hyd.controller import HydController, implementation_digest
+    encoder = FakeEncoder()
+    model = trained_head(encoder)
+    spec = {"kind": "llamacpp-embeddings", "endpoint": "http://127.0.0.1:1", "model": "m", "dims": 64}
+    model.save(tmp_path / "model.json", spec)
+    calibration = {"format": "hyd-calibration/1", "model_sha256": model.revision,
+                   "implementation_sha256": implementation_digest(), "temperature": model.temperature,
+                   "criteria": CRITERIA, "dataset_sha256": "x", "min_confidence": .5, "min_margin": .05}
+    (tmp_path / "calibration.json").write_text(json.dumps(calibration), encoding="utf-8")
+    monkeypatch.setattr(embedding, "encoder_from", lambda _spec, _base=None: encoder)
+    hyd = HydController(tmp_path / "model.json", tmp_path / "calibration.json")
+    assert hyd._capacity == 1 and not hyd.authority.enabled
+    answer = hyd.engine.decide("coding por favor", {"task": {"type": "choice", "criteria": CRITERIA}})["answers"]["task"]
+    assert answer["choice"] == "coding" and answer["reason"] in ("accepted", "low_confidence")
+
+
+def test_probes_keep_labels_and_negation_takes_the_wanted_request():
+    rows = [{"text": f"petición de {label} número {i}", "expected": label} for label in LABELS for i in range(3)]
+    built = probes.build(rows, LABELS, per_probe=20)
+    assert set(built) == {"synonyms", "typos", "preamble", "shuffled_order", "negation"}
+    for item in built["negation"]:
+        assert item["text"].endswith(next(r["text"] for r in rows if r["text"] in item["text"].split("esto: ")[1]))
+        assert item["expected"] in item["text"].split("esto: ")[1]
+
+
+def test_corpus_v5_adds_capabilities_and_stays_decontaminated(tmp_path):
+    test = tmp_path / "test.jsonl"
+    test.write_text(json.dumps({"text": "a qué hora me dijiste que pasaba el último tren"}) + "\n", encoding="utf-8")
+    manifest = v5.build(test, tmp_path / "out", seed=3, per_template=4)
+    assert set(manifest["labels"]) == set(CRITERIA)
+    assert {"preamble", "contrast"} <= set(manifest["augmentations"])
+    rows = [json.loads(line) for line in (tmp_path / "out/corpus.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert any(r["template"].startswith("abs5") and r["expected"] == "abstain" for r in rows)
+    assert any(r["template"] == "num5-money" and r["expected"] == "high_risk_review" for r in rows)
+    train = {r["template"] for r in rows if r["split"] == "train"}
+    dev = {r["template"] for r in rows if r["split"] == "dev"}
+    assert not train & dev
+
+
+def test_encoder_down_is_a_backend_failure():
+    from hydra.hyd.embedding import LlamaCppEncoder
+    encoder = LlamaCppEncoder("http://127.0.0.1:9", "m", 8, timeout_s=2)  # discard port: nothing listens
+    with pytest.raises(RuntimeError, match="unavailable"):
+        encoder.embed(["hola"])
+
+
+@pytest.mark.parametrize("endpoint", ["http://localhost.attacker.example:80", "http://127.0.0.1@attacker.example:80",
+                                      "https://127.0.0.1:18094", "http://127.0.0.1", "http://10.0.0.5:18094",
+                                      "http://127.0.0.1:18094/v1?x=1"])
+def test_encoder_endpoint_must_be_exactly_loopback(endpoint):
+    from hydra.hyd.embedding import LlamaCppEncoder
+    with pytest.raises(ValueError):
+        LlamaCppEncoder(endpoint, "m", 8)
+    assert LlamaCppEncoder("http://127.0.0.1:18094", "m", 8).endpoint == "http://127.0.0.1:18094"
+
+
+def test_selective_metrics_apply_the_margin_rule():
+    from hydra.hyd.train_embedding import selective_metrics
+    rows = [{"expected": "a", "selected": "a", "probabilities": {"a": .5, "b": .45, "c": .05}},
+            {"expected": "a", "selected": "a", "probabilities": {"a": .9, "b": .05, "c": .05}}]
+    report = selective_metrics(rows, .3, .2)
+    assert report["accepted"] == 1 and report["coverage"] == .5
+
+def _gpu_with_cpu_fallback():
+    from pathlib import Path
+
+    from hydra.hyd.controller import HydController
+    root = Path(__file__).resolve().parents[1]
+    cpu = HydController(root / "config/hyd/model.json", root / "config/hyd/calibration.json")
+    gpu = HydController(root / "config/hyd-embedding/model.json", root / "config/hyd-embedding/calibration.json",
+                        fallback=cpu)
+    gpu.engine.ranker.encoder.endpoint = "http://127.0.0.1:9"  # nothing listens here
+    return gpu, cpu
+
+
+async def test_stopped_encoder_falls_back_to_cpu_ranker_with_cooldown():
+    from hydra.core.contracts import HydraRequest, Message
+    gpu, cpu = _gpu_with_cpu_fallback()
+    calls = []
+    original = gpu._decide
+
+    async def counting(*args, **kwargs):
+        calls.append(1)
+        return await original(*args, **kwargs)
+    gpu._decide = counting
+    request = HydraRequest(messages=[Message(role="user", content="Escribe una función que sume dos números")])
+    first = await gpu.observe(request)
+    assert first.status == "observed" and first.reason.startswith("hyd.fallback_cpu.")
+    assert first.model == gpu.FALLBACK_MODEL != gpu.model and first.elapsed_ms > 0
+    second = await gpu.observe(request)
+    assert second.reason.startswith("hyd.fallback_cpu.") and len(calls) == 1  # primary skipped during cooldown
+    await gpu.close()
+
+
+async def test_public_decisions_also_fall_back_and_busy_primary_uses_fallback():
+    from hydra.router.decision_contract import CRITERIA
+    gpu, _ = _gpu_with_cpu_fallback()
+    question = {"task": {"type": "choice", "criteria": CRITERIA}}
+    result = await gpu.decide("Escribe una función que sume dos números", question)
+    assert result["fallback"] == "cpu" and result["model"] == gpu.FALLBACK_MODEL
+    gpu._primary_down_until = 0  # primary considered up again, but its only slot is taken
+    gpu._capacity = 0
+    busy = await gpu.decide("Escribe una función que sume dos números", question)
+    assert busy["fallback"] == "cpu"
+    assert gpu.backend() == "hyd-native-encoder" and gpu.fallback.backend() == "hyd-native-cpu"
+    await gpu.close()
+
+
+async def test_fallback_observations_never_use_primary_authority():
+    from hydra.core.contracts import DecisionObservation
+    from hydra.router.decision_authority import DecisionAuthority
+    gpu, _ = _gpu_with_cpu_fallback()
+    gpu.authority = DecisionAuthority(True, gpu.model)
+    primary = DecisionObservation(status="observed", model=gpu.model, selected="coding",
+                                  probabilities={"coding": 1.0}, confidence=1.0, reason="hyd.accepted")
+    fallback = primary.model_copy(update={"model": gpu.FALLBACK_MODEL, "reason": "hyd.fallback_cpu.accepted"})
+    assert gpu.task_hint(primary) is not None and gpu.task_hint(fallback) is None
+    await gpu.close()
+
+
+def test_offline_runtime_uses_the_cpu_ranker_only(tmp_path):
+    import asyncio
+
+    from hydra.core.bootstrap import build_runtime
+    from hydra.core.config import Settings
+    runtime = asyncio.run(build_runtime(Settings(offline=True, data_dir=tmp_path)))
+    observer = runtime.kernel.router.observer
+    assert observer.backend() == "hyd-native-cpu" and getattr(observer, "fallback", None) is None
+
+
+
+
+def test_hydra_base_encoder_mean_pools_and_checks_hashes(tmp_path):
+    torch = pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")
+    spm = pytest.importorskip("sentencepiece")
+    from hydra.hyd.embedding import HydraBaseEncoder
+    from hydra.training.base_corpus import file_sha256
+    corpus = tmp_path / "corpus.txt"
+    corpus.write_text("\n".join(f"frase número {i} sobre el puerto y la ciudad" for i in range(200)), encoding="utf-8")
+    tok_dir = tmp_path / "tok"
+    tok_dir.mkdir()
+    spm.SentencePieceTrainer.train(input=str(corpus), model_prefix=str(tok_dir / "tokenizer"), vocab_size=60,
+                                   unk_id=0, bos_id=1, eos_id=2, pad_id=3)
+    transformers.LlamaTokenizer(vocab_file=str(tok_dir / "tokenizer.model"), legacy=False,
+                                pad_token="<pad>").save_pretrained(str(tok_dir))
+    model_dir = tmp_path / "base"
+    torch.manual_seed(0)
+    config = transformers.LlamaConfig(vocab_size=60, hidden_size=16, intermediate_size=32, num_hidden_layers=1,
+                                      num_attention_heads=2, num_key_value_heads=1, pad_token_id=3)
+    transformers.LlamaModel(config).save_pretrained(model_dir, safe_serialization=True)
+    encoder = HydraBaseEncoder(str(model_dir), str(tok_dir), 16, file_sha256(model_dir / "model.safetensors"),
+                               file_sha256(tok_dir / "tokenizer.model"))
+    vectors = encoder.embed(["el puerto", "una frase bastante más larga sobre la ciudad y el puerto"])
+    assert vectors.shape == (2, 16) and np.isfinite(vectors).all()
+    wrong = HydraBaseEncoder(str(model_dir), str(tok_dir), 16, "0" * 64, file_sha256(tok_dir / "tokenizer.model"))
+    with pytest.raises(RuntimeError, match="hashes"):
+        wrong.embed(["x"])
+
+
+def test_hydra_base_spec_requires_matching_manifest_and_binds_config(tmp_path):
+    torch = pytest.importorskip("torch")
+    transformers = pytest.importorskip("transformers")
+    spm = pytest.importorskip("sentencepiece")
+    from hydra.hyd.embedding import HydraBaseEncoder, encoder_from
+    from hydra.hyd.train_embedding import hydra_base_spec
+    from hydra.training.base_corpus import file_sha256
+    corpus = tmp_path / "c.txt"
+    corpus.write_text("\n".join(f"texto {i} de prueba sobre la costa" for i in range(200)), encoding="utf-8")
+    tok = tmp_path / "tok"
+    tok.mkdir()
+    spm.SentencePieceTrainer.train(input=str(corpus), model_prefix=str(tok / "tokenizer"), vocab_size=50,
+                                   unk_id=0, bos_id=1, eos_id=2, pad_id=3)
+    transformers.LlamaTokenizer(vocab_file=str(tok / "tokenizer.model"), legacy=False,
+                                pad_token="<pad>").save_pretrained(str(tok))
+    final = tmp_path / "base" / "final"
+    torch.manual_seed(0)
+    transformers.LlamaModel(transformers.LlamaConfig(vocab_size=50, hidden_size=8, intermediate_size=16,
+                                                     num_hidden_layers=1, num_attention_heads=2,
+                                                     num_key_value_heads=1, pad_token_id=3)).save_pretrained(final)
+    out = tmp_path / "head"
+    with pytest.raises(ValueError, match="build-manifest"):
+        hydra_base_spec(final, tok, out)
+    manifest = {"kind": "hydra-base", "stage": 1, "weights_sha256": file_sha256(final / "model.safetensors"),
+                "tokenizer_sha256": "f" * 64}
+    (final.parent / "build-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(ValueError, match="does not match"):
+        hydra_base_spec(final, tok, out)
+    manifest["tokenizer_sha256"] = file_sha256(tok / "tokenizer.model")
+    (final.parent / "build-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    spec = hydra_base_spec(final, tok, out)
+    assert not spec["model_dir"].startswith(("/", "C:", "D:")) and spec["config_sha256"]
+    encoder = encoder_from(spec, out)
+    assert encoder.embed(["la costa"]).shape == (1, 8)
+    config = json.loads((final / "config.json").read_text(encoding="utf-8"))
+    config["rope_theta"] = 500000.0
+    (final / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="configuration"):
+        encoder_from(spec, out).embed(["la costa"])
+    assert HydraBaseEncoder.identity(final, tok) != spec["config_sha256"]

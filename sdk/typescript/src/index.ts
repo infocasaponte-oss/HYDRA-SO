@@ -71,9 +71,12 @@ export class HydraClient {
 
   /** Streams structured events (task.created, route.selected, model.completed, ...) then the result. */
   streamTask(goal: string, onEvent: (e: HydraEventEnvelope) => void, mode: Mode = "balanced"): Promise<HydraResult> {
-    const url = this.baseUrl.replace(/^http/, "ws") + "/v1/ws/tasks" + (this.apiKey ? `?api_key=${encodeURIComponent(this.apiKey)}` : "");
+    const url = this.baseUrl.replace(/^http/, "ws") + "/v1/ws/tasks";
+    // Browsers cannot set WebSocket headers and query strings end up in logs: the key travels as a
+    // subprotocol, base64url-encoded so any key is a valid RFC 7230 token ("hydra.token.b64.<key>").
+    const protocols = this.apiKey ? ["hydra.v1", `hydra.token.b64.${base64url(this.apiKey)}`] : ["hydra.v1"];
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url);
+      const ws = new WebSocket(url, protocols);
       ws.onopen = () => ws.send(JSON.stringify({ goal, mode }));
       ws.onmessage = (m) => {
         const d = JSON.parse(String(m.data));
@@ -84,4 +87,11 @@ export class HydraClient {
       ws.onerror = () => reject(new Error("websocket error"));
     });
   }
+}
+
+function base64url(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }

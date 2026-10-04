@@ -8,17 +8,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from hydra.core.hashing import sha256_file as _sha256_file
 from hydra.model_factory.manifest import Fingerprint
 
 CHUNK = 8 * 1024 * 1024
 
 
 def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        while chunk := f.read(CHUNK):
-            h.update(chunk)
-    return h.hexdigest()
+    return _sha256_file(path, CHUNK)
 
 
 def _hash(obj: Any) -> str:

@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from hydra.core.docstore import DocumentStore
 from hydra.core.hashing import canonical_json, now_iso, sha256_hex
 from hydra.ledger.signing import verify_envelope
 
@@ -43,15 +44,10 @@ class SyncBundle(BaseModel):
 
 
 def export_delta(runtime, since: SyncCursor, origin: str) -> SyncBundle:
-    world_deltas = []
-    log = runtime.world.root / "deltas.jsonl" if runtime.world.root else None
-    if log and log.exists():
-        lines = [x for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]
-        world_deltas = [json.loads(x) for x in lines[since.world_version:]]
+    world_deltas = runtime.world.history(since.world_version)
     corpus = []
-    lines = [x for x in runtime.corpus.log_path.read_text(encoding="utf-8").splitlines() if x.strip()] \
-        if runtime.corpus.log_path.exists() else []
-    for line in lines[since.corpus_offset:]:
+    corpus_offset = since.corpus_offset
+    for corpus_offset, line in runtime.corpus.history(since.corpus_offset):
         r = json.loads(line)
         if r.get("training_status") in ("CURATED", "GOLD") and r.get("classification") in ("PUBLIC", "INTERNAL"):
             corpus.append(r)
@@ -61,7 +57,7 @@ def export_delta(runtime, since: SyncCursor, origin: str) -> SyncBundle:
     events = list(runtime.ledger.events())
     head = events[-1] if events else None
     b = SyncBundle(origin=origin, cursor_from=since,
-                   cursor_to=SyncCursor(world_version=runtime.world.version, corpus_offset=len(lines),
+                   cursor_to=SyncCursor(world_version=runtime.world.version, corpus_offset=corpus_offset,
                                         ledger_sequence=len(runtime.ledger)),
                    world_deltas=world_deltas, corpus_records=corpus, model_manifests=manifests,
                    ledger_digest={"sequence": head.sequence if head else 0, "head": head.event_hash if head else None})
@@ -78,6 +74,17 @@ class ImportReport(BaseModel):
     manifests: int = 0
 
 
+def trusted_sync_keys(runtime) -> set[str]:
+    """Public keys allowed to sign imported bundles: this node's own key plus the operator-installed
+    ``*.pub.pem`` files in ``HYDRA_SYNC_TRUSTED_KEYS_DIR`` (default ``<data_dir>/keys/trusted``)."""
+    settings = runtime.settings
+    directory = settings.sync_trusted_keys_dir or settings.data_dir / "keys" / "trusted"
+    keys = {runtime.signer.public_pem}
+    if Path(directory).is_dir():
+        keys |= {p.read_text(encoding="utf-8") for p in sorted(Path(directory).glob("*.pub.pem"))}
+    return keys
+
+
 def import_delta(runtime, bundle: SyncBundle, trusted_keys: set[str]) -> ImportReport:
     if bundle.signature is None or bundle.signature.get("digest") != bundle.digest() \
             or not verify_envelope(bundle.signature, trusted_keys):
@@ -87,16 +94,21 @@ def import_delta(runtime, bundle: SyncBundle, trusted_keys: set[str]) -> ImportR
 
     rep = ImportReport(ok=True)
     seen_path = runtime.settings.data_dir / "edge" / "applied_deltas.json"
-    seen: set[str] = set(json.loads(seen_path.read_text())) if seen_path.exists() else set()
-    for d in bundle.world_deltas:
-        h = sha256_hex(canonical_json(d))
-        if h in seen:
-            continue
-        runtime.world.apply(KnowledgeDelta.model_validate(d))
-        seen.add(h)
-        rep.world_deltas_applied += 1
-    seen_path.parent.mkdir(parents=True, exist_ok=True)
-    seen_path.write_text(json.dumps(sorted(seen)))
+    docs = getattr(runtime, "documents", None) or DocumentStore()
+
+    def apply_new(applied: list[str]) -> list[str]:
+        """Runs with the document locked: two nodes importing the same bundle apply each delta once."""
+        seen = set(applied)
+        for d in bundle.world_deltas:
+            h = sha256_hex(canonical_json(d))
+            if h in seen:
+                continue
+            runtime.world.apply(KnowledgeDelta.model_validate(d))
+            seen.add(h)
+            rep.world_deltas_applied += 1
+        return sorted(seen)
+
+    docs.document("edge/applied_deltas.json", seen_path, default=list).update(apply_new)
     for r in bundle.corpus_records:
         rec = CorpusRecord.model_validate(r)
         rec.residency = rec.residency or bundle.origin

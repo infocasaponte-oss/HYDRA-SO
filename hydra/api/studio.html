@@ -39,7 +39,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 <header>
   <h1>HYDRA Studio</h1><small id="ver"></small>
   <nav id="nav"></nav>
-  <input id="key" placeholder="API key (opcional)" style="max-width:220px;margin-left:auto">
+  <input id="key" placeholder="API key (opcional)" style="max-width:220px;margin-left:auto" autocomplete="off">
+  <input id="admin" type="password" placeholder="Admin token (sesión)" title="HYDRA_ADMIN_TOKEN: solo para acciones de gobierno; se guarda únicamente en esta pestaña" style="max-width:180px" autocomplete="off">
 </header>
 <main>
 <section class="view" id="v-chat">
@@ -148,11 +149,13 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{border-bottom:1px
 const views=[["chat","Chat"],["web","Web"],["tasks","Tareas"],["world","World Graph"],["models","Modelos"],["corpus","Corpus"],["training","Training"],["infra","Infraestructura"],["ip","IP y Licencias"],["system","Sistema"]];
 const $=id=>document.getElementById(id);
 const store={get(k){try{return localStorage.getItem(k)||""}catch(e){return ""}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}}};
+const session={get(k){try{return sessionStorage.getItem(k)||""}catch(e){return ""}},set(k,v){try{sessionStorage.setItem(k,v)}catch(e){}}};
 $("key").value=store.get("hydra_key");$("key").onchange=e=>store.set("hydra_key",e.target.value);
-function H(){const k=$("key").value;return Object.assign({"Content-Type":"application/json"},k?{"X-API-Key":k}:{})}
+$("admin").value=session.get("hydra_admin");$("admin").onchange=e=>session.set("hydra_admin",e.target.value);
+function H(){const k=$("key").value,a=$("admin").value;return Object.assign({"Content-Type":"application/json"},k?{"X-API-Key":k}:{},a?{"X-Hydra-Admin-Token":a}:{})}
 async function api(path,opts={}){const r=await fetch(path,Object.assign({headers:H()},opts));const t=await r.text();let d;try{d=JSON.parse(t)}catch(e){d=t}if(!r.ok)throw new Error(r.status+" "+(typeof d==="string"?d:JSON.stringify(d)));return d}
 const show=(id,d)=>{$(id).textContent=typeof d==="string"?d:JSON.stringify(d,null,2)};
-const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function nav(){$("nav").innerHTML=views.map(([k,l])=>`<button data-v="${k}">${l}</button>`).join("");
  $("nav").onclick=e=>{const v=e.target.dataset.v;if(v)go(v)};go(store.get("hydra_view")||"chat")}
 function go(v){store.set("hydra_view",v);document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v-"+v));
@@ -161,7 +164,7 @@ const safe=f=>async()=>{try{await f()}catch(e){console.warn(e)}};
 const loaders={
  world:safe(async()=>{show("wstats",await api("/hydra/v1/world"));drawGraph(await api("/hydra/v1/world/graph"))}),
  models:safe(async()=>{const m=await api("/hydra/v1/models/catalog");$("models").innerHTML="<table><tr><th>id</th><th>proveedor</th><th>local</th><th>tier</th><th>activo</th><th>coding</th><th>reasoning</th><th>vision</th></tr>"+
-   m.map(x=>`<tr><td>${esc(x.id)}</td><td>${esc(x.provider)}</td><td>${x.local}</td><td>${x.tier}</td><td class="${x.enabled&&x.installed&&x.provider_healthy?"ok":"bad"}">${!x.enabled?"desactivado":!x.installed?"no instalado":!x.provider_healthy?"backend caído":"sí"}</td><td>${x.capabilities.coding}</td><td>${x.capabilities.reasoning}</td><td>${x.capabilities.vision}</td></tr>`).join("")+"</table>";
+   m.map(x=>`<tr><td>${esc(x.id)}</td><td>${esc(x.provider)}</td><td>${esc(x.local)}</td><td>${esc(x.tier)}</td><td class="${x.enabled&&x.installed&&x.provider_healthy?"ok":"bad"}">${!x.enabled?"desactivado":!x.installed?"no instalado":!x.provider_healthy?"backend caído":"sí"}</td><td>${esc(x.capabilities.coding)}</td><td>${esc(x.capabilities.reasoning)}</td><td>${esc(x.capabilities.vision)}</td></tr>`).join("")+"</table>";
    show("factory",await api("/v1/factory/status"))}),
  corpus:safe(async()=>{show("cstats",await api("/hydra/v1/corpus/stats"));show("dsl",(await api("/hydra/v1/datasets")).map(r=>({id:r.id,examples:r.examples,splits:r.splits,synthetic:r.synthetic_fraction})))}),
  training:safe(async()=>{show("mld",await api("/hydra/v1/training/dashboard"));show("spec",await api("/hydra/v1/training/specialists?window_days=1&min_volume_month=10"));
@@ -172,7 +175,7 @@ const loaders={
  system:safe(async()=>{const inv=await api("/hydra/v1/system/invariants");$("invar").innerHTML=table(inv);
    const d=await api("/hydra/v1/system/dod");$("dod").innerHTML=`<p>${d.summary.PASS} PASS · ${d.summary.PARTIAL} PARTIAL · ${d.summary.FAIL} FAIL</p>`+table(d.rows);show("flags",await api("/hydra/v1/flags"))})
 };
-function table(rows){return "<table>"+rows.map(r=>`<tr><td class="${r.status||(r.passed?"PASS":"FAIL")}">${r.status||(r.passed?"PASS":"FAIL")}</td><td>${esc(r.title||r.id)}</td></tr>`).join("")+"</table>"}
+function table(rows){return "<table>"+rows.map(r=>`<tr><td class="${esc(r.status||(r.passed?"PASS":"FAIL"))}">${esc(r.status||(r.passed?"PASS":"FAIL"))}</td><td>${esc(r.title||r.id)}</td></tr>`).join("")+"</table>"}
 async function runTask(){const q=$("q").value.trim();if(!q)return;const kind=$("kind").value;$("ans").textContent="…";$("tl").innerHTML="";show("learn","");$("meta").textContent="";
  try{if(kind==="goal"){const g=await api("/hydra/v1/goals",{method:"POST",body:JSON.stringify({goal:q,workspace:$("ws").value||null,mode:$("mode").value})});
    $("meta").textContent=`estado ${g.status} · replans ${g.replans} · ${g.duration_ms} ms`;show("ans",(g.answer||"")+(g.patch?"\n\n"+g.patch:""));$("tl").innerHTML=g.steps.map(s=>`<div class="${s.success?"ok":"bad"}">${esc(s.action)} — ${esc(s.summary)}</div>`).join("");show("learn",g.metrics);return}

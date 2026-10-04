@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from hydra.tools.sandbox import DEFAULT_SANDBOX_IMAGE
@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     llamacpp_base_url: str = "http://localhost:8081/v1"
     cloud_base_url: str = "https://api.openai.com/v1"
     cloud_api_key: str = ""
-    internal_api_key: str = "internal"
+    internal_api_key: str = ""
+    """Bearer token for internal OpenAI-compatible runtimes (vLLM/llama.cpp). Empty -> no header."""
 
     # Use deterministic offline models (no runtime needed). Great for dev/tests.
     offline: bool = False
@@ -53,9 +54,21 @@ class Settings(BaseSettings):
 
     # Optional System-One routing classifier (a model id from the registry).
     router_model: str = ""
+    # Hyd replaces the external decision sidecar with HYDRA-owned local inference.
+    hyd_enabled: bool = True
+    hyd_tools_enabled: bool = False
+    """Opt-in local operator lab; never promotes a model or rewrites active configuration."""
+    hyd_tools_input_root: Path = ROOT
+    # Default: the contextual-encoder head (GPU encoder server, scripts/start_hyd_encoder.ps1). When the
+    # encoder is not running, observations fall back to the CPU ranker below instead of failing.
+    hyd_model_path: Path = ROOT / "config" / "hyd-embedding" / "model.json"
+    hyd_calibration_path: Path = ROOT / "config" / "hyd-embedding" / "calibration.json"
+    hyd_fallback_model_path: Path | None = ROOT / "config" / "hyd" / "model.json"
+    hyd_fallback_calibration_path: Path | None = ROOT / "config" / "hyd" / "calibration.json"
+    hyd_authority_evidence_path: Path | None = None
     # Experimental local typed decisions: disabled until explicitly configured.
     decision_shadow_endpoint: str = ""
-    decision_shadow_model: str = "kev-latest"
+    decision_shadow_model: str = "hyd-latest"
     decision_full_contract: bool = False
     decision_shadow_timeout_s: float = Field(default=0.5, gt=0, le=5)
     decision_calibrator_path: Path | None = None
@@ -76,6 +89,64 @@ class Settings(BaseSettings):
     # Gateway protection. Empty -> no auth (development).
     api_key: str = Field(default="", validation_alias=AliasChoices("api_key", "HYDRA_API_KEY", "HYDRA_API_TOKEN"))
     """Gateway token (HYDRA_API_KEY, or HYDRA_API_TOKEN as used by the runtime line)."""
+    admin_token: str = ""
+    client_keys_file: Path = Path("data/keys/api-clients.json")
+    """HYDRA_ADMIN_TOKEN: required (header ``X-Hydra-Admin-Token``) by routes that change governance,
+    IP, corpus approval, releases, models or sync state. Empty -> those routes accept loopback only."""
+    sync_trusted_keys_dir: Path | None = None
+    """Directory with ``*.pub.pem`` keys trusted for edge sync imports (default: <data_dir>/keys/trusted).
+    This node's own public key is always trusted; clients can never supply keys."""
+    fabric_backend: str = "auto"
+    """HYDRA_FABRIC_BACKEND: execution-fabric queue: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
+    psycopg is installed, else local SQLite) | sqlite | postgres (required: fail if unavailable)."""
+    ledger_backend: str = "auto"
+    """HYDRA_LEDGER_BACKEND: signed IP/provenance ledger: auto (PostgreSQL when HYDRA_POSTGRES_URL is set and
+    psycopg is installed, else data/ledger files) | file | postgres (required). A PostgreSQL ledger adopts an
+    existing file ledger once, after verifying it; the file is kept as a read-only copy."""
+    corpus_backend: str = "auto"
+    """HYDRA_CORPUS_BACKEND: corpus logs (records, lineage, tombstones, snapshots): auto (PostgreSQL table
+    hydra_logs when HYDRA_POSTGRES_URL is set and psycopg is installed, else data/corpus files) | file |
+    postgres (required). Existing files are imported once and kept as a read-only copy."""
+    world_backend: str = "auto"
+    """HYDRA_WORLD_BACKEND: World Model delta log and snapshots: auto (PostgreSQL table hydra_logs when
+    HYDRA_POSTGRES_URL is set and psycopg is installed, else data/world files) | file | postgres (required).
+    Existing files are imported once and kept as a read-only copy."""
+    ip_backend: str = "auto"
+    """HYDRA_IP_BACKEND: invention registry log: auto (PostgreSQL stream ip/inventions.jsonl of hydra_logs when
+    HYDRA_POSTGRES_URL is set and psycopg is installed, else data/ip files) | file | postgres (required)."""
+    artifacts_backend: str = "auto"
+    """HYDRA_ARTIFACTS_BACKEND: artifact manifest log: auto (PostgreSQL stream artifacts/manifests.jsonl of
+    hydra_logs when HYDRA_POSTGRES_URL is set and psycopg is installed, else data/artifacts files) | file |
+    postgres (required)."""
+    artifact_objects: str = ""
+    """HYDRA_ARTIFACT_OBJECTS: where artifact blobs live: empty (data/artifacts/objects), a directory (e.g. a
+    volume every node mounts) or s3://bucket/prefix (needs the s3 extra; credentials from the AWS variables)."""
+    s3_endpoint_url: str = ""
+    """HYDRA_S3_ENDPOINT_URL: S3-compatible endpoint (MinIO, Ceph, R2...); empty for AWS S3."""
+    require_shared_state: bool = False
+    """HYDRA_REQUIRE_SHARED_STATE: refuse to start unless every plane is on shared storage (PostgreSQL) and
+    the private keys are outside the data directory. Set it wherever more than one replica runs: a
+    misconfigured node then fails fast instead of writing local files that the others never see."""
+    documents_backend: str = "auto"
+    """HYDRA_DOCUMENTS_BACKEND: small shared registries of the engine and the factory (feature flags,
+    config sets, secret vault and policies, lab, glossaries, model lifecycle, factory registry and
+    adapters, failure memory, edge sync state): auto (PostgreSQL table hydra_documents and hydra_logs when
+    HYDRA_POSTGRES_URL is set and psycopg is installed, else their files under HYDRA_DATA_DIR) | file |
+    postgres (required). Existing files are adopted once and kept."""
+    key_backend: str = "auto"
+    """HYDRA_KEY_BACKEND: where private keys live (hydra.core.keystore): auto | keyring | file | legacy."""
+    keys_dir: Path | None = None
+    """HYDRA_KEYS_DIR: key files outside HYDRA_DATA_DIR (mounted secrets), used when no OS keyring."""
+    key_namespace: str = ""
+    """HYDRA_KEY_NAMESPACE: keyring namespace (default: derived from the data directory path)."""
+
+    @field_validator("sync_trusted_keys_dir", "keys_dir", mode="before")
+    @classmethod
+    def _empty_path_is_unset(cls, value):
+        # An empty variable (HYDRA_SYNC_TRUSTED_KEYS_DIR= / HYDRA_KEYS_DIR=, as in .env.example) would
+        # otherwise become Path('.'): the working directory would hold trusted or private keys.
+        return None if isinstance(value, str) and not value.strip() else value
+
     api_rate_limit_per_minute: int = 60
     """Per-client limit for authenticated API routes. Set <= 0 to disable."""
 
@@ -98,6 +169,10 @@ class Settings(BaseSettings):
     capture: bool = True
     """Capture pipeline: world model, artifacts (CAS), corpus, ledger, flight recorder."""
     capture_outbox_poll_s: float = 2.0
+    outbox_backend: str = "auto"
+    """HYDRA_OUTBOX_BACKEND: capture outbox: auto (PostgreSQL table capture_outbox when HYDRA_POSTGRES_URL is
+    set and psycopg is installed, else data/capture_outbox.db) | sqlite | postgres (required). Unpublished
+    messages of an existing SQLite outbox are imported once."""
     """How often deferred capture writes (ledger/corpus) are retried from the outbox."""
     corpus_auto_training_max_sensitivity: int = 0
     """Own executions at or below this sensitivity are trainable by default (0 = PUBLIC)."""
@@ -122,6 +197,33 @@ class Settings(BaseSettings):
     """Serve the HYDRA-SO runtime line (/ready, /v1/chat, /hydra/v1/admin/*, coding) from the gateway."""
     runtime_anchor_interval_s: float = 300.0
     """Anchor the runtime event/provenance chain heads in the signed ledger this often (0 = only on shutdown)."""
+
+    # Runtime line (hydra.core.native_config.Settings is a view of these; same HYDRA_* variables as before).
+    api_host: str = "127.0.0.1"
+    api_port: int = 8080
+    llm_url: str = "http://127.0.0.1:8081/v1"
+    """HYDRA_LLM_URL: OpenAI-compatible server the runtime line chats with (llama-server)."""
+    models_dir: str = "models"
+    """HYDRA_MODELS_DIR: GGUF models the runtime line inventories and deploys."""
+    runtime_dir: str = "runtime"
+    """HYDRA_RUNTIME_DIR: runtime-line state (events, provenance, outbox, deployments...)."""
+    runtime_db: str = ""
+    """HYDRA_RUNTIME_DB: runtime-line SQLite database (default <runtime_dir>/hydra.db)."""
+    deployments_file: str = ""
+    """HYDRA_DEPLOYMENTS_FILE: deployment registry (default <runtime_dir>/deployments.json)."""
+    readiness_max_pending: int = 1000
+    readiness_max_pending_age_seconds: float = 300.0
+    admin_rate_limit_per_minute: int = 6
+    sandbox_runtime: str = "docker"
+    code_verification_mode: str = "advisory"
+    workspace_max_files: int = 20_000
+    workspace_max_bytes: int = 256 * 1024 * 1024
+    max_output_tokens: int = 4096
+    runtime_backend: str = "auto"
+    """HYDRA_RUNTIME_BACKEND: runtime-line state (event and provenance hash chains, live-traffic evidence,
+    deployment registry, and the hydra.db stores: outbox, task commits, metrics, health, promotion evidence): auto (PostgreSQL streams
+    runtime/* of hydra_logs when HYDRA_POSTGRES_URL is set and psycopg is installed, else files under
+    HYDRA_RUNTIME_DIR) | file | postgres (required). Existing files are imported once and kept."""
 
     hedge_after_ms: float = 3500
     breaker_failures: int = 5

@@ -12,6 +12,11 @@ can be reproduced against the exact world it saw (World Time Machine).
 
 The World Model is the interpretable *current* state; the IP ledger is the immutable
 history. The graph may change, the ledger never does.
+
+The delta log and the snapshots are ``hydra.core.eventlog`` logs: JSONL files on one node, or streams
+of the PostgreSQL table ``hydra_logs`` (HYDRA_WORLD_BACKEND) shared by every node, which replay the
+same deltas in the same order. With a shared backend a node picks up other nodes' deltas at most
+``refresh_s`` seconds after them, and always before applying its own.
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ import json
 import math
 import re
 import threading
+import time
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -28,6 +34,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from hydra.core.eventlog import LogSpace
 from hydra.core.hashing import hash_obj, now_iso
 
 
@@ -227,6 +234,9 @@ class KnowledgeDelta(BaseModel):
     evidence_added: list[Evidence] = Field(default_factory=list)
     causal_links: list[CausalLink] = Field(default_factory=list)
     source: str = "hydra"
+    closed_at: str | None = None
+    """When ``relations_closed`` took effect. ``WorldModel.apply`` stamps it, so every replay (restart,
+    another node, the time machine) closes those relations at the same instant."""
 
     @property
     def empty(self) -> bool:
@@ -272,60 +282,141 @@ class BeliefEngine:
 
 
 class WorldModel:
-    """In-process world graph with a durable delta log (``deltas.jsonl``) and snapshots."""
+    """World graph replayed from a durable delta log (``deltas.jsonl``), with snapshots.
+    ``WorldModel(None)`` is an in-memory scratch world (never persisted)."""
 
-    def __init__(self, root: Path | None = None) -> None:
+    def __init__(self, root: Path | None = None, logs: LogSpace | None = None, refresh_s: float = 1.0) -> None:
         self.root = root
-        self.entities: dict[str, WorldEntity] = {}
-        self.relations: dict[str, WorldRelation] = {}
-        self.events: dict[str, WorldEvent] = {}
-        self.beliefs: dict[str, Belief] = {}
-        self.evidence: dict[str, Evidence] = {}
-        self.causal: dict[str, CausalLink] = {}
-        self.aliases: dict[str, str] = {}
-        self.version = 0
+        self.refresh_s = refresh_s
+        self._entities: dict[str, WorldEntity] = {}
+        self._relations: dict[str, WorldRelation] = {}
+        self._events: dict[str, WorldEvent] = {}
+        self._beliefs: dict[str, Belief] = {}
+        self._evidence: dict[str, Evidence] = {}
+        self._causal: dict[str, CausalLink] = {}
+        self._aliases: dict[str, str] = {}
+        self._version = 0
+        self._synced_at = 0.0
         self.engine = BeliefEngine()
         self._lock = threading.RLock()
-        self._log = None
+        self.logs = self._deltas = self._snaps = None
         if root is not None:
             root.mkdir(parents=True, exist_ok=True)
-            self._log = root / "deltas.jsonl"
-            if self._log.exists():
-                for line in self._log.read_text(encoding="utf-8").splitlines():
-                    if line.strip():
-                        self._apply(KnowledgeDelta.model_validate_json(line))
+            self.logs = logs or LogSpace(label="world")
+            self._deltas = self.logs.open(root / "deltas.jsonl", "world/deltas.jsonl")
+            self._snaps = self.logs.open(root / "snapshots.jsonl", "world/snapshots.jsonl")
+            self._catch_up()
+
+    # ------------------------------------------------------------------ state (replay of the delta log)
+    @property
+    def entities(self) -> dict[str, WorldEntity]:
+        self._sync()
+        return self._entities
+
+    @property
+    def relations(self) -> dict[str, WorldRelation]:
+        self._sync()
+        return self._relations
+
+    @property
+    def events(self) -> dict[str, WorldEvent]:
+        self._sync()
+        return self._events
+
+    @property
+    def beliefs(self) -> dict[str, Belief]:
+        self._sync()
+        return self._beliefs
+
+    @property
+    def evidence(self) -> dict[str, Evidence]:
+        self._sync()
+        return self._evidence
+
+    @property
+    def causal(self) -> dict[str, CausalLink]:
+        self._sync()
+        return self._causal
+
+    @property
+    def aliases(self) -> dict[str, str]:
+        self._sync()
+        return self._aliases
+
+    @property
+    def version(self) -> int:
+        """Deltas applied: the world version every task and snapshot refers to."""
+        self._sync()
+        return self._version
+
+    def _sync(self) -> None:
+        """Pick up other nodes' deltas (shared backends only, at most every ``refresh_s``)."""
+        if self._deltas is not None and self._deltas.shared \
+                and time.monotonic() - self._synced_at >= self.refresh_s:
+            self._catch_up()
+
+    def _catch_up(self) -> None:
+        with self._lock:
+            for _, line in self._deltas.read(self._version):
+                self._apply(KnowledgeDelta.model_validate_json(line))
+            self._synced_at = time.monotonic()
+
+    def history(self, after: int = 0) -> list[dict[str, Any]]:
+        """Deltas after world version ``after``, oldest first (edge sync)."""
+        if self._deltas is None:
+            return []
+        return [json.loads(line) for _, line in self._deltas.read(after)]
+
+    def scratch(self) -> WorldModel:
+        """In-memory copy of the current state for what-if reasoning; nothing it applies is persisted."""
+        with self._lock:
+            self._sync()
+            w = WorldModel(None)
+            w._entities, w._relations, w._events = dict(self._entities), dict(self._relations), dict(self._events)
+            w._beliefs, w._evidence, w._causal = dict(self._beliefs), dict(self._evidence), dict(self._causal)
+            w._aliases, w._version = dict(self._aliases), self._version
+            return w
 
     # ------------------------------------------------------------------ apply
     def apply(self, delta: KnowledgeDelta) -> int:
+        """Persist ``delta`` and apply it. On a shared log it is applied in the global order, after
+        whatever other nodes appended before it; the returned version includes them."""
         if delta.empty:
             return self.version
+        if delta.relations_closed and delta.closed_at is None:
+            delta = delta.model_copy(update={"closed_at": now_iso()})
         with self._lock:
-            self._apply(delta)
-            if self._log is not None:
-                with open(self._log, "a", encoding="utf-8") as f:
-                    f.write(delta.model_dump_json() + "\n")
-        return self.version
+            if self._deltas is None:
+                self._apply(delta)
+            else:
+                self._deltas.append(delta.model_dump_json())
+                if self._deltas.shared:
+                    self._catch_up()
+                else:
+                    self._apply(delta)
+            return self._version
 
     def _apply(self, d: KnowledgeDelta) -> None:
         for e in [*d.entities_created, *d.entities_updated]:
-            self.entities[e.id] = e
+            self._entities[e.id] = e
             for a in [e.id, e.canonical_name or "", *e.aliases]:
                 if a:
-                    self.aliases[self.norm(a)] = e.id
+                    self._aliases[self.norm(a)] = e.id
+        closed_at = d.closed_at or now_iso()  # deltas logged before closed_at existed
         for rid in d.relations_closed:
-            if rid in self.relations and self.relations[rid].valid_until is None:
-                self.relations[rid].valid_until = now_iso()
+            if rid in self._relations and self._relations[rid].valid_until is None:
+                self._relations[rid] = self._relations[rid].model_copy(update={"valid_until": closed_at})
         for r in d.relations_added:
-            self.relations[r.id] = r
+            self._relations[r.id] = r
         for ev in d.evidence_added:
-            self.evidence[ev.id] = ev
+            self._evidence[ev.id] = ev
         for b in [*d.beliefs_added, *d.beliefs_updated]:
-            self.beliefs[b.id] = b
+            self._beliefs[b.id] = b
         for w in d.events_added:
-            self.events[w.id] = w
+            self._events[w.id] = w
         for c in d.causal_links:
-            self.causal[c.id] = c
-        self.version += 1
+            self._causal[c.id] = c
+        self._version += 1
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
@@ -555,20 +646,19 @@ class WorldModel:
         graph = {"e": ents, "r": sorted(self.relations), "b": {k: (v.status, v.confidence) for k, v in self.beliefs.items()}}
         snap = WorldSnapshot(world_version=self.version, graph_hash=hash_obj(graph), entity_versions=ents,
                              corpus_version=corpus_version)
-        if self.root is not None:
-            with open(self.root / "snapshots.jsonl", "a", encoding="utf-8") as f:
-                f.write(snap.model_dump_json() + "\n")
+        if self._snaps is not None:
+            self._snaps.append(snap.model_dump_json())
         return snap
+
+    def snapshots(self) -> list[WorldSnapshot]:
+        return [] if self._snaps is None else [WorldSnapshot.model_validate_json(x) for _, x in self._snaps.read()]
 
     def at_version(self, version: int) -> WorldModel:
         """Rebuild the world exactly as it was after ``version`` deltas (World Time Machine)."""
         past = WorldModel(None)
-        if self._log is not None and self._log.exists():
-            for i, line in enumerate(self._log.read_text(encoding="utf-8").splitlines()):
-                if i >= version:
-                    break
-                if line.strip():
-                    past._apply(KnowledgeDelta.model_validate_json(line))
+        if self._deltas is not None:
+            for _, line in self._deltas.read(0, version):
+                past._apply(KnowledgeDelta.model_validate_json(line))
         return past
 
     def stats(self) -> dict[str, Any]:

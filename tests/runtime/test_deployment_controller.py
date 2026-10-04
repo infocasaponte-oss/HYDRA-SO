@@ -2,11 +2,12 @@
 import pytest
 
 from hydra.runtime.deployment import Deployment, DeploymentState
-from hydra.runtime.deployment_controller import DeploymentController
+from hydra.runtime.deployment_controller import DeploymentController, EvidenceRejected
 from hydra.runtime.deployment_evidence import CanaryEvidence, ShadowEvidence
 from hydra.runtime.deployment_evidence_store import DeploymentEvidenceStore
 from hydra.runtime.deployment_registry import DeploymentRegistry
 from hydra.runtime.model_factory import BuildState, ModelLineage, ModelVariant
+from hydra.runtime.runtime_evidence import RuntimeEvidenceStore
 
 
 def deployment() -> Deployment:
@@ -57,3 +58,63 @@ def test_controller_persists_shadow_and_canary_evidence(tmp_path):
     variant_id = str(item.variant_id)
     assert store.latest_shadow(variant_id) == shadow
     assert store.latest_canary(variant_id) == canary
+
+
+def _mirror(store, variant_id, n, *, agree=True, fail=False):
+    for i in range(n):
+        store.append(trace_id=f"t{i}", capability="reasoning.general", primary_variant_id="active",
+                     primary_output="a", shadow_variant_id=variant_id,
+                     shadow_output=None if fail else ("a" if agree else "b"), shadow_error=fail)
+
+
+def test_promotion_uses_measured_traffic_since_the_phase_started(tmp_path):
+    registry = DeploymentRegistry()
+    item = deployment()
+    registry.add(item)
+    traffic = RuntimeEvidenceStore(tmp_path / "runtime.jsonl")
+    controller = DeploymentController(registry, runtime_evidence=traffic)
+    vid = str(item.variant_id)
+    _mirror(traffic, vid, 50)  # older traffic, before SHADOW began, does not count
+    controller.begin_shadow(item)
+    with pytest.raises(EvidenceRejected) as rejected:
+        controller.approve_canary(item)
+    assert rejected.value.evidence.samples == 0
+    _mirror(traffic, vid, 19)
+    _mirror(traffic, vid, 1, fail=True)
+    with pytest.raises(EvidenceRejected):  # 1 error in 20 exceeds the 1% error budget
+        controller.approve_canary(item)
+    _mirror(traffic, vid, 80)
+    evidence = controller.approve_canary(item)
+    assert evidence.samples == 100 and evidence.error_rate == 0.01 and evidence.agreement_rate == 1.0
+    assert item.state == DeploymentState.CANARY
+
+    for i in range(25):
+        traffic.append(trace_id=f"c{i}", capability="reasoning.general", primary_variant_id=vid,
+                       primary_output="a", canary_variant_id=vid, canary_error=False, canary_latency_ms=6000.0)
+    with pytest.raises(EvidenceRejected) as slow:  # p95 above the 5 s budget
+        controller.activate(item)
+    assert slow.value.evidence.p95_latency_ms == 6000.0
+
+
+def test_shadow_disagreement_blocks_promotion(tmp_path):
+    registry = DeploymentRegistry()
+    item = deployment()
+    registry.add(item)
+    traffic = RuntimeEvidenceStore(tmp_path / "runtime.jsonl")
+    controller = DeploymentController(registry, runtime_evidence=traffic)
+    controller.begin_shadow(item)
+    _mirror(traffic, str(item.variant_id), 18)
+    _mirror(traffic, str(item.variant_id), 2, agree=False)
+    with pytest.raises(EvidenceRejected) as rejected:
+        controller.approve_canary(item)
+    assert rejected.value.evidence.agreement_rate == 0.9
+
+
+def test_measuring_without_a_runtime_store_is_an_error():
+    registry = DeploymentRegistry()
+    item = deployment()
+    registry.add(item)
+    controller = DeploymentController(registry)
+    controller.begin_shadow(item)
+    with pytest.raises(ValueError, match="runtime evidence"):
+        controller.approve_canary(item)

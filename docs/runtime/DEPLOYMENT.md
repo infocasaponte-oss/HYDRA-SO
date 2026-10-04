@@ -16,4 +16,19 @@ Canary makes the candidate eligible for a limited production path. Activation re
 
 When a new generation becomes ACTIVE, the overlapping previous generation becomes DEPRECATED rather than being deleted. HYDRA can therefore roll back to the latest compatible prior generation.
 
-The current alpha controller encodes the lifecycle and evidence contracts. Traffic splitting and persistence of deployment evidence are subsequent runtime layers.
+## Measured evidence (HYDRA 1.1)
+
+Promotion evidence is measured by the server, never supplied by the operator:
+
+* Every routed request appends a record to `runtime/runtime-evidence.jsonl` (`HYDRA_RUNTIME_DIR`):
+  primary/shadow/canary variant, output hashes, exact agreement, per-call errors and latencies.
+  A failed canary call is recorded as a canary error even though the active variant answers.
+* Entering SHADOW or CANARY stores the current end of that log in the deployment metadata
+  (`*_evidence_offset`); only records written afterwards count for that phase.
+* `POST /hydra/v1/admin/deployments/{id}/canary` and `/activate` take no body: they measure, apply
+  `DeploymentPolicy` and answer with the evidence used, or `409` with the evidence and the policy.
+* `GET /hydra/v1/admin/deployments/{id}/evidence` shows the live evidence of the current phase and
+  the thresholds it must reach.
+
+Agreement is exact output equality, so shadow comparisons are meaningful with deterministic
+sampling (temperature 0, fixed seed).

@@ -93,9 +93,9 @@ class OllamaBenchmark:
 class OpenAIBenchmark:
     """llama-server / vLLM / MLX server: measure TTFT and decode speed by streaming."""
 
-    def __init__(self, base_url: str, api_key: str = "internal", timeout: float = 600) -> None:
+    def __init__(self, base_url: str, api_key: str = "", timeout: float = 600) -> None:
         self.base_url = base_url.rstrip("/")
-        self.headers = {"Authorization": f"Bearer {api_key}"}
+        self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.timeout = timeout
 
     async def _stream(self, client: httpx.AsyncClient, model: str, prompt: str, max_tokens: int = 128):
