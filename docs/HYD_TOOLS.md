@@ -1,5 +1,7 @@
 # Ferramentas locais de Hyd e integración en HYDRA
 
+Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
+
 Primeiro incremento do plan do 2026-10-04: contrato `hyd-routing/1`, adaptador de observación, intake humano estrito, snapshots por familias e traballos persistentes de laboratorio. Non activa autoridade, non cambia configuracións en produción e non modifica o adestramento en marcha.
 
 ## Dependencia separada
