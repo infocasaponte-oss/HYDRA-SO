@@ -382,7 +382,7 @@
     "bsc_legal_paragraphs_es": {
       "repo": "BSC-LT/Legal_Catalan_Spanish_Parallel_Corpus",
       "kind": "tsv_column",
-      "column": "es",
+      "column": "es_text",
       "group": 1,
       "files": [
         "legal_ca-es_dataset_clean.tsv"

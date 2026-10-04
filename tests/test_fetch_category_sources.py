@@ -231,7 +231,7 @@ def test_parquet_filter_keeps_only_original_spanish(tmp_path):
 
 def test_tsv_column_is_read_and_grouped(monkeypatch):
     import io
-    body = "ca\tes\nhola ca\thola es\nadeu\tadiós\nmal\n"
+    body = "\ufeffca\tes\r\nhola ca\thola es\r\nadeu\tadiós\r\nmal\r\n"  # BOM and CRLF, as real files
 
     class Response(io.BytesIO):
         def __enter__(self):

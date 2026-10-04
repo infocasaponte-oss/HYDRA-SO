@@ -146,10 +146,10 @@ def stream_tsv_column(url: str, token: str | None, column: str):
     if token:
         headers["Authorization"] = f"Bearer {token}"
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=180) as response:
-        names = response.readline().decode("utf-8").rstrip("\n").split("\t")
+        names = [n.strip().lstrip("\ufeff") for n in response.readline().decode("utf-8").split("\t")]
         index = names.index(column)
         for raw in response:
-            fields = raw.decode("utf-8", "replace").rstrip("\n").split("\t")
+            fields = raw.decode("utf-8", "replace").rstrip("\r\n").split("\t")
             if len(fields) == len(names):
                 yield fields[index]
 
@@ -390,7 +390,10 @@ def main():
     for category in order:
         for source_id in category["sources"]:
             if need.get(category["id"], 0) > 0:
-                run_source(plan, category["id"], source_id, token, need)
+                try:
+                    run_source(plan, category["id"], source_id, token, need)
+                except Exception as exc:  # one broken source must not stop the other categories
+                    print(f"SOURCE FAILED {category['id']}/{source_id}: {type(exc).__name__}: {exc}", flush=True)
         save_json(ROOT / "plan-status.json", {"need_chars": need, "order": [c["id"] for c in order]})
     print("done", json.dumps({k: v for k, v in need.items()}), flush=True)
 
