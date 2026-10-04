@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # Informe de preadestramento — 4 de outubro de 2026
 
 Observación: 2026-10-04T13:20:30.432257+02:00. Fontes: manifestos locais, train.log e resume.json/pt. Non se lanzou nin modificou o adestramento.

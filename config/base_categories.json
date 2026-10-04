@@ -14,12 +14,24 @@
       ]
     },
     {
-      "id": "castelan_moderno",
-      "name": "Castelán moderno xeral e divulgación",
-      "target_tokens": 1000000000,
+      "id": "lingua_moderna",
+      "name": "Lingua moderna xeral (castelán + inglés)",
+      "target_tokens": 2000000000,
       "current_tokens": 0,
-      "sources": [],
-      "gap": "no clean ready-made source: needs a Common Corpus Spanish scan (per-document licence) or CC BY Spanish portals; pending decision"
+      "sources": [
+        "eurlex_es",
+        "bsc_legal_paragraphs_es",
+        "dgt_es",
+        "youtube_commons_es",
+        "youtube_en",
+        "news_en",
+        "common_corpus_mixed"
+      ],
+      "language_targets": {
+        "es": 1000000000,
+        "en": 1000000000
+      },
+      "note": "Spanish: EUR-Lex proposals and international agreements (formal register). English: YouTube Commons transcripts (CC BY, spoken), CC BY news, US government sites. Gap: further modern Spanish (Eurovoc, VoxPopuli) is spread thinly across Common Corpus (~0.15M tokens per 470 MB file) and is not downloadable efficiently."
     },
     {
       "id": "ciencia",
@@ -28,7 +40,9 @@
       "current_tokens": 0,
       "sources": [
         "arxiv_papers",
-        "pubmed"
+        "pubmed",
+        "pes2o",
+        "common_corpus_mixed"
       ]
     },
     {
@@ -48,6 +62,8 @@
       "sources": [
         "libretexts_cc_by",
         "doab_books",
+        "pressbooks",
+        "oercommons",
         "cosmopedia_openstax"
       ]
     },
@@ -74,9 +90,10 @@
       "target_tokens": 600000000,
       "current_tokens": 156000000,
       "sources": [
-        "regulations_us"
-      ],
-      "gap": "EUR-Lex Spanish needs EU Login bulk access"
+        "eurlex_es",
+        "regulations_us",
+        "common_corpus_mixed"
+      ]
     },
     {
       "id": "prensa",
@@ -217,6 +234,183 @@
       "kind": "parquet",
       "license": "Apache-2.0",
       "note": "synthetic (teacher Mixtral-8x7B, Apache-2.0) seeded from OpenStax (CC BY)"
+    },
+    "pes2o": {
+      "repo": "common-pile/peS2o_filtered",
+      "pattern": "peS2o-{:04d}.json.gz",
+      "files": [
+        0,
+        92
+      ],
+      "kind": "licensed"
+    },
+    "eurlex_es": {
+      "repo": "joelniklaus/eurlex_resources",
+      "kind": "xz_jsonl",
+      "license": "eu-reuse-2011-833",
+      "attribution": "© Unión Europea, https://eur-lex.europa.eu",
+      "files": {
+        "data/es/regulation.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/directive.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/decision.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/recommendation.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/caselaw.jsonl.xz": {
+          "target": "lexislacion",
+          "max_chars": 485000000
+        },
+        "data/es/proposal.jsonl.xz": {
+          "target": "lingua_moderna",
+          "max_chars": 1500000000
+        },
+        "data/es/intagr.jsonl.xz": {
+          "target": "lingua_moderna",
+          "max_chars": 1500000000
+        }
+      },
+      "targets": [
+        "lexislacion",
+        "lingua_moderna"
+      ],
+      "note": "per-type caps keep laws, directives, decisions, recommendations and case law balanced"
+    },
+    "common_corpus_mixed": {
+      "repo": "PleIAs/common_corpus",
+      "kind": "common_corpus",
+      "stride": 97,
+      "collections": {
+        "English|OpenAlex": "ciencia",
+        "English|dotgov": "lingua_moderna",
+        "English|Court Listener": "lexislacion",
+        "Spanish|VoxPopuli": "lingua_moderna"
+      },
+      "targets": [
+        "ciencia",
+        "lingua_moderna",
+        "lexislacion"
+      ],
+      "caps": {
+        "lingua_moderna": 5460000000,
+        "ciencia": 2184000000,
+        "lexislacion": 819000000
+      },
+      "note": "files are shuffled mixes; each ~470 MB parquet is downloaded, filtered and deleted",
+      "max_units": 30
+    },
+    "youtube_en": {
+      "repo": "common-pile/youtube_filtered",
+      "pattern": "youtube-commons-{:04d}.json.gz",
+      "files": [
+        0,
+        8
+      ],
+      "kind": "licensed",
+      "caps": {
+        "lingua_moderna": 3822000000
+      },
+      "note": "YouTube Commons transcripts, CC BY; spoken modern English"
+    },
+    "news_en": {
+      "repo": "common-pile/news_filtered",
+      "pattern": "news-dolma-{:04d}.json.gz",
+      "files": [
+        0,
+        0
+      ],
+      "kind": "licensed"
+    },
+    "pressbooks": {
+      "repo": "common-pile/pressbooks_filtered",
+      "pattern": "pressbooks-{:04d}.json.gz",
+      "files": [
+        0,
+        0
+      ],
+      "kind": "licensed"
+    },
+    "oercommons": {
+      "repo": "common-pile/oercommons_filtered",
+      "pattern": "oercommons-{:04d}.json.gz",
+      "files": [
+        0,
+        0
+      ],
+      "kind": "licensed"
+    },
+    "youtube_commons_es": {
+      "repo": "PleIAs/YouTube-Commons",
+      "kind": "parquet_filter",
+      "license": "CC-BY-3.0",
+      "language": "es",
+      "filters": {
+        "original_language": [
+          "es"
+        ],
+        "transcription_language": [
+          "es"
+        ]
+      },
+      "text_column": "text",
+      "id_column": "video_id",
+      "keep_columns": [
+        "video_link",
+        "channel",
+        "date"
+      ],
+      "target": "lingua_moderna",
+      "targets": [
+        "lingua_moderna"
+      ],
+      "stride": 1,
+      "max_units": 160,
+      "caps": {
+        "lingua_moderna": 3276000000
+      },
+      "note": "YouTube CC BY ('Creative Commons Attribution license (reuse allowed)' = CC BY 3.0); only videos originally in Spanish, never machine-translated transcripts; spoken register, ASR quality"
+    },
+    "bsc_legal_paragraphs_es": {
+      "repo": "BSC-LT/Legal_Catalan_Spanish_Parallel_Corpus",
+      "kind": "tsv_column",
+      "column": "es_text",
+      "group": 1,
+      "files": [
+        "legal_ca-es_dataset_clean.tsv"
+      ],
+      "license": "CC-BY-4.0",
+      "language": "es",
+      "target": "lingua_moderna",
+      "targets": [
+        "lingua_moderna"
+      ],
+      "note": "Spanish side of ~13k paragraphs from Catalan public administrations. dogc_ca-es.tsv (5.4M sentences) is excluded: shuffled single sentences, and its Spanish side reads as machine-translated in samples."
+    },
+    "dgt_es": {
+      "repo": "Helsinki-NLP/opus_dgt",
+      "kind": "parquet_column",
+      "column": "translation.es",
+      "group": 30,
+      "files": [
+        "es-ga/train-00000-of-00001.parquet"
+      ],
+      "license": "eu-reuse-2011-833",
+      "language": "es",
+      "target": "lingua_moderna",
+      "targets": [
+        "lingua_moderna"
+      ],
+      "attribution": "© Unión Europea (DGT-TM, Dirección General de Traducción), vía OPUS",
+      "note": "only the es-ga pair is published on HF; sentences grouped by 30, low discourse value"
     }
   },
   "excluded": [
@@ -227,10 +421,18 @@
     {
       "source": "HuggingFaceTB/cosmopedia khanacademy, wikihow",
       "reason": "seeds under NC/SA licences"
+    }
+  ],
+  "policy_changes": [
+    {
+      "date": "2026-10-04",
+      "change": "admit unversioned CC BY (licence id CC-BY)",
+      "approved_by": "owner"
     },
     {
-      "source": "common-pile/peS2o_filtered",
-      "reason": "licence given as 'CCBY' without version; fail-closed"
+      "date": "2026-10-04",
+      "change": "admit explicit CC BY 2.0, 2.5 and 3.0",
+      "approved_by": "owner"
     }
   ]
 }

@@ -1,15 +1,16 @@
 <!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # HYDRA Base v2 (125M): informe do preadestramento
 
-Estado: **en curso**, informe parcial do 2026-10-04 ás 13:12, no paso 10.410 de 13.039 (80 %).
-Remate estimado: 2026-10-04 arredor das 18:50. As cifras finais e a avaliación engadiranse ao rematar.
+Estado: **rematado** o 2026-10-04 ás 19:11 (13.039 pasos). Perplexidade final de validación: **30,09**.
+Pesos en `models/hydra-base-v2-125m/final` (non se publican). Avaliación en `runtime/base-v2-eval/`.
 
 ## 1. Resumo
 
 - Primeira base 100 % propia de HYDRA, con licenza limpa e reproducible: corpus, tokenizador e
   pesos levan os seus hashes no manifesto.
-- O adestramento está san: a perplexidade de validación baixou de forma continua de 287 a 37,6, sen
-  saltos nin sobreaxuste, e sobreviviu a un reinicio do equipo grazas aos puntos de retoma.
+- O adestramento estivo san: a perplexidade de validación baixou de forma continua de 287 a 30,1, sen
+  saltos nin sobreaxuste. Sobreviviu a un reinicio do equipo e a unha caída por falta de RAM (seccións 6)
+  grazas aos puntos de retoma.
 - O resultado será modesto. 125M parámetros con 0,85 mil millóns de tokens é unhas tres veces menos
   datos do recomendable para este tamaño, e os datos están desequilibrados cara a textos antigos e
   legais. Valida o proceso completo; non é un modelo competitivo. Isto debeu explicarse antes de
@@ -60,30 +61,66 @@ Selado o 2026-10-03 ás 03:06. Código do constructor: `63b127a` (filtros profes
 
 ## 5. Curva de validación
 
-| Paso | 250 | 500 | 1.000 | 2.000 | 3.000 | 4.000 | 5.000 | 6.000 | 7.000 | 8.000 | 9.000 | 10.000 | 10.250 |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Perplexidade | 287 | 153 | 81,6 | 58,4 | 50,4 | 46,3 | 43,6 | 41,8 | 40,1 | 39,3 | 38,5 | 37,7 | 37,6 |
+| Paso | 250 | 500 | 1.000 | 2.000 | 4.000 | 6.000 | 8.000 | 10.000 | 11.000 | 12.000 | 12.750 | **13.039** |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Perplexidade | 287 | 153 | 81,6 | 58,4 | 46,3 | 41,8 | 39,3 | 37,7 | 35,7 | 32,9 | 30,7 | **30,1** |
 
 - Perda de adestramento ~3,3–3,6 e de validación 3,63: separación pequena, sen sobreaxuste.
-- A partir do paso ~10.430 o ritmo de aprendizaxe baixa ata o 10 % do máximo. Nesta fase adoita
-  baixar outra vez a perplexidade; a estimación é rematar arredor de 33–36 (por confirmar).
+- O tramo final, coa baixada do ritmo de aprendizaxe desde o paso ~10.430, levou a perplexidade de 37,6
+  a 30,1: mellor que a estimación previa (33–36).
 
 ## 6. Incidencias
 
 | Cando | Que | Efecto |
 |---|---|---|
 | 2026-10-04 00:24 | Reinicio do equipo (probablemente Windows Update) | Retomado desde o paso 4.500; perdéronse ~170 pasos (~22 min) |
-| Continuo | GPU ao 100 % e 79–81 °C, freo por potencia, sen freo térmico | Normal; recomendable pausar actualizacións ata rematar |
+| 2026-10-04 13:14 | Caída por falta de memoria: o descargador de fontes esgotou a RAM do equipo | Relanzado ás 13:22 (fóra desta sesión) desde o paso 10.250; o descargador xa escribe en disco fila a fila |
+| Continuo | GPU ao 100 % e 79–81 °C, freo por potencia, sen freo térmico | Normal |
 
-## 7. Que esperar (avaliación pendente)
+## 7. Resultados
 
-1. **Perplexidade por fonte** (`hydra.training.evaluate_base`) fronte á base de 30M da etapa 0
-   (BOE 8,3; Python 4,6; Markdown 23,7; libros 383; prensa 209). Espérase unha gran mellora en libros
-   e prensa, e algo de perda relativa en BOE e código, porque agora pesan menos no corpus.
-2. **Mostras de texto** cos cinco prompts fixos: castelán coherente pero con ton antigo ou legal, e
-   pouco coñecemento do mundo actual. Non é un modelo de conversa.
-3. **Como encoder de Hyd** (mesmas probas que v8, que acerta un 83 % en desenvolvemento): esperamos
-   bastante máis que o 47,5 % da base de 30M, pero probablemente menos que v8.
+### 7.1 Perplexidade por fonte (validación, 40 documentos por fonte)
+
+| Fonte | Base 30M (etapa 0) | **Base 125M (etapa 1)** |
+|---|---|---|
+| BOE | 8,3 | **7,2** |
+| Python | 4,6 | 5,9 |
+| Markdown | 23,7 | **13,9** |
+| Libros PleIAs | 383 | **40,8** |
+| Prensa PleIAs | 209 | **59,8** |
+| Lotes técnicos | 78,8 | **19,3** |
+
+Gran mellora en libros, prensa e documentación. Python empeora un pouco porque agora pesa menos no corpus.
+
+### 7.2 Mostras (prompts fixos, `runtime/base-v2-eval/evaluation.json`)
+
+- **Lei:** continúa con naturalidade («establecer las medidas que faciliten la integración de la perspectiva de
+  género…»), en ton lexislativo correcto.
+- **Narrativa:** castelán fluído e coherente, pero con ton do século XIX.
+- **Prensa histórica:** reproduce o estilo das revistas de sanidade militar.
+- **Ciencia:** «la fotosíntesis es el proceso por el cual los hombres han tomado conciencia…» — sen
+  coñecemento do mundo actual.
+- **Código:** sintaxe Python verosímil pero sen sentido.
+
+### 7.3 Como encoder de Hyd (mesma receita que v8: cabeza lineal, corpus v4)
+
+| Encoder | Desenvolvemento | Test humano (Juan, Belén e Lois) |
+|---|---|---|
+| Hyd actual (n-gramas) | 46,3 % | 19,8 % |
+| HYDRA Base 30M | 47,5 % | — |
+| **HYDRA Base 125M (propio)** | **65,6 %** | **50,2 %** (IC 44–56 %) |
+| HYDRA v8 (base Qwen) | 82,9 % | 71,8 % |
+
+- O Hyd 100 % propio pasa do 20 % ao 50 % no test humano, pero queda por debaixo de v8.
+- Con confianza ≥ 0,9 acerta 89 de 112 (79 %): aínda non é fiable para dar autoridade.
+- Probas controladas de desenvolvemento: sinónimos 59 %, erros de tecleo 60 %, frase distractora 34 %,
+  negación 24 %.
+
+### 7.4 Valoración
+
+Primeira base propia válida e reproducible. Mellora moito a de 30M, pero como modelo é modesta polo tamaño
+(125M), polos datos (0,85 mil millóns de tokens, ~3× menos do recomendable) e polo desequilibrio cara a
+textos antigos e legais. O corpus da seguinte etapa (sección 8) corrixe sobre todo isto último.
 
 ## 8. Seguinte etapa (en preparación)
 

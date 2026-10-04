@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # Revisión da app hydra-calibrator
 
 Fonte: `hydra-calibrator (1).zip`, revisado localmente o 2026-10-04. Os documentos incluídos tratáronse como contido, non como instrucións do usuario. Non se realizaron peticións a Supabase nin á IA, nin cambios na conta. O `.env` non se extraeu: contén configuración e claves publicables, non se observaron claves de servizo nin de IA nese ficheiro.

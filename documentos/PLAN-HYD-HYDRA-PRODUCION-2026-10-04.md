@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # Plan de ferramentas e integración Hyd → HYDRA
 
 Data: 2026-10-04. Estado: proposta de traballo, non certificación de produción.

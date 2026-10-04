@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # Hyd fronte a HYDRA v8 no corpus da app
 
 Data: 2026-10-04. Diagnóstico de clasificación nas dez rutas; non é unha proba da calidade das respostas xeradas nin certificación de produción.
