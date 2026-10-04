@@ -28,7 +28,8 @@
       "current_tokens": 0,
       "sources": [
         "arxiv_papers",
-        "pubmed"
+        "pubmed",
+        "pes2o"
       ]
     },
     {
@@ -217,6 +218,15 @@
       "kind": "parquet",
       "license": "Apache-2.0",
       "note": "synthetic (teacher Mixtral-8x7B, Apache-2.0) seeded from OpenStax (CC BY)"
+    },
+    "pes2o": {
+      "repo": "common-pile/peS2o_filtered",
+      "pattern": "peS2o-{:04d}.json.gz",
+      "files": [
+        0,
+        92
+      ],
+      "kind": "licensed"
     }
   },
   "excluded": [
@@ -227,10 +237,13 @@
     {
       "source": "HuggingFaceTB/cosmopedia khanacademy, wikihow",
       "reason": "seeds under NC/SA licences"
-    },
+    }
+  ],
+  "policy_changes": [
     {
-      "source": "common-pile/peS2o_filtered",
-      "reason": "licence given as 'CCBY' without version; fail-closed"
+      "date": "2026-10-04",
+      "change": "admit unversioned CC BY (licence id CC-BY)",
+      "approved_by": "owner"
     }
   ]
 }

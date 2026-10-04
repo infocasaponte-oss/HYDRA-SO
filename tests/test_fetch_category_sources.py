@@ -19,7 +19,8 @@ spec.loader.exec_module(fetch)
     ("https://creativecommons.org/licenses/by-nc/3.0/", "CC-BY-NC-3.0"),
     ("Public Domain", "public-domain"),
     ("https://creativecommons.org/publicdomain/zero/1.0/", "CC0-1.0"),
-    ("CCBY", None), (None, None)])
+    ("CCBY", "CC-BY"), ("CC-By", "CC-BY"), ("CC-By-SA", None),
+    ("Creative Commons - Attribution - https://creativecommons.org/licenses/", "CC-BY"), (None, None)])
 def test_licences_are_normalised_fail_closed(text, expected):
     assert fetch.normalize_license(text) == expected
 
@@ -64,3 +65,9 @@ def test_plan_sources_exist_and_targets_are_declared():
     for source in plan["sources"].values():
         if "license" in source:
             assert admit_record([source["license"]]).allowed
+
+
+def test_unversioned_cc_by_is_admitted_but_sa_and_old_versions_are_not():
+    assert admit_record(["CC-BY"]).allowed
+    assert not admit_record(["CC-BY-SA"]).allowed
+    assert not admit_record(["CC-BY-3.0"]).allowed

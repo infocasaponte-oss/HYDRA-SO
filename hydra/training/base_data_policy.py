@@ -21,6 +21,10 @@ PERMITTED: dict[str, str] = {
     "0BSD": "",
     "hydra-generated": "",
     "CC-BY-4.0": "Atribución al autor y a la fuente (CC BY 4.0).",
+    # Approved by the owner on 2026-10-04: CC BY whose source states no version (Common Corpus "CC-By",
+    # peS2o "CCBY"). Every CC BY version allows commercial use and derivatives with attribution.
+    # Explicit CC BY 2.0/3.0 remain unlisted (rejected) until decided.
+    "CC-BY": "Atribución al autor y a la fuente (CC BY, versión no indicada por la fuente).",
     "MIT": "Conservar el aviso de copyright y de permiso MIT.",
     "BSD-2-Clause": "Conservar el aviso de copyright BSD-2-Clause.",
     "BSD-3-Clause": "Conservar el aviso BSD-3-Clause; no usar los nombres de los autores para promocionar.",

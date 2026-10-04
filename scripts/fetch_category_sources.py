@@ -50,6 +50,12 @@ def normalize_license(text: str | None) -> str | None:
     if m:
         kind, version = m.groups()
         return f"CC-{kind.upper()}-{version}" if kind != "by" else f"CC-BY-{version}"
+    # unversioned CC BY ("CC-By", "CCBY", ".../licenses/" with no path): admitted by the owner 2026-10-04;
+    # any SA/NC/ND marker keeps it out
+    compact = re.sub(r"[^a-z]", "", t)
+    if compact in ("ccby", "creativecommonsattribution") or re.fullmatch(
+            r"creative commons - attribution - https?://creativecommons\.org/licenses/?", t.strip()):
+        return "CC-BY"
     for name in ("MIT", "Apache-2.0", "BSD-3-Clause", "BSD-2-Clause", "ISC", "Unlicense", "0BSD"):
         if name.lower() in t:
             return name
@@ -92,7 +98,7 @@ def keep_row(source: dict, row: dict) -> tuple[str | None, str]:
         licenses = list(meta.get("detected_licenses") or [])
         decision = admit_record(licenses) if licenses else None
         return (decision.license, "ok") if decision and decision.allowed else (None, "license")
-    licence = normalize_license(meta.get("license"))
+    licence = normalize_license(meta.get("license") or meta.get("oa_license"))
     if licence is None or not admit_record([licence]).allowed:
         return None, "license"
     if "keywords" in source:
