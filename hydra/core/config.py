@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     router_model: str = ""
     # Hyd replaces the external decision sidecar with HYDRA-owned local inference.
     hyd_enabled: bool = True
+    hyd_tools_enabled: bool = False
+    """Opt-in local operator lab; never promotes a model or rewrites active configuration."""
+    hyd_tools_input_root: Path = ROOT
     # Default: the contextual-encoder head (GPU encoder server, scripts/start_hyd_encoder.ps1). When the
     # encoder is not running, observations fall back to the CPU ranker below instead of failing.
     hyd_model_path: Path = ROOT / "config" / "hyd-embedding" / "model.json"

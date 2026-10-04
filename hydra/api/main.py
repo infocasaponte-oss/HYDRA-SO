@@ -308,6 +308,9 @@ def create_app(settings: Settings | None = None, **overrides: Any) -> FastAPI:
     register_platform_routes(app, rt, secured, admin_secured)
     register_web_routes(app, rt, secured)
     register_evaluation_routes(app, secured, settings.evaluation_candidate_version)
+    if settings.hyd_tools_enabled:
+        from hydra.api.hyd_tools_routes import register as register_hyd_tools
+        register_hyd_tools(app, settings, admin_secured)
     if settings.runtime_api:  # after platform routes: they win on (path, method) collisions
         app.state.runtime_routes = register_runtime_routes(app)
     return app

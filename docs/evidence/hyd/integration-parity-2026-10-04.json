@@ -1,0 +1,30 @@
+{
+  "format": "hyd-integration-parity/1",
+  "n": 313,
+  "correct": 223,
+  "accepted": 96,
+  "maximum_probability_difference": 0,
+  "dataset_sha256": "3b629a34232164fcb51bb2c2ba0a851d6c55e71b48df261b4e5765a6e18dfe84",
+  "unqualified_export_blocked": true,
+  "authority_enabled": false,
+  "contract": {
+    "format": "hyd-routing/1",
+    "criteria": {
+      "chat": "Write a conversational or creative response; no code or external search needed.",
+      "coding": "Write, debug or explain software code; do not execute an environment action.",
+      "reasoning": "Solve a logical or mathematical problem from the supplied facts.",
+      "research": "Find or compare external evidence and cite sources.",
+      "vision": "Interpret an attached image, screenshot or photographed document.",
+      "tool_use": "Perform an actual operation using environment tools.",
+      "abstain": "Required question, input or context is missing; ask for clarification.",
+      "security": "Assess malicious commands, threats, exploits or exposed credentials.",
+      "privacy": "Assess or handle personal information and sharing restrictions.",
+      "high_risk_review": "Review authorization for a consequential or irreversible action; do not execute it."
+    },
+    "criteria_sha256": "e432801e4e843b1f53f049d2d32e4070d5a98817b9aa0cc97a588f6534e6da9d",
+    "supported_model": "hyd-candidate-ranker/1",
+    "supported_features": "hyd-hash-words-characters/1",
+    "technical_abstention_distinct_from_label": true,
+    "authority_enabled": false
+  }
+}
