@@ -212,6 +212,7 @@ def units(source: dict, status: dict, token: str | None):
 
         siblings = HfApi(token=token).dataset_info(source["repo"], revision=status["revision"]).siblings
         files = sorted(x.rfilename for x in siblings if x.rfilename.endswith(".parquet"))[::source.get("stride", 1)]
+        files = files[:source.get("max_units", len(files))]  # each file is ~470 MB; past its caps it adds little
         for name in files:
             def rows(name=name):
                 local = Path(hf_hub_download(source["repo"], name, repo_type="dataset", revision=status["revision"],

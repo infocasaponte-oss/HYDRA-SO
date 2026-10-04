@@ -20,13 +20,15 @@
       "current_tokens": 0,
       "sources": [
         "eurlex_es",
+        "youtube_en",
+        "news_en",
         "common_corpus_mixed"
       ],
       "language_targets": {
         "es": 1000000000,
         "en": 1000000000
       },
-      "note": "Spanish: EUR-Lex proposals and international agreements (formal register) and VoxPopuli; English: US government sites (dotgov). Bilingual by owner decision 2026-10-04."
+      "note": "Spanish: EUR-Lex proposals and international agreements (formal register). English: YouTube Commons transcripts (CC BY, spoken), CC BY news, US government sites. Gap: further modern Spanish (Eurovoc, VoxPopuli) is spread thinly across Common Corpus (~0.15M tokens per 470 MB file) and is not downloadable efficiently."
     },
     {
       "id": "ciencia",
@@ -57,6 +59,8 @@
       "sources": [
         "libretexts_cc_by",
         "doab_books",
+        "pressbooks",
+        "oercommons",
         "cosmopedia_openstax"
       ]
     },
@@ -298,7 +302,48 @@
         "ciencia": 2184000000,
         "lexislacion": 819000000
       },
-      "note": "files are shuffled mixes; each ~470 MB parquet is downloaded, filtered and deleted"
+      "note": "files are shuffled mixes; each ~470 MB parquet is downloaded, filtered and deleted",
+      "max_units": 30
+    },
+    "youtube_en": {
+      "repo": "common-pile/youtube_filtered",
+      "pattern": "youtube-commons-{:04d}.json.gz",
+      "files": [
+        0,
+        8
+      ],
+      "kind": "licensed",
+      "caps": {
+        "lingua_moderna": 3822000000
+      },
+      "note": "YouTube Commons transcripts, CC BY; spoken modern English"
+    },
+    "news_en": {
+      "repo": "common-pile/news_filtered",
+      "pattern": "news-dolma-{:04d}.json.gz",
+      "files": [
+        0,
+        0
+      ],
+      "kind": "licensed"
+    },
+    "pressbooks": {
+      "repo": "common-pile/pressbooks_filtered",
+      "pattern": "pressbooks-{:04d}.json.gz",
+      "files": [
+        0,
+        0
+      ],
+      "kind": "licensed"
+    },
+    "oercommons": {
+      "repo": "common-pile/oercommons_filtered",
+      "pattern": "oercommons-{:04d}.json.gz",
+      "files": [
+        0,
+        0
+      ],
+      "kind": "licensed"
     }
   },
   "excluded": [
