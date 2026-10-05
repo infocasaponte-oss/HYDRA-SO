@@ -1,0 +1,266 @@
+{
+  "format": "hydra-corpus-pretraining-audit/1",
+  "corpus_manifest": {
+    "format": "hydra-decision-corpus/4",
+    "corpus_sha256": "06ac25f1d55dbb50e178c30ebd01454c225375d32b592b706041b136e5d46517",
+    "source": "HYDRA-authored templates, disjoint per split; train adds grammatical prefixes",
+    "limitations": "Synthetic, Spanish only, single short sentences. Disjoint templates remove template leakage but not topical similarity; labels need human review before production training.",
+    "training_allowed_splits": [
+      "train"
+    ]
+  },
+  "training_sources": [
+    "train",
+    "human-dev-v1",
+    "human-dev-v2"
+  ],
+  "held_out_splits": [
+    "calibration",
+    "test"
+  ],
+  "integrity": {
+    "data/decision-corpus-v4/train.jsonl": {
+      "manifest_sha256": "31ebe2276d3e29320e6745d46e66e4e376f1d209b458b4b4cc899cf1f50f1d4d",
+      "actual_sha256": "31ebe2276d3e29320e6745d46e66e4e376f1d209b458b4b4cc899cf1f50f1d4d",
+      "sha256_match": true,
+      "manifest_examples": 480,
+      "actual_examples": 480
+    },
+    "data/decision-corpus-v4/calibration.jsonl": {
+      "manifest_sha256": "5c0d0e8779b906b89fd8eaf5822be2b37b5f936b45d8ba3762b3790ad5e42ebc",
+      "actual_sha256": "5c0d0e8779b906b89fd8eaf5822be2b37b5f936b45d8ba3762b3790ad5e42ebc",
+      "sha256_match": true,
+      "manifest_examples": 80,
+      "actual_examples": 80
+    },
+    "data/decision-corpus-v4/test.jsonl": {
+      "manifest_sha256": "12776a4dc77c10aeefe2e7c328d6f98b720ae69a587dc3a0d36c3fea02c7a7eb",
+      "actual_sha256": "12776a4dc77c10aeefe2e7c328d6f98b720ae69a587dc3a0d36c3fea02c7a7eb",
+      "sha256_match": true,
+      "manifest_examples": 80,
+      "actual_examples": 80
+    },
+    "data/human-dev-v1.jsonl": {
+      "actual_sha256": "51fb2288420f93d58a81cffcec5b00a0185caf03f7b34a4a40cbd546b1bff04d",
+      "actual_examples": 100,
+      "manifest_sha256": null,
+      "sha256_match": null
+    },
+    "data/human-dev-v2.jsonl": {
+      "actual_sha256": "724013ee30c0f1aebb4f95b7474244989e7d674e9204984e9acc729278edcea5",
+      "actual_examples": 1000,
+      "manifest_sha256": null,
+      "sha256_match": null
+    }
+  },
+  "counts": {
+    "train": 480,
+    "calibration": 80,
+    "test": 80,
+    "human-dev-v1": 100,
+    "human-dev-v2": 1000
+  },
+  "unique_texts": {
+    "train": 480,
+    "calibration": 80,
+    "test": 80,
+    "human-dev-v1": 100,
+    "human-dev-v2": 200
+  },
+  "labels": {
+    "train": {
+      "abstain": 48,
+      "chat": 48,
+      "coding": 48,
+      "high_risk_review": 48,
+      "privacy": 48,
+      "reasoning": 48,
+      "research": 48,
+      "security": 48,
+      "tool_use": 48,
+      "vision": 48
+    },
+    "calibration": {
+      "abstain": 8,
+      "chat": 8,
+      "coding": 8,
+      "high_risk_review": 8,
+      "privacy": 8,
+      "reasoning": 8,
+      "research": 8,
+      "security": 8,
+      "tool_use": 8,
+      "vision": 8
+    },
+    "test": {
+      "abstain": 8,
+      "chat": 8,
+      "coding": 8,
+      "high_risk_review": 8,
+      "privacy": 8,
+      "reasoning": 8,
+      "research": 8,
+      "security": 8,
+      "tool_use": 8,
+      "vision": 8
+    },
+    "human-dev-v1": {
+      "abstain": 10,
+      "chat": 10,
+      "coding": 10,
+      "high_risk_review": 10,
+      "privacy": 10,
+      "reasoning": 10,
+      "research": 10,
+      "security": 10,
+      "tool_use": 10,
+      "vision": 10
+    },
+    "human-dev-v2": {
+      "abstain": 100,
+      "chat": 100,
+      "coding": 100,
+      "high_risk_review": 100,
+      "privacy": 100,
+      "reasoning": 100,
+      "research": 100,
+      "security": 100,
+      "tool_use": 100,
+      "vision": 100
+    }
+  },
+  "labels_missing": {
+    "train": [],
+    "calibration": [],
+    "test": [],
+    "human-dev-v1": [],
+    "human-dev-v2": []
+  },
+  "word_lengths": {
+    "train": {
+      "min": 2,
+      "median": 8.0,
+      "mean": 7.79,
+      "max": 15
+    },
+    "calibration": {
+      "min": 4,
+      "median": 9.0,
+      "mean": 8.65,
+      "max": 16
+    },
+    "test": {
+      "min": 4,
+      "median": 9.0,
+      "mean": 8.96,
+      "max": 15
+    },
+    "human-dev-v1": {
+      "min": 4,
+      "median": 7.0,
+      "mean": 7.64,
+      "max": 15
+    },
+    "human-dev-v2": {
+      "min": 6,
+      "median": 10.0,
+      "mean": 10.06,
+      "max": 14
+    }
+  },
+  "families": {
+    "train": [
+      "abstain",
+      "chat",
+      "coding",
+      "high_risk_review",
+      "privacy",
+      "reasoning",
+      "research",
+      "security",
+      "tool_use",
+      "vision"
+    ],
+    "calibration": [
+      "abstain",
+      "chat",
+      "coding",
+      "high_risk_review",
+      "privacy",
+      "reasoning",
+      "research",
+      "security",
+      "tool_use",
+      "vision"
+    ],
+    "test": [
+      "abstain",
+      "chat",
+      "coding",
+      "high_risk_review",
+      "privacy",
+      "reasoning",
+      "research",
+      "security",
+      "tool_use",
+      "vision"
+    ],
+    "human-dev-v1": [],
+    "human-dev-v2": [
+      "abstain",
+      "chat",
+      "coding",
+      "high_risk_review",
+      "privacy",
+      "reasoning",
+      "research",
+      "security",
+      "tool_use",
+      "vision"
+    ]
+  },
+  "checks": {
+    "row_hash_mismatches": [],
+    "duplicate_ids": [],
+    "unknown_labels": [],
+    "training_not_allowed": [],
+    "train_rights_unverified": 0,
+    "split_field_mismatch": []
+  },
+  "duplicates": {
+    "exact_within_split": {
+      "train": 0,
+      "calibration": 0,
+      "test": 0,
+      "human-dev-v1": 0,
+      "human-dev-v2": 800
+    },
+    "exact_training_vs_held_out": 0,
+    "exact_training_vs_held_out_examples": [],
+    "label_conflicts": 0,
+    "label_conflict_examples": []
+  },
+  "near_duplicates": {
+    "method": "64-bit SimHash over word trigrams, Hamming <= 3",
+    "calibration": {
+      "rows": 80,
+      "flagged": 0,
+      "examples": []
+    },
+    "test": {
+      "rows": 80,
+      "flagged": 0,
+      "examples": []
+    }
+  },
+  "template_stem_overlap_with_train": {
+    "calibration": 0,
+    "test": 0
+  },
+  "unique_template_stems": {
+    "train": 120,
+    "calibration": 40,
+    "test": 80
+  },
+  "limitation": "Lexical/hash checks only; semantic contamination and label correctness need human review."
+}

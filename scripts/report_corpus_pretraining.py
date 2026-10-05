@@ -142,12 +142,12 @@ def _groups(rows: list[dict]) -> list[list[dict]]:
     return list(g.values())
 
 
-PREFIXES = ("por favor, ", "necesito que ", "en español, ", "ayúdame a ")
+PREFIXES = ("por favor, ", "necesito que ", "en español, ", "ayúdame a ", "oye, ", "en español: ")
 SUFFIX = re.compile(r"\s*caso de referencia \d+\.?$")
 
 
 def _stem(text: str) -> str:
-    """Base template once the v3 paraphrase prefix and the "Caso de referencia N." suffix are removed."""
+    """Base template once the v3/v4 paraphrase prefix and the "Caso de referencia N." suffix are removed."""
     t = SUFFIX.sub("", normalize_text(text))
     for p in PREFIXES:
         if t.startswith(p):
