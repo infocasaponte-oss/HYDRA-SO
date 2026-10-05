@@ -318,3 +318,69 @@ def test_openstax_rows_read_the_book_licence_and_skip_non_admitted_books(monkeyp
         ("CC-BY-4.0", "ciencia", "https://openstax.org/books/fisica/pages/1-intro")]
     assert ok[0][0]["title"] == "Física — Intro" and [x[2] for x in ok] == ["ok", "short"]
     assert list(fetch.openstax_rows("nc", "matematicas", release, {})) == [(None, None, "license")]
+
+def test_html_text_linearises_structural_mathml_and_separates_table_cells():
+    frac = ('<p>Raíz: <math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi><mo>=</mo><mfrac>'
+            '<mrow><mo>-</mo><mi>b</mi></mrow><mrow><mn>2</mn><mi>a</mi></mrow></mfrac></mrow>'
+            '<annotation-xml encoding="MathML-Content"><ci>ignored</ci></annotation-xml></semantics></math></p>')
+    assert fetch.html_text(frac) == "Raíz: x=(-b)/(2a)"
+    root = '<math><msqrt><msup><mi>x</mi><mn>2</mn></msup><mo>+</mo><mn>1</mn></msqrt></math>'
+    assert fetch.html_text(root) == "√(x^2+1)"
+    table = "<table><tr><th>Masa</th><th>Valor</th></tr><tr><td>12</td><td>34</td></tr></table>"
+    assert fetch.html_text(table) == "Masa Valor\n12 34"
+
+
+def test_boa_invalid_day_fails_the_year_so_it_is_retried(monkeypatch):
+    monkeypatch.setattr(fetch, "http_text", lambda url, encoding="utf-8", timeout=120: '[{"DOCN": "1", "Texto": "cort')
+    source = {"url": "https://boa.example/x?PUBL-C={date}", "license": "CC-BY-4.0", "target": "lingua_moderna",
+              "section_targets": {}, "attribution": "BOA"}
+    with pytest.raises(OSError, match="invalid BOA JSON"):
+        list(fetch.boa_rows(2024, source, pause=0))
+
+
+def test_source_wide_outage_aborts_without_blacklisting_units(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
+
+    def down(url, token):
+        raise OSError("401 token expired")
+        yield
+    monkeypatch.setattr(fetch, "stream_jsonl_gz", down)
+    plan = {"sources": {"s": {"repo": "r/s", "pattern": "s-{:04d}.json.gz", "files": [0, 5], "kind": "licensed"}}}
+    (tmp_path / "_manifests").mkdir()
+    (tmp_path / "_manifests" / "s.json").write_text(json.dumps(
+        {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
+    with pytest.raises(OSError, match="consecutive units failed"):
+        fetch.run_source(plan, "ciencia", "s", None, {"ciencia": 10 ** 6}, attempts=1)
+    status = json.loads((tmp_path / "_manifests" / "s.json").read_text(encoding="utf-8"))
+    assert not status.get("files_failed") and status["files_done"] == []
+
+
+def test_openstax_release_is_pinned_in_the_manifest_and_reused_on_resume(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    releases = iter([{"archiveUrl": "/apps/archive/20260604.1", "books": {"b1": {"defaultVersion": "v1"},
+                                                                          "other": {"defaultVersion": "x"}}}])
+    seen = []
+
+    def http_text(url, encoding="utf-8", timeout=120):
+        if url.endswith("release.json"):
+            return json.dumps(next(releases))  # a second call would raise StopIteration
+        raise AssertionError(url)
+    monkeypatch.setattr(fetch, "http_text", http_text)
+    monkeypatch.setattr(fetch, "openstax_rows", lambda book, target, release, source: (
+        seen.append(release["books"][book]["defaultVersion"]) or iter([])))
+    plan = {"sources": {"os": {"repo": "openstax.org", "kind": "openstax", "books": {"b1": "ciencia"}}}}
+    fetch.run_source(plan, "ciencia", "os", None, {"ciencia": 10 ** 6})
+    status = json.loads((tmp_path / "_manifests" / "os.json").read_text(encoding="utf-8"))
+    assert status["revision"] == "openstax-archive-20260604.1"
+    assert status["web_release"] == {"archiveUrl": "/apps/archive/20260604.1", "books": {"b1": {"defaultVersion": "v1"}}}
+    status["files_done"] = []  # simulate a resume: the pinned release is used, no new release.json fetch
+    (tmp_path / "_manifests" / "os.json").write_text(json.dumps(status), encoding="utf-8")
+    fetch.run_source(plan, "ciencia", "os", None, {"ciencia": 10 ** 6})
+    assert seen == ["v1", "v1"]
+
+
+def test_boa_is_scheduled_from_both_categories_it_feeds():
+    plan = json.loads((ROOT / "config/base_categories.json").read_text(encoding="utf-8"))
+    cats = {c["id"]: c["sources"] for c in plan["categories"]}
+    assert "boa_aragon" in cats["lingua_moderna"] and "boa_aragon" in cats["lexislacion"]

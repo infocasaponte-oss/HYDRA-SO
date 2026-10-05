@@ -96,7 +96,8 @@
       "sources": [
         "eurlex_es",
         "regulations_us",
-        "common_corpus_mixed"
+        "common_corpus_mixed",
+        "boa_aragon"
       ]
     },
     {
