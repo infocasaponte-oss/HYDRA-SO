@@ -156,6 +156,29 @@ def test_failed_unit_is_retried_from_scratch_without_duplicates(tmp_path, monkey
     assert calls["n"] == 2 and status["docs"] == {"ciencia": 4}  # not 6: the failed prefix was discarded
 
 
+def test_unit_failing_every_attempt_is_recorded_and_the_next_unit_still_runs(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
+    by = "Creative Commons - Attribution - https://creativecommons.org/licenses/by/4.0/"
+
+    def stream(url, token):
+        if "s-0000" in url:
+            raise OSError("truncated compressed stream")
+        yield {"id": "1", "text": "texto " * 20, "metadata": {"license": by}}
+    monkeypatch.setattr(fetch, "stream_jsonl_gz", stream)
+    plan = {"sources": {"s": {"repo": "r/s", "pattern": "s-{:04d}.json.gz", "files": [0, 1], "kind": "licensed"}}}
+    (tmp_path / "_manifests").mkdir()
+    (tmp_path / "_manifests" / "s.json").write_text(json.dumps(
+        {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
+    fetch.run_source(plan, "ciencia", "s", None, {"ciencia": 10 ** 6}, attempts=2)
+    status = json.loads((tmp_path / "_manifests" / "s.json").read_text(encoding="utf-8"))
+    assert status["files_done"] == ["s-0001.json.gz"] and list(status["files_failed"]) == ["s-0000.json.gz"]
+    assert status["docs"] == {"ciencia": 1}
+    assert not list(tmp_path.rglob("*.tmp"))
+    fetch.run_source(plan, "ciencia", "s", None, {"ciencia": 10 ** 6}, attempts=2)  # skipped on the next run
+    assert json.loads((tmp_path / "_manifests" / "s.json").read_text(encoding="utf-8"))["docs"] == {"ciencia": 1}
+
+
 def test_truncated_gzip_stream_is_an_error(monkeypatch):
     import gzip as gz
     import io
@@ -243,3 +266,121 @@ def test_tsv_column_is_read_and_grouped(monkeypatch):
     values = list(fetch.stream_tsv_column("https://example.org/x.tsv", None, "es"))
     assert values == ["hola es", "adiós"]  # malformed row skipped
     assert list(fetch.grouped(["a", "b", "", "c"], 2)) == ["a\nb", "c"]
+
+def test_html_text_keeps_paragraphs_math_symbols_and_exponents():
+    markup = ('<p>Carga de 1,6 <span><math><semantics><mrow><mo>&#215;</mo></mrow><annotation-xml encoding="MathML-Content">'
+              '<mo>times</mo></annotation-xml></semantics></math></span> 10<sup>-19</sup> C.</p><p>H<sub>2</sub>O</p>'
+              '<script>x()</script>')
+    assert fetch.html_text(markup) == "Carga de 1,6 × 10^-19 C.\nH_2O"
+
+
+def test_boa_rows_route_by_section_and_skip_days_without_bulletin(monkeypatch):
+    body = json.dumps([
+        {"DOCN": "1", "Seccion": "I. Disposiciones Generales", "Titulo": "LEY 1/2024", "Texto": "Artículo uno.  " + "a" * 400,
+         "FechaPublicacion": "20240102", "Emisor": "CORTES"},
+        {"DOCN": "2", "Seccion": "III. Otras Disposiciones", "Titulo": "RESOLUCIÓN", "Texto": "Se resuelve &quot;x&quot; " + "b" * 400},
+        {"DOCN": "3", "Seccion": "V. Anuncios", "Titulo": "ANUNCIO", "Texto": "corto"}], ensure_ascii=False)
+    calls = []
+
+    def http_text(url, encoding="utf-8", timeout=120):
+        calls.append(url)
+        return body if url.endswith("20240102") else "<!DOCTYPE html><html></html>"
+    monkeypatch.setattr(fetch, "http_text", http_text)
+    source = {"url": "https://boa.example/x?PUBL-C={date}", "license": "CC-BY-4.0", "target": "lingua_moderna",
+              "section_targets": {"I": "lexislacion"}, "attribution": "Fuente: BOA"}
+    rows = list(fetch.boa_rows(2024, source, pause=0))
+    assert len(calls) == 366  # one request per day of a leap year
+    kept = [(r["id"], t) for r, t, reason in rows if reason == "ok"]
+    assert kept == [("BOA-1", "lexislacion"), ("BOA-2", "lingua_moderna")]
+    assert [reason for _, _, reason in rows].count("short") == 1
+    first = rows[0][0]
+    assert first["text"].startswith("LEY 1/2024\n\nArtículo uno.\n") and first["attribution"] == "Fuente: BOA"
+    assert '"x"' in rows[1][0]["text"]
+
+
+def test_openstax_rows_read_the_book_licence_and_skip_non_admitted_books(monkeypatch):
+    release = {"archiveUrl": "/apps/archive/1", "books": {"ok": {"defaultVersion": "v1"}, "nc": {"defaultVersion": "v2"}}}
+    tree = {"contents": [{"id": "ch@", "title": "Cap 1", "contents": [
+        {"id": "p1@", "title": "<span>Intro</span>", "slug": "1-intro"}, {"id": "p2@", "title": "Corta", "slug": "c"}]}]}
+    pages = {"p1": "<p>" + "texto de física " * 40 + "</p>", "p2": "<p>breve</p>"}
+
+    def http_text(url, encoding="utf-8", timeout=120):
+        if url.endswith("ok@v1.json"):
+            return json.dumps({"title": "Física", "slug": "fisica", "tree": tree,
+                               "license": {"url": "http://creativecommons.org/licenses/by/4.0/"}})
+        if url.endswith("nc@v2.json"):
+            return json.dumps({"title": "Cálculo", "tree": tree,
+                               "license": {"url": "http://creativecommons.org/licenses/by-nc-sa/4.0/"}})
+        return json.dumps({"content": pages[url.rsplit(":", 1)[1][:-5]]})
+    monkeypatch.setattr(fetch, "http_text", http_text)
+    ok = list(fetch.openstax_rows("ok", "ciencia", release, {}))
+    assert [(r["license"], t, r["url"]) for r, t, reason in ok if reason == "ok"] == [
+        ("CC-BY-4.0", "ciencia", "https://openstax.org/books/fisica/pages/1-intro")]
+    assert ok[0][0]["title"] == "Física — Intro" and [x[2] for x in ok] == ["ok", "short"]
+    assert list(fetch.openstax_rows("nc", "matematicas", release, {})) == [(None, None, "license")]
+
+def test_html_text_linearises_structural_mathml_and_separates_table_cells():
+    frac = ('<p>Raíz: <math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>x</mi><mo>=</mo><mfrac>'
+            '<mrow><mo>-</mo><mi>b</mi></mrow><mrow><mn>2</mn><mi>a</mi></mrow></mfrac></mrow>'
+            '<annotation-xml encoding="MathML-Content"><ci>ignored</ci></annotation-xml></semantics></math></p>')
+    assert fetch.html_text(frac) == "Raíz: x=(-b)/(2a)"
+    root = '<math><msqrt><msup><mi>x</mi><mn>2</mn></msup><mo>+</mo><mn>1</mn></msqrt></math>'
+    assert fetch.html_text(root) == "√(x^2+1)"
+    table = "<table><tr><th>Masa</th><th>Valor</th></tr><tr><td>12</td><td>34</td></tr></table>"
+    assert fetch.html_text(table) == "Masa Valor\n12 34"
+
+
+def test_boa_invalid_day_fails_the_year_so_it_is_retried(monkeypatch):
+    monkeypatch.setattr(fetch, "http_text", lambda url, encoding="utf-8", timeout=120: '[{"DOCN": "1", "Texto": "cort')
+    source = {"url": "https://boa.example/x?PUBL-C={date}", "license": "CC-BY-4.0", "target": "lingua_moderna",
+              "section_targets": {}, "attribution": "BOA"}
+    with pytest.raises(OSError, match="invalid BOA JSON"):
+        list(fetch.boa_rows(2024, source, pause=0))
+
+
+def test_source_wide_outage_aborts_without_blacklisting_units(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    monkeypatch.setattr(fetch.time, "sleep", lambda s: None)
+
+    def down(url, token):
+        raise OSError("401 token expired")
+        yield
+    monkeypatch.setattr(fetch, "stream_jsonl_gz", down)
+    plan = {"sources": {"s": {"repo": "r/s", "pattern": "s-{:04d}.json.gz", "files": [0, 5], "kind": "licensed"}}}
+    (tmp_path / "_manifests").mkdir()
+    (tmp_path / "_manifests" / "s.json").write_text(json.dumps(
+        {"revision": "abc", "files_done": [], "chars": {}, "docs": {}, "rejected": {}, "licenses": {}}), encoding="utf-8")
+    with pytest.raises(OSError, match="consecutive units failed"):
+        fetch.run_source(plan, "ciencia", "s", None, {"ciencia": 10 ** 6}, attempts=1)
+    status = json.loads((tmp_path / "_manifests" / "s.json").read_text(encoding="utf-8"))
+    assert not status.get("files_failed") and status["files_done"] == []
+
+
+def test_openstax_release_is_pinned_in_the_manifest_and_reused_on_resume(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "ROOT", tmp_path)
+    releases = iter([{"archiveUrl": "/apps/archive/20260604.1", "books": {"b1": {"defaultVersion": "v1"},
+                                                                          "other": {"defaultVersion": "x"}}}])
+    seen = []
+
+    def http_text(url, encoding="utf-8", timeout=120):
+        if url.endswith("release.json"):
+            return json.dumps(next(releases))  # a second call would raise StopIteration
+        raise AssertionError(url)
+    monkeypatch.setattr(fetch, "http_text", http_text)
+    monkeypatch.setattr(fetch, "openstax_rows", lambda book, target, release, source: (
+        seen.append(release["books"][book]["defaultVersion"]) or iter([])))
+    plan = {"sources": {"os": {"repo": "openstax.org", "kind": "openstax", "books": {"b1": "ciencia"}}}}
+    fetch.run_source(plan, "ciencia", "os", None, {"ciencia": 10 ** 6})
+    status = json.loads((tmp_path / "_manifests" / "os.json").read_text(encoding="utf-8"))
+    assert status["revision"] == "openstax-archive-20260604.1"
+    assert status["web_release"] == {"archiveUrl": "/apps/archive/20260604.1", "books": {"b1": {"defaultVersion": "v1"}}}
+    status["files_done"] = []  # simulate a resume: the pinned release is used, no new release.json fetch
+    (tmp_path / "_manifests" / "os.json").write_text(json.dumps(status), encoding="utf-8")
+    fetch.run_source(plan, "ciencia", "os", None, {"ciencia": 10 ** 6})
+    assert seen == ["v1", "v1"]
+
+
+def test_boa_is_scheduled_from_both_categories_it_feeds():
+    plan = json.loads((ROOT / "config/base_categories.json").read_text(encoding="utf-8"))
+    cats = {c["id"]: c["sources"] for c in plan["categories"]}
+    assert "boa_aragon" in cats["lingua_moderna"] and "boa_aragon" in cats["lexislacion"]

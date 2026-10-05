@@ -14,7 +14,9 @@ category. Nothing downloaded is executed.
 from __future__ import annotations
 
 import argparse
+import datetime
 import gzip
+import html
 import json
 import lzma
 import os
@@ -30,6 +32,8 @@ from hydra.training.base_data_policy import admit_record
 ROOT = Path("data/sources/categories")
 HF = "https://huggingface.co/datasets/{repo}/resolve/{revision}/{name}"
 SAFETY = 1.4
+WEB_KINDS = ("boa_aragon", "openstax")  # official portals, not Hugging Face datasets
+MAX_CONSECUTIVE_FAILURES = 3
 
 
 def hf_token() -> str | None:
@@ -93,6 +97,137 @@ def stream_jsonl_gz(url: str, token: str | None):
 
 def stream_jsonl_xz(url: str, token: str | None):
     yield from _stream_lines(url, token, lzma.LZMADecompressor())
+
+
+def http_text(url: str, encoding: str = "utf-8", timeout: int = 120) -> str:
+    request = urllib.request.Request(url, headers={"User-Agent": "HYDRA-corpus/1.0 (open-data reuse; cites source)"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read().decode(encoding, "replace")
+
+
+_BLOCK = re.compile(r"</?(?:p|div|li|h[1-6]|section|table|tr|figcaption|caption|ul|ol|dd|dt|br|pre)\b[^>]*>", re.I)
+
+
+def _group(text: str) -> str:
+    """Parenthesise any operand that is not a single number or a single symbol, so x/2a is never written."""
+    return text if re.fullmatch(r"\d+(?:[.,]\d+)?|\w|\W", text) else f"({text})"
+
+
+def _mathml(node) -> str:
+    """Linear text of a presentation MathML element: (a)/(b), √(x), x^(2), x_i; annotations dropped."""
+    tag = node.tag.rsplit("}", 1)[-1]
+    kids = [k for k in node if k.tag.rsplit("}", 1)[-1] not in ("annotation", "annotation-xml")]
+    parts = [_mathml(k) for k in kids]
+    if tag in ("mi", "mn", "mo", "mtext", "ms"):
+        return " ".join("".join(node.itertext()).split())
+    if tag == "semantics":
+        return parts[0] if parts else ""
+    if tag == "mfrac" and len(parts) == 2:
+        return f"{_group(parts[0])}/{_group(parts[1])}"
+    if tag == "msqrt":
+        return f"√({''.join(parts)})"
+    if tag == "mroot" and len(parts) == 2:
+        return f"root({parts[1]}, {parts[0]})"
+    if tag in ("msup", "mover") and len(parts) == 2:
+        return f"{parts[0]}^{_group(parts[1])}"
+    if tag in ("msub", "munder") and len(parts) == 2:
+        return f"{parts[0]}_{_group(parts[1])}"
+    if tag in ("msubsup", "munderover") and len(parts) == 3:
+        return f"{parts[0]}_{_group(parts[1])}^{_group(parts[2])}"
+    if tag == "mtable":
+        return "; ".join(parts)
+    if tag == "mtr":
+        return ", ".join(parts)
+    return "".join(parts)
+
+
+def _math_text(match: re.Match) -> str:
+    import xml.etree.ElementTree as ET
+    fragment = re.sub(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)", "&amp;", match.group(0))
+    fragment = re.sub(r"&(#\d+|#x[0-9a-fA-F]+);", lambda m: html.unescape(m.group(0)), fragment)
+    try:
+        return " " + _mathml(ET.fromstring(fragment)).replace("<", "&lt;").replace(">", "&gt;") + " "
+    except ET.ParseError:  # not well-formed: fall back to dropping annotations and keeping the symbols
+        return re.sub(r"(?is)<(annotation-xml|annotation)\b.*?</\1>", " ", match.group(0))
+
+
+def html_text(markup: str) -> str:
+    """Readable text of an HTML fragment: block tags become line breaks, table cells are separated,
+    MathML becomes linear text ((a)/(b), √(x), x^2), superscripts and subscripts become ^ and _."""
+    s = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", markup)
+    s = re.sub(r"(?is)<math\b.*?</math>", _math_text, s)
+    s = re.sub(r"(?i)</t[dh]>", " \t ", s)
+    s = re.sub(r"(?i)<sup\b[^>]*>", "^", s)
+    s = re.sub(r"(?i)<sub\b[^>]*>", "_", s)
+    s = _BLOCK.sub("\n", s)
+    s = html.unescape(re.sub(r"<[^>]+>", "", s))
+    lines = (" ".join(line.split()) for line in s.split("\n"))
+    return "\n".join(line for line in lines if line)
+
+
+def boa_rows(year: int, source: dict, pause: float = 0.3):
+    """(record, target, reason) for every disposition of the Boletín Oficial de Aragón published in one
+    year, from its open-data JSON (full text included). Section I (general provisions) goes to the
+    legal category; the other sections (appointments, resolutions, notices) to modern administrative Spanish."""
+    day = datetime.date(year, 1, 1)
+    while day.year == year:
+        url = source["url"].format(date=day.strftime("%Y%m%d"))
+        body = http_text(url, encoding="iso-8859-1").strip()
+        time.sleep(pause)
+        day += datetime.timedelta(days=1)
+        if not body.startswith("["):
+            continue  # no bulletin that day
+        try:
+            items = json.loads(body, strict=False)
+        except ValueError as exc:  # truncated or broken day: fail the year so the unit transaction retries it
+            raise OSError(f"invalid BOA JSON for {day - datetime.timedelta(days=1)}") from exc
+        for item in items:
+            text = html.unescape(item.get("Texto") or "").strip()
+            if len(text) < source.get("min_chars", 300):
+                yield None, None, "short"
+                continue
+            text = re.sub(r" {2,}", "\n", text)
+            title = html.unescape(item.get("Titulo") or "").strip()
+            section = (item.get("Seccion") or "").split(".")[0].strip()
+            target = source["section_targets"].get(section, source["target"])
+            yield ({"text": f"{title}\n\n{text}" if title else text, "id": f"BOA-{item.get('DOCN')}",
+                    "license": source["license"], "title": title, "language": "es",
+                    "date": item.get("FechaPublicacion"), "section": item.get("Seccion"), "issuer": item.get("Emisor"),
+                    "url": f"https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VERDOC&BASE=BOLE&DOCN={item.get('DOCN')}",
+                    "attribution": source["attribution"]}, target, "ok")
+
+
+def _openstax_pages(tree: dict):
+    for node in tree.get("contents", []):
+        if "contents" in node:
+            yield from _openstax_pages(node)
+        else:
+            yield node
+
+
+def openstax_rows(book_id: str, target: str, release: dict, source: dict):
+    """(record, target, reason) for every page of one OpenStax book; the licence is read from the book
+    itself and the whole book is skipped unless the policy admits it."""
+    archive = "https://openstax.org" + release["archiveUrl"]
+    version = release["books"][book_id]["defaultVersion"]
+    base = f"{archive}/contents/{book_id}@{version}"
+    book = json.loads(http_text(base + ".json"))
+    licence = normalize_license((book.get("license") or {}).get("url"))
+    if licence is None or not admit_record([licence]).allowed:
+        yield None, None, "license"
+        return
+    title = html_text(book["title"])
+    for page in _openstax_pages(book["tree"]):
+        page_id = page["id"].split("@")[0]
+        content = json.loads(http_text(f"{base}:{page_id}.json")).get("content") or ""
+        text = html_text(content)
+        if len(text) < source.get("min_chars", 400):
+            yield None, None, "short"
+            continue
+        yield ({"text": text, "id": f"openstax:{book_id}@{version}:{page_id}", "license": licence,
+                "title": f"{title} — {html_text(page.get('title', ''))}", "language": "es",
+                "url": f"https://openstax.org/books/{book.get('slug', book_id)}/pages/{page.get('slug', page_id)}",
+                "attribution": f"{title}, OpenStax (Rice University), {licence}"}, target, "ok")
 
 
 COMMON_CORPUS_LICENSES = {"public domain": "public-domain", "publc domain": "public-domain", "cc-by": "CC-BY",
@@ -277,6 +412,14 @@ def units(source: dict, status: dict, token: str | None):
                     if source["kind"] == "parquet_column":
                         local.unlink(missing_ok=True)
             yield name, rows
+    elif source["kind"] == "boa_aragon":
+        first, last = source["years"]
+        for year in range(last, first - 1, -1):  # newest first: the most modern language arrives earliest
+            yield str(year), (lambda year=year: boa_rows(year, source))
+    elif source["kind"] == "openstax":
+        release = status["web_release"]  # pinned by run_source on the first run: resumes use the same versions
+        for book_id, target in source["books"].items():
+            yield book_id, (lambda book_id=book_id, target=target: openstax_rows(book_id, target, release, source))
     elif source["kind"] in ("common_corpus", "parquet_filter"):
         from huggingface_hub import HfApi, hf_hub_download
 
@@ -302,6 +445,17 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
     source = plan["sources"][source_id]
     status_path = ROOT / "_manifests" / f"{source_id}.json"  # one per source: it may feed several categories
     status = load_status(status_path)
+    if "revision" not in status and source["kind"] == "openstax":  # pin the exact archive and book versions
+        live = json.loads(http_text("https://openstax.org/rex/release.json"))
+        status.update({"repo": source["repo"], "revision": "openstax-archive-" + live["archiveUrl"].rsplit("/", 1)[-1],
+                       "web_release": {"archiveUrl": live["archiveUrl"],
+                                       "books": {b: live["books"][b] for b in source["books"]}},
+                       "policy": "hydra/training/base_data_policy.py", "source_id": source_id})
+        save_json(status_path, status)
+    if "revision" not in status and source["kind"] in WEB_KINDS:
+        # Daily bulletins are immutable once published; the revision dates the first download.
+        status.update({"repo": source["repo"], "revision": "web-" + datetime.date.today().isoformat(),
+                       "policy": "hydra/training/base_data_policy.py", "source_id": source_id})
     if "revision" not in status:
         from huggingface_hub import HfApi
         status.update({"repo": source["repo"], "revision": HfApi(token=token).dataset_info(source["repo"]).sha,
@@ -313,9 +467,10 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
         return (need_chars.get(target, 0) - pending > 0
                 and status["chars"].get(target, 0) + pending < caps.get(target, float("inf")))
 
+    pending_failures: dict[str, str] = {}
     for name, rows in units(source, status, token):
-        if name in status["files_done"]:
-            continue
+        if name in status["files_done"] or name in status.get("files_failed", {}):
+            continue  # a unit that failed on its own is skipped; delete its files_failed entry to retry it
         spec = source.get("files", {}).get(name) if isinstance(source.get("files"), dict) else None
         unit_cap = spec.get("max_chars") if isinstance(spec, dict) else None  # keeps one file type from filling a category
         if not any(open_for(t) for t in targets):
@@ -324,6 +479,7 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
         # the unit completes. A failed attempt discards its parts and counters and the unit starts over, so a
         # retried download can never leave a duplicated prefix.
         part = re.sub(r"[^A-Za-z0-9._-]+", "_", name.rsplit(".json", 1)[0])  # stable name per unit, no collisions
+        failed = None
         for attempt in range(1, attempts + 1):
             writers, temps = {}, {}
             chars, docs, rejected, licences = Counter(), Counter(), Counter(), Counter()
@@ -358,9 +514,23 @@ def run_source(plan: dict, category: str, source_id: str, token: str | None, nee
                 for tmp, _ in temps.values():
                     tmp.unlink(missing_ok=True)
                 if attempt == attempts:
-                    raise
+                    failed = f"{type(exc).__name__}: {exc}"[:300]
+                    break
                 print(f"retry unit {attempt}/{attempts - 1} {name}: {type(exc).__name__}", flush=True)
                 time.sleep(min(300, 20 * 2 ** attempt))
+        if failed:
+            # One unreachable file must not stop the source, but a source-wide outage (expired token, rate limit,
+            # full disk) must not blacklist every unit either: a failure is recorded only once a later unit of the
+            # same source succeeds, and several failures in a row abort the source with nothing recorded.
+            pending_failures[name] = failed
+            print(f"UNIT FAILED {source_id} {name}: {failed}", flush=True)
+            if len(pending_failures) >= MAX_CONSECUTIVE_FAILURES:
+                raise OSError(f"{len(pending_failures)} consecutive units failed; source-wide problem, nothing "
+                              f"recorded as failed: {failed}")
+            continue
+        if pending_failures:  # this unit worked, so the earlier ones failed on their own
+            status.setdefault("files_failed", {}).update(pending_failures)
+            pending_failures.clear()
         for tmp, out in temps.values():
             os.replace(tmp, out)
         for counter, key in ((chars, "chars"), (docs, "docs"), (rejected, "rejected"), (licences, "licenses")):

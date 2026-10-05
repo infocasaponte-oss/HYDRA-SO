@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # Auditoría de Hyd e plan de implementación para intentar superar o 90 %
 
 Data: 2026-10-04. Estado: auditoría e plan; non se readestrou nin promoveu ningún modelo.

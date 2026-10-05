@@ -22,6 +22,7 @@
         "eurlex_es",
         "bsc_legal_paragraphs_es",
         "dgt_es",
+        "boa_aragon",
         "youtube_commons_es",
         "youtube_en",
         "news_en",
@@ -39,6 +40,7 @@
       "target_tokens": 800000000,
       "current_tokens": 0,
       "sources": [
+        "openstax_es",
         "arxiv_papers",
         "pubmed",
         "pes2o",
@@ -72,7 +74,9 @@
       "name": "Matemáticas e razoamento",
       "target_tokens": 300000000,
       "current_tokens": 0,
-      "sources": [],
+      "sources": [
+        "openstax_es"
+      ],
       "note": "filled by routing math/stats LibreTexts books from the educacion source"
     },
     {
@@ -92,7 +96,8 @@
       "sources": [
         "eurlex_es",
         "regulations_us",
-        "common_corpus_mixed"
+        "common_corpus_mixed",
+        "boa_aragon"
       ]
     },
     {
@@ -411,6 +416,53 @@
       ],
       "attribution": "© Unión Europea (DGT-TM, Dirección General de Traducción), vía OPUS",
       "note": "only the es-ga pair is published on HF; sentences grouped by 30, low discourse value"
+    },
+    "boa_aragon": {
+      "repo": "boa.aragon.es",
+      "kind": "boa_aragon",
+      "license": "CC-BY-4.0",
+      "language": "es",
+      "url": "https://www.boa.aragon.es/cgi-bin/EBOA/BRSCGI?CMD=VERLST&OUTPUTMODE=JSON&BASE=BOLE&DOCS=1-2000&SEC=OPENDATABOAJSON&SORT=-PUBL&SEPARADOR=&PUBL-C={date}",
+      "years": [
+        1996,
+        2025
+      ],
+      "min_chars": 300,
+      "target": "lingua_moderna",
+      "section_targets": {
+        "I": "lexislacion"
+      },
+      "targets": [
+        "lingua_moderna",
+        "lexislacion"
+      ],
+      "caps": {
+        "lingua_moderna": 1200000000,
+        "lexislacion": 400000000
+      },
+      "attribution": "Fuente: Boletín Oficial de Aragón (Gobierno de Aragón, Aragón Open Data), CC BY 4.0",
+      "note": "Open data of the Aragón official bulletin, full text in JSON, one request per day. Licence CC BY 4.0 per opendata.aragon.es/datos/catalogo/dataset/boletin-oficial-aragon-diario. Section I (general provisions) goes to lexislacion; appointments, resolutions and notices to lingua_moderna (modern administrative register)."
+    },
+    "openstax_es": {
+      "repo": "openstax.org",
+      "kind": "openstax",
+      "language": "es",
+      "min_chars": 400,
+      "books": {
+        "175c88b6-f89b-4eba-9514-bc45e2139a1d": "ciencia",
+        "da02605d-6d69-447c-a9b9-caf06dc4f413": "ciencia",
+        "b647a9b9-7631-45a1-a8e7-5acc3a44fc01": "ciencia",
+        "462aa3f1-d65d-4cd9-a5ee-3214f95769b8": "ciencia",
+        "9702782f-fd50-4310-92ac-d29d39065419": "ciencia",
+        "e53d6c8b-fd9e-4a28-8930-c564ca6fd77d": "matematicas",
+        "f346fe75-ae39-4d11-ad32-d80c03df58cb": "matematicas",
+        "52f5163f-a7e1-4545-b0fa-8001df262ca9": "matematicas"
+      },
+      "targets": [
+        "ciencia",
+        "matematicas"
+      ],
+      "note": "Spanish OpenStax books whose archive licence is CC BY 4.0 (checked per book at download time). Cálculo vols. 1-3 are CC BY-NC-SA and excluded."
     }
   },
   "excluded": [

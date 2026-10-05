@@ -1,3 +1,4 @@
+<!-- Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved. -->
 # Revisión directa de Lovable — 2026-10-04
 
 Observación 2026-10-04T16:43:21.329088+02:00. Proxecto Hyd Calibration Boost, aa8d2d14-948e-4449-adcc-67f047985344. Sesión accesible no navegador; non se pediron nin exportaron credenciais.

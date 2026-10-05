@@ -15,10 +15,10 @@ Política: `hydra/training/base_data_policy.py`, que admite CC BY en todas as ve
 | 4 | Boletín Oficial da República Arxentina (`marianbasti/boletin-oficial-argentina`) | normas e actos oficiais | por medir | dataset Apache-2.0; textos oficiais | 🟡 verificar a base legal da reutilización dos textos oficiais arxentinos | HF |
 | 5 | DGT-TM e EMEA da UE (OPUS) | administración UE, medicamentos | centos de M de palabras | reutilización UE | 🟡 admisible; a ficha de HF di «unknown», hai que citar a fonte orixinal | OPUS / HF |
 | 6 | Europarl en castelán | debates parlamentarios | ~55 M palabras | reutilización do Parlamento Europeo | 🟡 verificar o aviso legal actual do PE | OPUS / HF |
-| 7 | Diarios oficiais autonómicos (DOG, BOJA, BOCM, DOGV…) | normativa autonómica | grande | Lei 37/2007 (reutilización con cita) | 🟡 admisible; precisa un descargador por portal | portais abertos |
+| 7 | Diarios oficiais autonómicos | normativa e actos autonómicos | grande | CC BY 4.0 (Aragón, Euskadi) ou Lei 37/2007 | ✅ **BOA (Aragón) engadido** (1996–2025, texto completo en JSON aberto, ~12 M tokens/ano; sección I → lexislación, resto → lingua moderna). 🟡 BOPV (Euskadi, API REST CC BY 4.0) e os demais pendentes de descargador | portais abertos |
 | 8 | Diarios de sesións do Congreso e do Senado | debate parlamentario moderno | grande | condicións propias das Cortes | 🟡 verificar as condicións de reutilización | webs oficiais |
 | 9 | Notas de prensa da Moncloa e dos ministerios | comunicación institucional | medio | Lei 37/2007, segundo o aviso legal de cada sitio | 🟡 verificar sitio a sitio | rastrexo |
-| 10 | OpenStax en castelán (Química, Física, Bioloxía, Cálculo…) | educativo | ~20 libros | CC BY 4.0 | 🟡 admisible; precisa descarga de PDF/HTML | web |
+| 10 | OpenStax en castelán | educativo | 8 libros admitidos | CC BY 4.0 (comprobada libro a libro) | ✅ **engadido**: Física universitaria 1–3 e as dúas Químicas → ciencia; Estatística, Estatística empresarial e Precálculo → matemáticas. Cálculo 1–3 rexeitado (CC BY-NC-SA) | API do arquivo de OpenStax |
 | 11 | Artigos de SciELO con CC BY | científico | grande | CC BY por artigo | 🟡 admisible; precisa OAI-PMH e filtrar a licenza de cada artigo | API |
 | 12 | Tatoeba (castelán) | frases curtas | pequeno | CC BY 2.0 | 🟡 admisible, pouco volume | descarga |
 | 13 | Frases de Common Voice (castelán) | frases curtas | pequeno | CC0 | 🟡 admisible, pouco volume | descarga |
