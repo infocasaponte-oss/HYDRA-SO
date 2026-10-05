@@ -7,7 +7,7 @@ import pytest
 
 from hydra.router.decision_contract import CRITERIA
 from hydra.training.decision_active_learning import read_rows
-from hydra.training.decision_teacher import experimental_snapshot
+from hydra.training.decision_teacher import experimental_snapshot, review
 from hydra.training.decision_balanced_examples import generate
 
 
@@ -82,3 +82,84 @@ def test_synthetic_balance_is_declared_and_never_overlaps_reserved_inputs(snapsh
     assert Path(paths['test']).read_bytes() == Path(original['test']).read_bytes()
     meta = json.loads((tmp_path / 'experiment/manifest.json').read_text())
     assert meta['synthetic_collisions_skipped'] == 1 and meta['synthetic_examples_added_to_fit'] == 240
+
+
+def mock_teacher(monkeypatch, reply, *, done_reason='stop'):
+    import httpx
+    original_client = httpx.Client
+    calls = []
+
+    def respond(request):
+        if request.url.path == '/api/tags':
+            return httpx.Response(200, json={'models': [{'name': 'fixture:latest', 'digest': 'fixed-digest'}]})
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={'message': {'content': json.dumps(reply)},
+                                      'done': True, 'done_reason': done_reason})
+
+    monkeypatch.setattr('hydra.training.decision_teacher.httpx.Client',
+                        lambda **kwargs: original_client(transport=httpx.MockTransport(respond), **kwargs))
+    return calls
+
+
+def teacher_corpus(tmp_path):
+    text = 'Exemplo sintético para comprobar a revisión local'
+    path = tmp_path / 'teacher-corpus.jsonl'
+    path.write_text(json.dumps({'id': 'synthetic-fixture', 'text': text,
+                               'text_sha256': hashlib.sha256(text.encode()).hexdigest(),
+                               'consent': True, 'rights': 'synthetic test fixture'}) + '\n', encoding='utf-8')
+    return path
+
+
+def test_single_protocol_records_actual_reply_and_resumes_without_inference(tmp_path, monkeypatch):
+    calls = mock_teacher(monkeypatch, {'label': 'chat'})
+    source = teacher_corpus(tmp_path)
+    out = tmp_path / 'teacher'
+    first = review(source, out, model='fixture:latest', single=True)
+    second = review(source, out, model='fixture:latest', single=True)
+    assert first == second and len(calls) == 1
+    assert calls[0]['messages'][1]['content'] == read_rows(source)[0]['text']
+    assert first['binding']['protocol'] == 'single-label/3'
+    proposals = read_rows(out / 'proposals.jsonl')
+    assert proposals[0]['proposed_label'] == 'chat'
+    assert proposals[0]['human_confirmed'] is False and not proposals[0]['training_allowed']
+    recorded = json.loads((out / 'batch-0000.json').read_text())
+    assert recorded['actual_response']['message']['content'] == json.dumps({'label': 'chat'})
+    (out / 'batch-0000.json').write_text('{}')
+    with pytest.raises(ValueError, match='response changed'):
+        review(source, out, model='fixture:latest', single=True)
+
+
+@pytest.mark.parametrize('reply', [
+    {'results': [{'i': False, 'label': 'chat', 'reason': 'A label'}]},
+    {'results': [{'i': 0, 'label': 'chat', 'reason': None}]},
+])
+def test_audited_protocol_rejects_malformed_identity_and_reason(tmp_path, monkeypatch, reply):
+    mock_teacher(monkeypatch, reply)
+    out = tmp_path / 'teacher'
+    with pytest.raises(ValueError):
+        review(teacher_corpus(tmp_path), out, model='fixture:latest', audited=True)
+    assert not (out / 'proposals.jsonl').exists()
+    assert not list(out.glob('batch-*.json'))
+
+
+def test_truncated_single_reply_is_never_admitted(tmp_path, monkeypatch):
+    mock_teacher(monkeypatch, {'label': 'chat'}, done_reason='length')
+    out = tmp_path / 'teacher'
+    with pytest.raises(ValueError, match='incomplete'):
+        review(teacher_corpus(tmp_path), out, model='fixture:latest', single=True)
+    assert not (out / 'proposals.jsonl').exists()
+
+
+def test_synthetic_only_experiment_preserves_every_existing_fit_label(snapshot, tmp_path):
+    root, _, original = snapshot
+    generated = tmp_path / 'generated'
+    generate(generated)
+    paths = experimental_snapshot(root, None, tmp_path / 'experiment', generated / 'balanced-examples.jsonl')
+    before = read_rows(Path(original['fit']))
+    after = read_rows(Path(paths['fit']))
+    assert after[:len(before)] == before
+    assert len(after) == len(before) + 240
+    meta = json.loads((tmp_path / 'experiment/manifest.json').read_text())
+    assert meta['proposals_sha256'] is None and meta['fit_label_changes'] == 0
+    for split in ('dev', 'cal_prob', 'cal_policy', 'test'):
+        assert Path(paths[split]).read_bytes() == Path(original[split]).read_bytes()

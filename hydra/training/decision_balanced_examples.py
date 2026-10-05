@@ -1,5 +1,6 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """AI-authored, explicitly synthetic routing examples; never independent human evidence."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -96,3 +97,10 @@ def generate(out: Path):
                 'independent_test': False, 'limitation': 'AI-authored tasks and labels; not real human questions or a 90% human benchmark.'}
     write_json(out / 'MANIFEST.json', manifest)
     return manifest
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--out', type=Path, required=True)
+    args = parser.parse_args()
+    print(json.dumps(generate(args.out), ensure_ascii=False, indent=2))
