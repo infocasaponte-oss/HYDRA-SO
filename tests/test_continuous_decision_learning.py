@@ -58,7 +58,7 @@ def test_queue_tamper_and_review_events(partitions, tmp_path):
     queue = tmp_path / "queue"
     al.make_queue([partitions["fit"]], pool, queue, strategy="random", k=1)
     rows = al.read_rows(queue / "queue.jsonl")
-    rows[0].update(text="Mi correo es fake@example.com", human_label="coding", reviewer="test")
+    rows[0].update(text="Pregunta alterada deliberadamente", human_label="coding", reviewer="test")
     write(queue / "queue.jsonl", rows)
     with pytest.raises(ValueError, match="modified"):
         al.admit(queue, tmp_path / "bad.jsonl")
