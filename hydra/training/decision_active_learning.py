@@ -21,6 +21,8 @@ import hashlib
 import json
 import math
 import random
+import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
 from hydra.corpus.artifact_privacy import _finding_types
@@ -33,6 +35,32 @@ SAFETY_LABELS = ("high_risk_review", "security")
 SAFETY_MASS = 0.15  # probability on a safety label that always earns a human look
 NEAR_BITS = 3
 EPOCHS = 18
+
+
+def partition_keys(rows):
+    texts, ids, groups = set(), set(), set()
+    for row in rows:
+        text, _ = text_label(row)
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("nonempty text required")
+        texts.add(normalize_text(text))
+        if row.get("id"):
+            ids.add(row["id"])
+        group = row.get("group_id") or row.get("scenario_id") or row.get("template_id")
+        if not group and row.get("family") != text_label(row)[1]:
+            group = row.get("family")
+        if group:
+            groups.add(group)
+    return texts, ids, groups
+
+
+def check_partitions(partitions):
+    """Check all declared boundaries; absent semantic groups are not certified."""
+    keys = {name: partition_keys(rows) for name, rows in partitions.items()}
+    for i, left in enumerate(keys):
+        for right in list(keys)[i + 1:]:
+            if any(a & b for a, b in zip(keys[left], keys[right])):
+                raise ValueError(f"partition overlap: {left}/{right}")
 
 
 def read_rows(path: Path) -> list[dict]:
@@ -88,6 +116,10 @@ def priority(probabilities: dict[str, float], strategy: str) -> float:
 
 def select(clf: TextClassifier, pool: list[str], k: int, strategy: str, rng: random.Random) -> list[int]:
     """Pick k pool indices; near-identical texts (SimHash) are not asked twice in one batch."""
+    if type(k) is not int or not 1 <= k <= 500:
+        raise ValueError("batch size must be 1..500")
+    if strategy not in STRATEGIES:
+        raise ValueError("unknown strategy")
     if strategy == "random":
         order = list(range(len(pool)))
         rng.shuffle(order)
@@ -112,17 +144,26 @@ def simulate(train: list[Path], pool_paths: list[Path], calibration: Path, test:
     if not (1 <= rounds <= 50 and 1 <= batch <= 500 and 1 <= seeds <= 10):
         raise ValueError("invalid simulation budget")
     base = admitted(train)
+    if not base:
+        raise ValueError("nonempty admitted training required")
     base_keys = {normalize_text(t) for t, _ in base}
     # The pool is labelled, but a label is only read after its row has been acquired.
     pool = [row for row in admitted(pool_paths) if normalize_text(row[0]) not in base_keys]
     cal = [text_label(r) for r in read_rows(calibration)]
     held = [text_label(r) for r in read_rows(test)]
+    check_partitions({"train": [r for p in train for r in read_rows(p) if r.get("training_allowed") is True],
+                      "pool": [r for p in pool_paths for r in read_rows(p) if r.get("training_allowed") is True
+                               and normalize_text(text_label(r)[0]) not in base_keys],
+                      "selection_dev": read_rows(calibration), "test": read_rows(test)})
+    if not cal or not held:
+        raise ValueError("nonempty dev and test required")
     if {normalize_text(t) for t, _ in held} & ({normalize_text(t) for t, _ in pool} | base_keys):
         raise ValueError("test rows overlap the training base or pool")
     labels = sorted({y for _, y in base} | {y for _, y in pool})
     curves: dict[str, list[list[float]]] = {}
     final_test: dict[str, list[float]] = {}
     acquired_safety: dict[str, list[int]] = {}
+    acquired_counts = {}
     for strategy in STRATEGIES:
         runs = seeds if strategy == "random" else 1  # deterministic strategies need one run
         for seed in range(runs):
@@ -132,9 +173,11 @@ def simulate(train: list[Path], pool_paths: list[Path], calibration: Path, test:
             clf = fit(known, labels)
             curve = [accuracy(clf, cal)]
             safety = 0
+            counts = []
             for _ in range(rounds):
                 picked = set(select(clf, [t for t, _ in remaining], batch, strategy, rng))
                 answers = [remaining[i] for i in sorted(picked)]  # the simulated human answers here
+                counts.append(len(answers))
                 safety += sum(label in SAFETY_LABELS for _, label in answers)
                 known += answers
                 remaining = [row for i, row in enumerate(remaining) if i not in picked]
@@ -143,11 +186,14 @@ def simulate(train: list[Path], pool_paths: list[Path], calibration: Path, test:
             curves.setdefault(strategy, []).append(curve)
             final_test.setdefault(strategy, []).append(accuracy(clf, held))
             acquired_safety.setdefault(strategy, []).append(safety)
+            acquired_counts.setdefault(strategy, []).append(counts)
     summary = {}
     for strategy, runs in curves.items():
         mean_curve = [sum(c[i] for c in runs) / len(runs) for i in range(rounds + 1)]
         summary[strategy] = {
             "runs": len(runs),
+            "acquired_per_round": acquired_counts[strategy],
+            "effective_labels_per_run": [sum(c) for c in acquired_counts[strategy]],
             "calibration_curve": [round(v, 4) for v in mean_curve],
             # Area under the learning curve: rewards learning early, not only the last round.
             "calibration_auc": round(sum(mean_curve[1:]) / rounds, 4),
@@ -159,6 +205,7 @@ def simulate(train: list[Path], pool_paths: list[Path], calibration: Path, test:
             "base_examples": len(base), "pool_examples": len(pool), "rounds": rounds, "batch": batch,
             "labels_budget": rounds * batch, "random_seeds": seeds,
             "selection_split": "calibration", "test_role": "reported once after the budget; never used to choose",
+            "selection_role": "acquisition_dev_not_probability_calibration",
             "strategies": summary, "chosen_strategy": winner,
             "sources_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
                                for p in [*train, *pool_paths, calibration, test]},
@@ -166,16 +213,22 @@ def simulate(train: list[Path], pool_paths: list[Path], calibration: Path, test:
                            "can disagree and see real traffic. Re-run the simulation after each human round.")}
 
 
-def make_queue(train: list[Path], pool_path: Path, out: Path, *, strategy: str, k: int = 40) -> dict:
+def make_queue(train: list[Path], pool_path: Path, out: Path, *, strategy: str, k: int = 40,
+               reserved: list[Path] | None = None, scorer=None) -> dict:
     if strategy not in STRATEGIES:
         raise ValueError(f"unknown strategy: {strategy}")
     if out.exists():
         raise FileExistsError("each review round is a new, immutable directory")
     base = admitted(train)
+    if not base or type(k) is not int or not 1 <= k <= 500:
+        raise ValueError("nonempty training and batch size 1..500 required")
     known = {normalize_text(t) for t, _ in base}
     labels = sorted({y for _, y in base})
-    candidates, quarantined, seen = [], 0, set()
-    for row in read_rows(pool_path):
+    pool_rows = read_rows(pool_path)
+    check_partitions({"pool": [r for r in pool_rows if normalize_text(text_label(r)[0]) not in known],
+                      **{f"reserved-{i}": read_rows(p) for i, p in enumerate(reserved or [])}})
+    candidates, quarantined, seen, originals = [], 0, set(), {}
+    for row in pool_rows:
         text = text_label(row)[0]
         key = normalize_text(text)
         if not text.strip() or key in known or key in seen:
@@ -185,23 +238,32 @@ def make_queue(train: list[Path], pool_path: Path, out: Path, *, strategy: str, 
             quarantined += 1  # personal data never reaches a reviewer queue; only the count is kept
             continue
         candidates.append(text)
-    clf = fit(base, labels)
+        originals[text] = row
+    clf = scorer or fit(base, labels)
     picked = select(clf, candidates, k, strategy, random.Random(0))
     rows = []
     for rank, index in enumerate(picked):
         text = candidates[index]
         probabilities = clf.predict_proba(text)
         top = sorted(probabilities, key=probabilities.get, reverse=True)[:3]
-        rows.append({"id": f"review-{hashlib.sha256(text.encode()).hexdigest()[:12]}", "rank": rank, "text": text,
+        rows.append({"id": f"review-{hashlib.sha256(text.encode()).hexdigest()}", "rank": rank, "text": text,
+                     "text_sha256": hashlib.sha256(text.encode()).hexdigest(),
+                     "provenance": {key: originals[text][key] for key in
+                         ("source", "source_kind", "person", "family", "group_id", "scenario_id", "template_id",
+                          "rights", "consent", "consent_text", "created_at") if key in originals[text]},
                      "model_suggestions": {label: probabilities[label] for label in top},
                      "safety_flag": sum(probabilities.get(s, 0.0) for s in SAFETY_LABELS) >= SAFETY_MASS,
                      "human_label": None, "reviewer": None, "notes": ""})
     out.mkdir(parents=True)
     (out / "queue.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
                                      encoding="utf-8")
+    (out / "original.jsonl").write_bytes((out / "queue.jsonl").read_bytes())
     manifest = {"format": "hydra-decision-review-queue/1", "strategy": strategy, "requested": k,
                 "queued": len(rows), "pool_candidates": len(candidates), "privacy_quarantined": quarantined,
                 "labels": labels, "pool_sha256": hashlib.sha256(pool_path.read_bytes()).hexdigest(),
+                "original_sha256": hashlib.sha256((out / "original.jsonl").read_bytes()).hexdigest(),
+                "created_at": datetime.now(UTC).isoformat(),
+                "scorer_revision": getattr(clf, "revision", "retrained-lexical-baseline"),
                 "train_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in train},
                 "instructions": ("Fill human_label with one of labels (or 'discard') and reviewer with your "
                                  "name or initials. model_suggestions are hints, not answers."),
@@ -215,8 +277,25 @@ def admit(queue_dir: Path, out: Path) -> dict:
         raise FileExistsError("admitted files are never rewritten")
     manifest = json.loads((queue_dir / "manifest.json").read_text(encoding="utf-8"))
     labels = set(manifest["labels"])
+    original_path = queue_dir / "original.jsonl"
+    if not original_path.is_file() or hashlib.sha256(original_path.read_bytes()).hexdigest() != manifest.get("original_sha256"):
+        raise ValueError("missing or modified immutable queue")
+    originals = {r["id"]: r for r in read_rows(original_path)}
+    seen = set()
     admitted_rows, skipped = [], {"unlabelled": 0, "discarded": 0, "no_reviewer": 0, "unknown_label": 0}
-    for row in read_rows(queue_dir / "queue.jsonl"):
+    queue_rows = read_rows(queue_dir / "queue.jsonl")
+    if (queue_dir / "reviews.sqlite3").exists():
+        with sqlite3.connect(queue_dir / "reviews.sqlite3") as db:
+            events = {identity: json.loads(payload) for identity, payload in db.execute(
+                "SELECT id,payload FROM review_events ORDER BY seq")}
+        queue_rows = [{**r, **events.get(r["id"], {})} for r in originals.values()]
+    for row in queue_rows:
+        if row.get("id") not in originals or row["id"] in seen:
+            raise ValueError("unknown or duplicate queue ID")
+        seen.add(row["id"])
+        original = originals[row["id"]]
+        if row.get("text") != original["text"] or _finding_types(row["text"]):
+            raise ValueError("modified text or privacy finding at admission")
         label, reviewer = row.get("human_label"), row.get("reviewer")
         if not label:
             skipped["unlabelled"] += 1
@@ -230,6 +309,14 @@ def admit(queue_dir: Path, out: Path) -> dict:
             admitted_rows.append({"id": row["id"], "text": row["text"], "expected": label,
                                   "source": f"human-reviewed active learning ({queue_dir.name})",
                                   "reviewer": reviewer.strip(), "training_allowed": True,
+                                  "text_sha256": original["text_sha256"],
+                                  **original.get("provenance", {}),
+                                  "review_event": {"actor": reviewer.strip(), "origin": "local_human_attestation",
+                                      "recorded_at": datetime.now(UTC).isoformat(),
+                                      "reviewed_at": row.get("reviewed_at"),
+                                      "original_queue_sha256": manifest["original_sha256"],
+                                      "text_sha256": original["text_sha256"]},
+                                  "split": "train",
                                   "model_agreed": label == next(iter(row["model_suggestions"]), None),
                                   "sha256": hashlib.sha256(row["text"].encode("utf-8")).hexdigest()})
     if not admitted_rows:
@@ -239,6 +326,27 @@ def admit(queue_dir: Path, out: Path) -> dict:
     return {"admitted": len(admitted_rows), "skipped": skipped,
             "model_agreement": round(sum(r["model_agreed"] for r in admitted_rows) / len(admitted_rows), 4),
             "out": str(out), "sha256": hashlib.sha256(out.read_bytes()).hexdigest()}
+
+
+def record_review(queue_dir: Path, identity: str, label: str, reviewer: str, notes: str = ""):
+    manifest = json.loads((queue_dir / "manifest.json").read_text(encoding="utf-8"))
+    raw = (queue_dir / "original.jsonl").read_bytes()
+    if hashlib.sha256(raw).hexdigest() != manifest["original_sha256"]:
+        raise ValueError("immutable queue changed")
+    original = next((r for r in read_rows(queue_dir / "original.jsonl") if r["id"] == identity), None)
+    if original is None or label not in [*manifest["labels"], "discard", "ambiguous"] or not reviewer.strip():
+        raise ValueError("invalid review")
+    if label == "ambiguous" and not notes.strip():
+        raise ValueError("ambiguity needs a note")
+    if len(reviewer) > 120 or len(notes) > 2000:
+        raise ValueError("review size limit")
+    event = {"human_label": label, "reviewer": reviewer.strip(), "notes": notes,
+             "text_sha256": original["text_sha256"], "reviewed_at": datetime.now(UTC).isoformat(),
+             "identity_assurance": "local_human_attestation"}
+    with sqlite3.connect(queue_dir / "reviews.sqlite3", timeout=30) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS review_events(seq INTEGER PRIMARY KEY,id TEXT,payload TEXT)")
+        db.execute("INSERT INTO review_events(id,payload) VALUES(?,?)", (identity, json.dumps(event, ensure_ascii=False)))
+    return event
 
 
 def main(argv: list[str] | None = None) -> int:
