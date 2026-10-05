@@ -21,18 +21,21 @@ import hashlib
 import json
 import math
 import random
+import re
 from pathlib import Path
 
 from hydra.corpus.artifact_privacy import _finding_types
-from hydra.corpus.dedup import hamming, normalize_text, simhash
+from hydra.corpus.dedup import normalize_text
 from hydra.training.evidence_io import write_json
 from hydra.training.specialists import TextClassifier
 
 STRATEGIES = ("random", "margin", "entropy", "safety_margin")
 SAFETY_LABELS = ("high_risk_review", "security")
 SAFETY_MASS = 0.15  # probability on a safety label that always earns a human look
-NEAR_BITS = 3
+NEAR_JACCARD = 0.6  # word overlap above which two requests count as the same question
+WORD = re.compile(r"[^\W\d_]+", re.U)
 EPOCHS = 18
+REVIEW_PAGE = Path(__file__).with_name("decision_review.html")
 
 
 def read_rows(path: Path) -> list[dict]:
@@ -87,7 +90,7 @@ def priority(probabilities: dict[str, float], strategy: str) -> float:
 
 
 def select(clf: TextClassifier, pool: list[str], k: int, strategy: str, rng: random.Random) -> list[int]:
-    """Pick k pool indices; near-identical texts (SimHash) are not asked twice in one batch."""
+    """Pick k pool indices; near-identical texts are not asked twice in one batch."""
     if strategy == "random":
         order = list(range(len(pool)))
         rng.shuffle(order)
@@ -95,16 +98,25 @@ def select(clf: TextClassifier, pool: list[str], k: int, strategy: str, rng: ran
         scores = [priority(clf.predict_proba(text), strategy) for text in pool]
         order = sorted(range(len(pool)), key=lambda i: (-scores[i], i))
     chosen: list[int] = []
-    hashes: list[int] = []
+    taken: list[set[str]] = []
     for index in order:
-        h = simhash(pool[index])
-        if any(hamming(h, other) <= NEAR_BITS for other in hashes):
+        words = _words(pool[index])
+        if any(_jaccard(words, other) >= NEAR_JACCARD for other in taken):
             continue
         chosen.append(index)
-        hashes.append(h)
+        taken.append(words)
         if len(chosen) == k:
             break
     return chosen
+
+
+def _words(text: str) -> set[str]:
+    # Digits are ignored: "Caso de referencia 189" and "... 229" are the same question to a reviewer.
+    return set(WORD.findall(text.casefold()))
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    return len(a & b) / len(a | b) if a | b else 1.0
 
 
 def simulate(train: list[Path], pool_paths: list[Path], calibration: Path, test: Path, *,
@@ -207,6 +219,10 @@ def make_queue(train: list[Path], pool_path: Path, out: Path, *, strategy: str, 
                                  "name or initials. model_suggestions are hints, not answers."),
                 "training_allowed": False}
     write_json(out / "manifest.json", manifest)
+    # Offline review page: data is embedded, so it opens with a double click and sends nothing anywhere.
+    data = json.dumps({"round": out.name, "labels": labels, "rows": rows}, ensure_ascii=False).replace("<", "\\u003c")
+    page = REVIEW_PAGE.read_text(encoding="utf-8").replace("/*QUEUE_DATA*/null", data)
+    (out / "revisar.html").write_text(page, encoding="utf-8")
     return manifest
 
 

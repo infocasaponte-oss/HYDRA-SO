@@ -14,17 +14,17 @@
       "calibration_curve": [
         0.5875,
         0.5833,
-        0.5792,
+        0.5833,
         0.5875,
-        0.5917,
+        0.5958,
         0.5917,
         0.6042,
-        0.6167,
-        0.6333
+        0.6208,
+        0.6292
       ],
-      "calibration_auc": 0.5984,
-      "safety_examples_acquired": 15.0,
-      "test_after_budget_report_only": 0.5458
+      "calibration_auc": 0.5995,
+      "safety_examples_acquired": 14.67,
+      "test_after_budget_report_only": 0.55
     },
     "margin": {
       "runs": 1,
@@ -33,32 +33,32 @@
         0.5875,
         0.575,
         0.5375,
-        0.525,
+        0.55,
         0.5875,
         0.6,
-        0.625,
-        0.6625
+        0.6,
+        0.6125
       ],
-      "calibration_auc": 0.5875,
-      "safety_examples_acquired": 22.0,
-      "test_after_budget_report_only": 0.6
+      "calibration_auc": 0.5812,
+      "safety_examples_acquired": 21.0,
+      "test_after_budget_report_only": 0.625
     },
     "entropy": {
       "runs": 1,
       "calibration_curve": [
         0.5875,
         0.5625,
-        0.5875,
-        0.5875,
+        0.575,
+        0.6125,
+        0.625,
         0.65,
         0.6375,
-        0.625,
-        0.6625,
+        0.65,
         0.6625
       ],
       "calibration_auc": 0.6219,
-      "safety_examples_acquired": 22.0,
-      "test_after_budget_report_only": 0.6
+      "safety_examples_acquired": 20.0,
+      "test_after_budget_report_only": 0.5875
     },
     "safety_margin": {
       "runs": 1,
@@ -68,12 +68,12 @@
         0.6125,
         0.5875,
         0.575,
-        0.6375,
+        0.625,
+        0.65,
         0.6625,
-        0.675,
-        0.6875
+        0.675
       ],
-      "calibration_auc": 0.6313,
+      "calibration_auc": 0.625,
       "safety_examples_acquired": 19.0,
       "test_after_budget_report_only": 0.6125
     }

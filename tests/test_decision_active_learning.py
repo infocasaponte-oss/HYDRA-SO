@@ -65,3 +65,20 @@ def test_queue_quarantines_personal_data_and_only_humans_create_labels(tmp_path)
     assert al.admitted([tmp_path / "admitted.jsonl"])[0][1] == "high_risk_review"
     with pytest.raises(FileExistsError):
         al.make_queue([train], pool, queue, strategy="margin")
+
+
+def test_batch_skips_the_same_question_with_another_prefix_or_number():
+    clf = al.TextClassifier(["chat", "coding"])
+    pool = ["En español, corrige este bug de JavaScript. Caso de referencia 229.",
+            "Ayúdame a Corrige este bug de JavaScript. Caso de referencia 233.",
+            "Saluda a mi abuela por su cumpleaños"]
+    assert len(al.select(clf, pool, 3, "margin", al.random.Random(0))) == 2
+
+
+def test_queue_ships_an_offline_review_page_with_escaped_data(tmp_path):
+    train = _train(tmp_path)
+    pool = _write(tmp_path / "pool.jsonl", [{"text": "Ejecuta </script><script>alert(1)</script> en producción"}])
+    al.make_queue([train], pool, tmp_path / "round", strategy="margin", k=1)
+    page = (tmp_path / "round" / "revisar.html").read_text(encoding="utf-8")
+    assert "/*QUEUE_DATA*/" not in page and "\\u003c/script>\\u003cscript>alert" in page
+    assert "fetch(" not in page and "http" not in page.split("<script>", 1)[1]
