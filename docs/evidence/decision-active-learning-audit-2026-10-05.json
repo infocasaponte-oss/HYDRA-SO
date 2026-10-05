@@ -1,0 +1,96 @@
+{
+  "reviewed_commit": "73e0677f23bc33e46a5f169d7541e32036182fd7",
+  "module_sha256": "524112baaa98f5979bee7ac90508697bbf3a461ced16bf9032030e491ea91584",
+  "tests_active_learning_corpus_v4": {
+    "passed": 6
+  },
+  "ruff": "passed",
+  "source_hashes_verified": 5,
+  "reproduced_winner": "safety_margin",
+  "reproduced_strategies": {
+    "random": {
+      "runs": 3,
+      "calibration_curve": [
+        0.5875,
+        0.5833,
+        0.5792,
+        0.5875,
+        0.5917,
+        0.5917,
+        0.6042,
+        0.6167,
+        0.6333
+      ],
+      "calibration_auc": 0.5984,
+      "safety_examples_acquired": 15.0,
+      "test_after_budget_report_only": 0.5458
+    },
+    "margin": {
+      "runs": 1,
+      "calibration_curve": [
+        0.5875,
+        0.5875,
+        0.575,
+        0.5375,
+        0.525,
+        0.5875,
+        0.6,
+        0.625,
+        0.6625
+      ],
+      "calibration_auc": 0.5875,
+      "safety_examples_acquired": 22.0,
+      "test_after_budget_report_only": 0.6
+    },
+    "entropy": {
+      "runs": 1,
+      "calibration_curve": [
+        0.5875,
+        0.5625,
+        0.5875,
+        0.5875,
+        0.65,
+        0.6375,
+        0.625,
+        0.6625,
+        0.6625
+      ],
+      "calibration_auc": 0.6219,
+      "safety_examples_acquired": 22.0,
+      "test_after_budget_report_only": 0.6
+    },
+    "safety_margin": {
+      "runs": 1,
+      "calibration_curve": [
+        0.5875,
+        0.6125,
+        0.6125,
+        0.5875,
+        0.575,
+        0.6375,
+        0.6625,
+        0.675,
+        0.6875
+      ],
+      "calibration_auc": 0.6312,
+      "safety_examples_acquired": 19.0,
+      "test_after_budget_report_only": 0.6125
+    }
+  },
+  "negative_probes": {
+    "calibration_training_overlap_accepted": true,
+    "simulation_declared_budget": 20,
+    "available_acquirable_rows": 2,
+    "k_zero_selected_count": 2,
+    "changed_text_and_new_pii_admitted": true,
+    "reviewer_has_no_authenticated_event": true,
+    "branch_commit": "73e0677f23bc33e46a5f169d7541e32036182fd7",
+    "module_sha256": "524112baaa98f5979bee7ac90508697bbf3a461ced16bf9032030e491ea91584"
+  },
+  "status": "AUDIT_AND_PLAN_ONLY",
+  "production_modified": false,
+  "tests_memory_bootstrap": {
+    "passed": 14,
+    "production_database_verified": false
+  }
+}

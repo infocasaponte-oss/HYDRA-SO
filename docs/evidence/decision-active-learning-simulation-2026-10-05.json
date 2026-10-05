@@ -1,0 +1,90 @@
+{
+  "format": "hydra-decision-active-learning-simulation/1",
+  "base_examples": 480,
+  "pool_examples": 300,
+  "rounds": 8,
+  "batch": 10,
+  "labels_budget": 80,
+  "random_seeds": 3,
+  "selection_split": "calibration",
+  "test_role": "reported once after the budget; never used to choose",
+  "strategies": {
+    "random": {
+      "runs": 3,
+      "calibration_curve": [
+        0.5875,
+        0.5833,
+        0.5792,
+        0.5875,
+        0.5917,
+        0.5917,
+        0.6042,
+        0.6167,
+        0.6333
+      ],
+      "calibration_auc": 0.5984,
+      "safety_examples_acquired": 15.0,
+      "test_after_budget_report_only": 0.5458
+    },
+    "margin": {
+      "runs": 1,
+      "calibration_curve": [
+        0.5875,
+        0.5875,
+        0.575,
+        0.5375,
+        0.525,
+        0.5875,
+        0.6,
+        0.625,
+        0.6625
+      ],
+      "calibration_auc": 0.5875,
+      "safety_examples_acquired": 22.0,
+      "test_after_budget_report_only": 0.6
+    },
+    "entropy": {
+      "runs": 1,
+      "calibration_curve": [
+        0.5875,
+        0.5625,
+        0.5875,
+        0.5875,
+        0.65,
+        0.6375,
+        0.625,
+        0.6625,
+        0.6625
+      ],
+      "calibration_auc": 0.6219,
+      "safety_examples_acquired": 22.0,
+      "test_after_budget_report_only": 0.6
+    },
+    "safety_margin": {
+      "runs": 1,
+      "calibration_curve": [
+        0.5875,
+        0.6125,
+        0.6125,
+        0.5875,
+        0.575,
+        0.6375,
+        0.6625,
+        0.675,
+        0.6875
+      ],
+      "calibration_auc": 0.6313,
+      "safety_examples_acquired": 19.0,
+      "test_after_budget_report_only": 0.6125
+    }
+  },
+  "chosen_strategy": "safety_margin",
+  "sources_sha256": {
+    "data/decision-corpus-v4/train.jsonl": "31ebe2276d3e29320e6745d46e66e4e376f1d209b458b4b4cc899cf1f50f1d4d",
+    "data/human-dev-v1.jsonl": "51fb2288420f93d58a81cffcec5b00a0185caf03f7b34a4a40cbd546b1bff04d",
+    "data/human-dev-v2.jsonl": "724013ee30c0f1aebb4f95b7474244989e7d674e9204984e9acc729278edcea5",
+    "data/decision-corpus-v4/calibration.jsonl": "5c0d0e8779b906b89fd8eaf5822be2b37b5f936b45d8ba3762b3790ad5e42ebc",
+    "data/decision-corpus-v4/test.jsonl": "12776a4dc77c10aeefe2e7c328d6f98b720ae69a587dc3a0d36c3fea02c7a7eb"
+  },
+  "limitation": "The simulated human is a pre-labelled synthetic pool; real reviewers are slower, can disagree and see real traffic. Re-run the simulation after each human round."
+}

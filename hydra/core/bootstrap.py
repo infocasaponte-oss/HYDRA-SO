@@ -1,6 +1,6 @@
 # Copyright (c) 2026 Luis Manuel Cousido Hermida. All rights reserved.
 """Wires HYDRA OS from Settings. Infrastructure is optional: without Postgres/Redis/NATS
-everything runs in memory; with ``offline`` no model runtime is needed."""
+knowledge memory persists in local SQLite; with ``offline`` no model runtime is needed."""
 
 from __future__ import annotations
 
@@ -181,6 +181,8 @@ async def build_bus(settings: Settings) -> EventBus:
 async def build_runtime(settings: Settings | None = None, **overrides: Any) -> HydraRuntime:
     """Build the engine. ``overrides`` may replace any component (tests, embedding)."""
     settings = settings or Settings()
+    if settings.memory_backend == "postgres" and not settings.postgres_url:
+        raise ValueError("postgres memory requires HYDRA_POSTGRES_URL")
     settings.workspace_dir.mkdir(parents=True, exist_ok=True)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -201,6 +203,12 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
     else:
         memory = overrides.get("memory") or InMemoryMemoryStore()
         telemetry = overrides.get("telemetry") or InMemoryTelemetry()
+    if "memory" not in overrides and (settings.memory_backend == "sqlite" or
+            (settings.memory_backend == "auto" and not settings.postgres_url)):
+        from hydra.memory.sqlite_store import SQLiteMemoryStore
+        memory = SQLiteMemoryStore(settings.data_dir / "knowledge-memory.sqlite3", settings.memory_namespace)
+    elif "memory" not in overrides and settings.memory_backend == "memory":
+        memory = InMemoryMemoryStore()
 
     # ---- models ---------------------------------------------------------------------
     providers = overrides.get("providers") or build_providers(settings)
@@ -361,11 +369,13 @@ async def build_runtime(settings: Settings | None = None, **overrides: Any) -> H
         log.debug("no telemetry to fit the learned router yet")
     observer = None
     if settings.hyd_enabled:
-        from hydra.hyd.controller import HydController
+        from hydra.hyd.continual_controller import controller_class
+        HydController = controller_class(settings.hyd_model_path)
         fallback = None
         if (settings.hyd_fallback_model_path and settings.hyd_fallback_calibration_path
                 and settings.hyd_fallback_model_path != settings.hyd_model_path):
-            fallback = HydController(settings.hyd_fallback_model_path, settings.hyd_fallback_calibration_path)
+            fallback = controller_class(settings.hyd_fallback_model_path)(settings.hyd_fallback_model_path,
+                                                                         settings.hyd_fallback_calibration_path)
         if settings.offline and fallback is not None:
             # offline mode is deterministic and never probes runtime services: CPU ranker only
             observer = fallback

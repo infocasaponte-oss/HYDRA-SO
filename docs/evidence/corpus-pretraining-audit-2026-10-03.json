@@ -1,0 +1,428 @@
+{
+  "format": "hydra-corpus-pretraining-audit/1",
+  "corpus_manifest": {
+    "format": "hydra-decision-corpus/3",
+    "corpus_sha256": "b81b75fe3d49e5970500af3aca7f790ce61052611fec26cae98e30afc28c1da6",
+    "source": "HYDRA-authored templates; synthetic paraphrase suffixes",
+    "limitations": "Synthetic decision corpus; requires human review before production training.",
+    "training_allowed_splits": [
+      "train"
+    ]
+  },
+  "training_sources": [
+    "train",
+    "human-dev-v1",
+    "human-dev-v2"
+  ],
+  "held_out_splits": [
+    "calibration",
+    "test"
+  ],
+  "integrity": {
+    "data/decision-corpus-v3/train.jsonl": {
+      "manifest_sha256": "fd4fd44f3be47e45e681eea1e045046b48523f1691cc39c43348e9803ae3aa87",
+      "actual_sha256": "fd4fd44f3be47e45e681eea1e045046b48523f1691cc39c43348e9803ae3aa87",
+      "sha256_match": true,
+      "manifest_examples": 1600,
+      "actual_examples": 1600
+    },
+    "data/decision-corpus-v3/calibration.jsonl": {
+      "manifest_sha256": "169e28e88596d484b53e1321eda48fea98907990c46c95154e0a4f330c5a14d7",
+      "actual_sha256": "169e28e88596d484b53e1321eda48fea98907990c46c95154e0a4f330c5a14d7",
+      "sha256_match": true,
+      "manifest_examples": 200,
+      "actual_examples": 200
+    },
+    "data/decision-corpus-v3/test.jsonl": {
+      "manifest_sha256": "9d4f8ded8515f5ea76262668d65209f46ea1f28177b9b10690dd469e4182aaed",
+      "actual_sha256": "9d4f8ded8515f5ea76262668d65209f46ea1f28177b9b10690dd469e4182aaed",
+      "sha256_match": true,
+      "manifest_examples": 1000,
+      "actual_examples": 1000
+    },
+    "data/human-dev-v1.jsonl": {
+      "actual_sha256": "51fb2288420f93d58a81cffcec5b00a0185caf03f7b34a4a40cbd546b1bff04d",
+      "actual_examples": 100,
+      "manifest_sha256": null,
+      "sha256_match": null
+    },
+    "data/human-dev-v2.jsonl": {
+      "actual_sha256": "724013ee30c0f1aebb4f95b7474244989e7d674e9204984e9acc729278edcea5",
+      "actual_examples": 1000,
+      "manifest_sha256": null,
+      "sha256_match": null
+    }
+  },
+  "counts": {
+    "train": 1600,
+    "calibration": 200,
+    "test": 1000,
+    "human-dev-v1": 100,
+    "human-dev-v2": 1000
+  },
+  "unique_texts": {
+    "train": 1600,
+    "calibration": 200,
+    "test": 1000,
+    "human-dev-v1": 100,
+    "human-dev-v2": 200
+  },
+  "labels": {
+    "train": {
+      "abstain": 160,
+      "chat": 160,
+      "coding": 160,
+      "high_risk_review": 160,
+      "privacy": 160,
+      "reasoning": 160,
+      "research": 160,
+      "security": 160,
+      "tool_use": 160,
+      "vision": 160
+    },
+    "calibration": {
+      "abstain": 20,
+      "chat": 20,
+      "coding": 20,
+      "high_risk_review": 20,
+      "privacy": 20,
+      "reasoning": 20,
+      "research": 20,
+      "security": 20,
+      "tool_use": 20,
+      "vision": 20
+    },
+    "test": {
+      "abstain": 100,
+      "chat": 100,
+      "coding": 100,
+      "high_risk_review": 100,
+      "privacy": 100,
+      "reasoning": 100,
+      "research": 100,
+      "security": 100,
+      "tool_use": 100,
+      "vision": 100
+    },
+    "human-dev-v1": {
+      "abstain": 10,
+      "chat": 10,
+      "coding": 10,
+      "high_risk_review": 10,
+      "privacy": 10,
+      "reasoning": 10,
+      "research": 10,
+      "security": 10,
+      "tool_use": 10,
+      "vision": 10
+    },
+    "human-dev-v2": {
+      "abstain": 100,
+      "chat": 100,
+      "coding": 100,
+      "high_risk_review": 100,
+      "privacy": 100,
+      "reasoning": 100,
+      "research": 100,
+      "security": 100,
+      "tool_use": 100,
+      "vision": 100
+    }
+  },
+  "labels_missing": {
+    "train": [],
+    "calibration": [],
+    "test": [],
+    "human-dev-v1": [],
+    "human-dev-v2": []
+  },
+  "word_lengths": {
+    "train": {
+      "min": 4,
+      "median": 12.0,
+      "mean": 11.45,
+      "max": 14
+    },
+    "calibration": {
+      "min": 8,
+      "median": 12.0,
+      "mean": 11.55,
+      "max": 14
+    },
+    "test": {
+      "min": 8,
+      "median": 12.0,
+      "mean": 11.55,
+      "max": 14
+    },
+    "human-dev-v1": {
+      "min": 4,
+      "median": 7.0,
+      "mean": 7.64,
+      "max": 15
+    },
+    "human-dev-v2": {
+      "min": 6,
+      "median": 10.0,
+      "mean": 10.06,
+      "max": 14
+    }
+  },
+  "families": {
+    "train": [
+      "abstain",
+      "chat",
+      "coding",
+      "high_risk_review",
+      "privacy",
+      "reasoning",
+      "research",
+      "security",
+      "tool_use",
+      "vision"
+    ],
+    "calibration": [
+      "abstain",
+      "chat",
+      "coding",
+      "high_risk_review",
+      "privacy",
+      "reasoning",
+      "research",
+      "security",
+      "tool_use",
+      "vision"
+    ],
+    "test": [
+      "abstain",
+      "chat",
+      "coding",
+      "high_risk_review",
+      "privacy",
+      "reasoning",
+      "research",
+      "security",
+      "tool_use",
+      "vision"
+    ],
+    "human-dev-v1": [],
+    "human-dev-v2": [
+      "abstain",
+      "chat",
+      "coding",
+      "high_risk_review",
+      "privacy",
+      "reasoning",
+      "research",
+      "security",
+      "tool_use",
+      "vision"
+    ]
+  },
+  "checks": {
+    "row_hash_mismatches": [],
+    "duplicate_ids": [],
+    "unknown_labels": [],
+    "training_not_allowed": [],
+    "train_rights_unverified": 0,
+    "split_field_mismatch": []
+  },
+  "duplicates": {
+    "exact_within_split": {
+      "train": 0,
+      "calibration": 0,
+      "test": 0,
+      "human-dev-v1": 0,
+      "human-dev-v2": 800
+    },
+    "exact_training_vs_held_out": 0,
+    "exact_training_vs_held_out_examples": [],
+    "label_conflicts": 0,
+    "label_conflict_examples": []
+  },
+  "near_duplicates": {
+    "method": "64-bit SimHash over word trigrams, Hamming <= 3",
+    "calibration": {
+      "rows": 200,
+      "flagged": 32,
+      "examples": [
+        {
+          "id": "v3-chat-0167",
+          "text": "Necesito que Cuenta un chiste corto y familiar. Caso de referencia 167.",
+          "nearest": "v3-chat-0107",
+          "nearest_text": "Necesito que Cuenta un chiste corto y familiar. Caso de referencia 107.",
+          "hamming": 1,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0168",
+          "text": "Ayúdame a Saluda al usuario con una frase breve. Caso de referencia 168.",
+          "nearest": "v3-chat-0028",
+          "nearest_text": "Ayúdame a Saluda al usuario con una frase breve. Caso de referencia 28.",
+          "hamming": 2,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0172",
+          "text": "Necesito que Saluda al usuario con una frase breve. Caso de referencia 172.",
+          "nearest": "v3-chat-0132",
+          "nearest_text": "Necesito que Saluda al usuario con una frase breve. Caso de referencia 132.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0173",
+          "text": "Ayúdame a Escribe un mensaje cordial de despedida. Caso de referencia 173.",
+          "nearest": "v3-chat-0053",
+          "nearest_text": "Ayúdame a Escribe un mensaje cordial de despedida. Caso de referencia 53.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0178",
+          "text": "Ayúdame a Propón un nombre para una mascota. Caso de referencia 178.",
+          "nearest": "v3-chat-0098",
+          "nearest_text": "Ayúdame a Propón un nombre para una mascota. Caso de referencia 98.",
+          "hamming": 2,
+          "same_label": true
+        },
+        {
+          "id": "v3-coding-0161",
+          "text": "Por favor, Corrige este bug de JavaScript. Caso de referencia 161.",
+          "nearest": "v3-coding-0041",
+          "nearest_text": "Por favor, Corrige este bug de JavaScript. Caso de referencia 41.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-coding-0166",
+          "text": "Por favor, Implementa una cola FIFO en TypeScript. Caso de referencia 166.",
+          "nearest": "v3-coding-0130",
+          "nearest_text": "Implementa una cola FIFO en TypeScript. Caso de referencia 130.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-reasoning-0160",
+          "text": "Demuestra que la suma de pares es par. Caso de referencia 160.",
+          "nearest": "v3-reasoning-0140",
+          "nearest_text": "Demuestra que la suma de pares es par. Caso de referencia 140.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-reasoning-0163",
+          "text": "Ayúdame a Explica la conclusión de este silogismo. Caso de referencia 163.",
+          "nearest": "v3-reasoning-0083",
+          "nearest_text": "Ayúdame a Explica la conclusión de este silogismo. Caso de referencia 83.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-reasoning-0172",
+          "text": "Necesito que Demuestra que la suma de pares es par. Caso de referencia 172.",
+          "nearest": "v3-reasoning-0032",
+          "nearest_text": "Necesito que Demuestra que la suma de pares es par. Caso de referencia 32.",
+          "hamming": 2,
+          "same_label": true
+        }
+      ]
+    },
+    "test": {
+      "rows": 1000,
+      "flagged": 159,
+      "examples": [
+        {
+          "id": "v3-chat-0186",
+          "text": "Por favor, Propón un nombre para una mascota. Caso de referencia 186.",
+          "nearest": "v3-chat-0046",
+          "nearest_text": "Por favor, Propón un nombre para una mascota. Caso de referencia 46.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0187",
+          "text": "Necesito que Cuenta un chiste corto y familiar. Caso de referencia 187.",
+          "nearest": "v3-chat-0147",
+          "nearest_text": "Necesito que Cuenta un chiste corto y familiar. Caso de referencia 147.",
+          "hamming": 2,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0189",
+          "text": "En español, Escribe un mensaje cordial de despedida. Caso de referencia 189.",
+          "nearest": "v3-chat-0129",
+          "nearest_text": "En español, Escribe un mensaje cordial de despedida. Caso de referencia 129.",
+          "hamming": 2,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0200",
+          "text": "Saluda al usuario con una frase breve. Caso de referencia 200.",
+          "nearest": "v3-chat-0120",
+          "nearest_text": "Saluda al usuario con una frase breve. Caso de referencia 120.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0201",
+          "text": "Por favor, Escribe un mensaje cordial de despedida. Caso de referencia 201.",
+          "nearest": "v3-chat-0061",
+          "nearest_text": "Por favor, Escribe un mensaje cordial de despedida. Caso de referencia 61.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0207",
+          "text": "Necesito que Cuenta un chiste corto y familiar. Caso de referencia 207.",
+          "nearest": "v3-chat-0127",
+          "nearest_text": "Necesito que Cuenta un chiste corto y familiar. Caso de referencia 127.",
+          "hamming": 1,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0212",
+          "text": "Necesito que Saluda al usuario con una frase breve. Caso de referencia 212.",
+          "nearest": "v3-chat-0112",
+          "nearest_text": "Necesito que Saluda al usuario con una frase breve. Caso de referencia 112.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0213",
+          "text": "Ayúdame a Escribe un mensaje cordial de despedida. Caso de referencia 213.",
+          "nearest": "v3-chat-0073",
+          "nearest_text": "Ayúdame a Escribe un mensaje cordial de despedida. Caso de referencia 73.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0224",
+          "text": "En español, Saluda al usuario con una frase breve. Caso de referencia 224.",
+          "nearest": "v3-chat-0004",
+          "nearest_text": "En español, Saluda al usuario con una frase breve. Caso de referencia 4.",
+          "hamming": 3,
+          "same_label": true
+        },
+        {
+          "id": "v3-chat-0227",
+          "text": "Necesito que Cuenta un chiste corto y familiar. Caso de referencia 227.",
+          "nearest": "v3-chat-0047",
+          "nearest_text": "Necesito que Cuenta un chiste corto y familiar. Caso de referencia 47.",
+          "hamming": 2,
+          "same_label": true
+        }
+      ]
+    }
+  },
+  "template_stem_overlap_with_train": {
+    "calibration": 200,
+    "test": 1000
+  },
+  "unique_template_stems": {
+    "train": 40,
+    "calibration": 40,
+    "test": 40
+  },
+  "limitation": "Lexical/hash checks only; semantic contamination and label correctness need human review."
+}
