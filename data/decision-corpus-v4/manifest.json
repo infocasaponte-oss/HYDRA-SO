@@ -1,0 +1,51 @@
+{
+  "format": "hydra-decision-corpus/4",
+  "version": 4,
+  "training_allowed_splits": [
+    "train"
+  ],
+  "labels": [
+    "abstain",
+    "chat",
+    "coding",
+    "high_risk_review",
+    "privacy",
+    "reasoning",
+    "research",
+    "security",
+    "tool_use",
+    "vision"
+  ],
+  "counts": {
+    "train": 480,
+    "calibration": 80,
+    "test": 80
+  },
+  "templates_per_label": {
+    "train": 12,
+    "calibration": 4,
+    "test": 8
+  },
+  "source": "HYDRA-authored templates, disjoint per split; train adds grammatical prefixes",
+  "reserved_sources_sha256": {
+    "data/decision-corpus-v3/train.jsonl": "fd4fd44f3be47e45e681eea1e045046b48523f1691cc39c43348e9803ae3aa87",
+    "data/human-dev-v1.jsonl": "51fb2288420f93d58a81cffcec5b00a0185caf03f7b34a4a40cbd546b1bff04d",
+    "data/human-dev-v2.jsonl": "724013ee30c0f1aebb4f95b7474244989e7d674e9204984e9acc729278edcea5"
+  },
+  "limitations": "Synthetic, Spanish only, single short sentences. Disjoint templates remove template leakage but not topical similarity; labels need human review before production training.",
+  "files": {
+    "train.jsonl": {
+      "sha256": "31ebe2276d3e29320e6745d46e66e4e376f1d209b458b4b4cc899cf1f50f1d4d",
+      "examples": 480
+    },
+    "calibration.jsonl": {
+      "sha256": "5c0d0e8779b906b89fd8eaf5822be2b37b5f936b45d8ba3762b3790ad5e42ebc",
+      "examples": 80
+    },
+    "test.jsonl": {
+      "sha256": "12776a4dc77c10aeefe2e7c328d6f98b720ae69a587dc3a0d36c3fea02c7a7eb",
+      "examples": 80
+    }
+  },
+  "corpus_sha256": "06ac25f1d55dbb50e178c30ebd01454c225375d32b592b706041b136e5d46517"
+}
